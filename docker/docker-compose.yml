@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: ../docker/Dockerfile.web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:3001
+    depends_on:
+      - api
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+
+  api:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.api
+    ports:
+      - "3001:3001"
+    environment:
+      - SPLUNK_MCP_URL
+      - SPLUNK_MCP_TOKEN
+      - OLLAMA_BASE_URL
+      - OLLAMA_MODEL
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  ollama_data:
