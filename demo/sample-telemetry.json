@@ -1,0 +1,51 @@
+{
+  "demo_mode": true,
+  "description": "Sample telemetry data for demo and testing",
+  "telemetry_sources": [
+    {
+      "name": "nginx-access-prod",
+      "daily_gb": 45,
+      "search_frequency": 250,
+      "dashboard_refs": 12,
+      "alert_deps": 8,
+      "anomaly_frequency": 3,
+      "expected_recommendation": "KEEP"
+    },
+    {
+      "name": "nginx-debug-prod",
+      "daily_gb": 12,
+      "search_frequency": 2,
+      "dashboard_refs": 0,
+      "alert_deps": 0,
+      "anomaly_frequency": 0,
+      "expected_recommendation": "OPTIMIZE"
+    },
+    {
+      "name": "windows-security",
+      "daily_gb": 28,
+      "search_frequency": 180,
+      "dashboard_refs": 15,
+      "alert_deps": 12,
+      "anomaly_frequency": 8,
+      "expected_recommendation": "KEEP"
+    },
+    {
+      "name": "iis-logs-archive",
+      "daily_gb": 8,
+      "search_frequency": 1,
+      "dashboard_refs": 0,
+      "alert_deps": 0,
+      "anomaly_frequency": 0,
+      "expected_recommendation": "ELIMINATE"
+    },
+    {
+      "name": "api-gateway-trace",
+      "daily_gb": 15,
+      "search_frequency": 45,
+      "dashboard_refs": 6,
+      "alert_deps": 2,
+      "anomaly_frequency": 12,
+      "expected_recommendation": "INVESTIGATE"
+    }
+  ]
+}

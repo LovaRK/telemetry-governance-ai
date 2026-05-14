@@ -1,0 +1,22 @@
+{
+  "demo_case": "high_waste_nginx",
+  "description": "Example: high ingest, zero usage - should recommend ELIMINATE",
+  "telemetry_asset": "nginx-debug-prod",
+  "inputs": {
+    "daily_gb": 50,
+    "search_frequency": 0,
+    "dashboard_refs": 0,
+    "alert_deps": 0,
+    "duplicate_patterns": 4
+  },
+  "expected_scores": {
+    "value_score": 0,
+    "waste_score": 95,
+    "risk_score": 5
+  },
+  "expected_recommendation": {
+    "action": "ELIMINATE",
+    "priority": "HIGH",
+    "estimated_savings": 182500
+  }
+}
