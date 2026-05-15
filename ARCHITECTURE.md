@@ -23,7 +23,7 @@ POST /api/cache
   │   1. Check if refresh already running → 409 if yes
   │   2. Health-check Splunk (fail fast)
   │   3. Run aggregation pipeline (parallel agents)
-  │   4. LLM scores all data (gemma4:e4b)
+  │   4. LLM scores all data (local-first strategy: gemma:2b → Anthropic fallback)
   │   5. Batch insert (50 rows per transaction)
   │   6. Return result when complete
   ├─ Timeout: 5 minutes (LLM processing)
@@ -107,12 +107,23 @@ One row per snapshot, aggregate LLM output:
 
 ## LLM Integration
 
-### gemma4:e4b (9.6 GB, Ollama local)
+### Local-First Strategy
+**Primary**: gemma:2b (Ollama, ~1.5-2GB RAM)
+- **Cold start**: ~10 seconds; warm: ~2 seconds
+- **Provider**: Ollama local
+
+**Fallback**: Claude 3.5 Sonnet (Anthropic, requires ANTHROPIC_API_KEY)
+- **Condition**: Triggered if Ollama unavailable or fails
+- **Cost**: Per-token billing
+- **Reliability**: Cloud-hosted, ~99.9% uptime
+
+**Strict Data Integrity**: If no LLM available → dashboard returns error (no stale/mock data)
+
+### Processing
 - **Input**: Raw telemetry (index name, GB/day, events, utilization, cost)
 - **Output**: JSON = { tier, action, scores, reasoning, flags }
 - **Per-batch**: 20 inputs per LLM call (parallelized)
 - **Timeout**: 180 seconds per batch
-- **Cold start**: ~20 seconds; warm: ~5 seconds
 
 ### Why Agentic?
 No hardcoded rules. LLM decides tier (Critical/Important/Nice/Low) based on:
@@ -161,8 +172,9 @@ No hardcoded rules. LLM decides tier (Critical/Important/Nice/Low) based on:
 
 ## Critical Facts
 - **0 polling**: No background refresh, no status checks
-- **0 mock data**: All from real Splunk
-- **1 LLM**: gemma4:e4b only
+- **0 mock data**: All from real Splunk or error (strict data integrity)
+- **1 LLM strategy**: Local-first (gemma:2b) → Cloud fallback (Anthropic)
+- **No connection = No dashboard**: Enforced at routing layer
 - **1 source of truth**: PostgreSQL
 - **Blocking refresh**: 5min max, explicit trigger
 - **Snapshot versioning**: rollback-safe UUID per refresh

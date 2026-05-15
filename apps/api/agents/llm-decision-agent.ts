@@ -13,7 +13,7 @@
  * The LLM looks at all signals holistically and decides.
  */
 
-import { OllamaClient } from '../../../agents/reasoning/ollama';
+import { LLMRouter } from '../../../agents/reasoning/llm-router';
 
 export interface RawTelemetryInput {
   index: string;
@@ -214,14 +214,14 @@ export async function runLLMDecisionAgent(
     throw new Error('No telemetry inputs provided to LLM decision agent');
   }
 
-  const ollama = new OllamaClient();
+  const router = new LLMRouter();
 
-  const healthy = await ollama.isHealthy();
+  const healthy = await router.isHealthy();
   if (!healthy) {
-    throw new Error('Ollama is not running. Start Ollama: click the Ollama icon in your menu bar or run "ollama serve"');
+    throw new Error('No LLM available: Ollama is not running AND ANTHROPIC_API_KEY is not configured. Dashboard unavailable. Start Ollama or set ANTHROPIC_API_KEY.');
   }
 
-  console.log(`[LLMDecisionAgent] Using gemma4:e4b for ${inputs.length} inputs`);
+  console.log(`[LLMDecisionAgent] Starting reasoning for ${inputs.length} inputs (local-first strategy)`);
 
   const BATCH_SIZE = 20;
   const allDecisions: LLMDecision[] = [];
@@ -231,8 +231,12 @@ export async function runLLMDecisionAgent(
     const prompt = buildDecisionPrompt(batch, costPerGbPerDay);
 
     let raw: string;
+    let provider: string;
     try {
-      raw = await ollama.generate(prompt, { json: true, temperature: 0.1 });
+      const { response, provider: usedProvider } = await router.generate(prompt, { json: true, temperature: 0.1 });
+      raw = response;
+      provider = usedProvider;
+      console.log(`[LLMDecisionAgent] Batch ${Math.floor(i / BATCH_SIZE) + 1} processed via ${provider}`);
     } catch (e) {
       throw new Error(`LLM call failed for batch ${Math.floor(i / BATCH_SIZE) + 1}: ${e instanceof Error ? e.message : String(e)}`);
     }

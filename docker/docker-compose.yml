@@ -7,6 +7,7 @@ services:
       - "3002:3000"
     environment:
       - OLLAMA_BASE_URL=http://ollama:11434
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - DATABASE_URL=postgresql://telemetry:telemetry@postgres:5432/telemetry_os
       - NODE_ENV=development
     depends_on:
