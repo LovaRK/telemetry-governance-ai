@@ -2,10 +2,21 @@
   "name": "agentic-telemetry-dashboard",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["apps/web", "core", "agents", "tools"],
+  "workspaces": [
+    "apps/web",
+    "core",
+    "agents",
+    "tools"
+  ],
   "scripts": {
     "dev": "docker-compose up",
     "build": "docker-compose build",
     "clean": "docker-compose down -v"
+  },
+  "dependencies": {
+    "uuid": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/uuid": "^10.0.0"
   }
 }

@@ -4,18 +4,16 @@ import { runAggregation } from '@api/services/aggregation-service';
 import { SplunkClient } from '@api/services/splunk-client';
 import { query } from '@core/database/connection';
 
-const REFRESH_TIMEOUT_MS = 90000; // 90 seconds — REST index call + one tstats batch
+// Blocking refresh — no polling, no background jobs.
+// POST /api/cache awaits the full pipeline and returns when done.
+const REFRESH_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (LLM scoring adds time)
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
-      reject(new Error(`Refresh timed out after ${Math.round(timeoutMs / 1000)}s`));
+      reject(new Error(`Refresh timed out after ${Math.round(timeoutMs / 1000)}s. The LLM agent is processing data — try again.`));
     }, timeoutMs);
-
-    promise
-      .then(resolve)
-      .catch(reject)
-      .finally(() => clearTimeout(timeout));
+    promise.then(resolve).catch(reject).finally(() => clearTimeout(timeout));
   });
 }
 
@@ -23,12 +21,10 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
-
     if (key) {
       const status = await getCacheStatus(key);
       return NextResponse.json(status);
     }
-
     const statuses = await listCacheStatuses();
     return NextResponse.json({ caches: statuses });
   } catch (error) {
@@ -40,20 +36,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const started = Date.now();
   try {
     const body = await request.json();
     if (!body?.mcpUrl || !body?.token) {
-      return NextResponse.json(
-        { error: 'mcpUrl and token are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'mcpUrl and token are required' }, { status: 400 });
     }
 
-    const { mcpUrl, token, force = false, disableSslVerify = false } = body;
-
+    const { mcpUrl, token, disableSslVerify = false, costPerGbPerDay = 0.5 } = body;
     const cacheKey = 'index_metrics';
 
-    // Guard: prevent duplicate refresh jobs
     const alreadyRunning = await isRefreshing(cacheKey);
     if (alreadyRunning) {
       return NextResponse.json(
@@ -62,94 +54,64 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Set cache to refreshing state
     await setCacheRefreshing(cacheKey);
 
-    // Initialize Splunk client
-    const splunk = new SplunkClient({
-      mcpUrl,
-      token,
-      allowInsecureTls: !!disableSslVerify
-    });
+    const splunk = new SplunkClient({ mcpUrl, token, allowInsecureTls: !!disableSslVerify });
 
-    // Quick health check first
     const health = await splunk.healthCheckFast();
     if (!health.success) {
-      const isFirewall = health.error?.includes('firewall') || health.error?.includes('blocked') || health.error?.includes('Cannot reach');
       await setCacheError(cacheKey, `Splunk unreachable: ${health.error}`);
+      const isFirewall = health.error?.includes('firewall') || health.error?.includes('blocked') || health.error?.includes('Cannot reach');
       return NextResponse.json(
         {
           error: 'Cannot connect to Splunk',
           reason: health.error || 'Connection failed',
           hint: isFirewall
-            ? 'Fix: Open TCP 8089 inbound in your server firewall (Vultr/AWS/GCP). Splunk management port must be reachable from this machine.'
-            : 'Verify Splunk is running and the token is valid and not expired'
+            ? 'Open TCP 8089 inbound in your server firewall.'
+            : 'Verify Splunk is running and the token is valid.',
         },
         { status: 500 }
       );
     }
 
-    // Run aggregation
+    // Blocking: await full pipeline including LLM agent scoring
     const result = await withTimeout(
-      runAggregation(splunk, {
-        lookbackDays: 30,
-        incremental: !force,
-      }),
+      runAggregation(splunk, { lookbackDays: 30, costPerGbPerDay }),
       REFRESH_TIMEOUT_MS
     );
 
-    // Partial data detection
-    if ((result as any)?.errors > 0) {
-      await setCacheError(cacheKey, `Partial data loss: ${(result as any).errors} indices failed`);
-      return NextResponse.json(
-        {
-          error: 'Partial failure during aggregation',
-          details: result,
-        },
-        { status: 500 }
-      );
+    if (result.errors > 0) {
+      await setCacheError(cacheKey, `Partial failure: ${result.errors} records failed`);
     }
 
-    // Guard: DB empty after refresh
     const countResult = await query(`SELECT COUNT(*) as count FROM telemetry_snapshots`);
     const recordCount = parseInt(countResult.rows[0]?.count || '0', 10);
     if (recordCount === 0) {
-      await setCacheError(cacheKey, 'Splunk returned no data');
+      await setCacheError(cacheKey, 'No data stored after refresh');
       return NextResponse.json(
-        {
-          error: 'Splunk returned no data',
-          reason: 'Query returned 0 records',
-          hint: 'Check index permissions, sourcetype filters, or time range'
-        },
+        { error: 'No data returned from Splunk', hint: 'Check index permissions and time range' },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      cacheKey,
-      result,
+      snapshotId: result.snapshotId,
+      inserted: result.inserted,
+      errors: result.errors,
+      durationMs: Date.now() - started,
+      agentReasoning: result.agentReasoning,
     });
   } catch (error) {
-    let message = error instanceof Error ? error.message : 'Refresh failed';
-    let hint = 'Check MCP URL / token / network connectivity';
-    if (message.includes('firewall') || message.includes('Port') || message.includes('blocked')) {
-      hint = message;
-    } else if (message.includes('ECONNREFUSED') || message.includes('ECONNRESET')) {
-      hint = 'Port 8089 is actively refused. Ensure Splunk management API is running and TCP 8089 is open in the server firewall.';
-    } else if (message.includes('timed out') || message.includes('ETIMEDOUT')) {
-      hint = 'Connection timed out — port 8089 is likely blocked by a firewall. Open TCP 8089 inbound on the Splunk server (Vultr/AWS/GCP firewall rules).';
-    } else if (message.includes('401') || message.includes('authentication')) {
-      hint = 'Token rejected. Use the MCP token from Splunk (Settings → Tokens). Do not add quotes or "Bearer " prefix.';
-    }
-    await setCacheError('index_metrics', message);
-    return NextResponse.json(
-      {
-        error: 'Splunk connection failed',
-        reason: message,
-        hint
-      },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : 'Refresh failed';
+    await setCacheError('index_metrics', message).catch(() => {});
+
+    let hint = 'Check MCP URL, token, and network connectivity';
+    if (message.includes('Ollama')) hint = 'Start Ollama: run "ollama serve" in a terminal';
+    else if (message.includes('ECONNREFUSED') || message.includes('ECONNRESET')) hint = 'Port 8089 refused — ensure Splunk management API is running';
+    else if (message.includes('timed out')) hint = 'Refresh timed out — the LLM agent may need more time. Try again.';
+    else if (message.includes('401')) hint = 'Token rejected. Verify your Splunk token is valid.';
+
+    return NextResponse.json({ error: 'Refresh failed', reason: message, hint }, { status: 500 });
   }
 }

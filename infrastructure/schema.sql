@@ -6,9 +6,10 @@
 -- Telemetry Snapshots (primary serving layer)
 CREATE TABLE IF NOT EXISTS telemetry_snapshots (
     id              SERIAL PRIMARY KEY,
+    snapshot_id     UUID NOT NULL DEFAULT gen_random_uuid(),
     snapshot_date   DATE NOT NULL,
     granularity     VARCHAR(20) NOT NULL CHECK (granularity IN ('index', 'sourcetype')),
-    parent_index    VARCHAR(200),           -- populated when granularity = 'sourcetype'
+    parent_index    VARCHAR(200),
     index_name      VARCHAR(200) NOT NULL,
     sourcetype      VARCHAR(200),
     total_events    BIGINT NOT NULL DEFAULT 0,
@@ -121,3 +122,51 @@ CREATE TRIGGER update_telemetry_snapshots_updated_at
 CREATE TRIGGER update_cache_metadata_updated_at
     BEFORE UPDATE ON cache_metadata
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- Executive KPIs (LLM agent output — one row per snapshot day)
+-- ============================================
+CREATE TABLE IF NOT EXISTS executive_kpis (
+    id                        SERIAL PRIMARY KEY,
+    snapshot_id               UUID NOT NULL DEFAULT gen_random_uuid(),
+    snapshot_date             DATE NOT NULL UNIQUE,
+    roi_score                 DECIMAL(5,2) NOT NULL DEFAULT 0,
+    gainscope_score           DECIMAL(5,2) NOT NULL DEFAULT 0,
+    total_license_spend       DECIMAL(14,2) NOT NULL DEFAULT 0,
+    license_spend_low_value   DECIMAL(14,2) NOT NULL DEFAULT 0,
+    storage_savings_potential DECIMAL(14,2) NOT NULL DEFAULT 0,
+    total_daily_gb            DECIMAL(12,4) NOT NULL DEFAULT 0,
+    total_sourcetypes         INTEGER NOT NULL DEFAULT 0,
+    tier_critical             INTEGER NOT NULL DEFAULT 0,
+    tier_important            INTEGER NOT NULL DEFAULT 0,
+    tier_nice_to_have         INTEGER NOT NULL DEFAULT 0,
+    tier_low_value            INTEGER NOT NULL DEFAULT 0,
+    security_gaps             INTEGER NOT NULL DEFAULT 0,
+    operational_gaps          INTEGER NOT NULL DEFAULT 0,
+    avg_utilization           DECIMAL(5,2) NOT NULL DEFAULT 0,
+    avg_detection             DECIMAL(5,2) NOT NULL DEFAULT 0,
+    avg_quality               DECIMAL(5,2) NOT NULL DEFAULT 0,
+    avg_confidence            DECIMAL(5,2) NOT NULL DEFAULT 0,
+    quick_wins                JSONB NOT NULL DEFAULT '[]',
+    savings_staircase         JSONB NOT NULL DEFAULT '[]',
+    agent_reasoning           TEXT,
+    created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_exec_kpis_date ON executive_kpis(snapshot_date DESC);
+
+CREATE TRIGGER update_executive_kpis_updated_at
+    BEFORE UPDATE ON executive_kpis
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Migration: add snapshot_id to existing telemetry_snapshots if not present
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'telemetry_snapshots' AND column_name = 'snapshot_id'
+    ) THEN
+        ALTER TABLE telemetry_snapshots ADD COLUMN snapshot_id UUID DEFAULT gen_random_uuid();
+    END IF;
+END $$;

@@ -1,50 +1,73 @@
-interface OllamaRequest {
+const OLLAMA_BASE = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+const MODEL = 'gemma4:e4b';
+
+interface OllamaGenerateRequest {
   model: string;
   prompt: string;
-  stream: boolean;
+  stream: false;
+  format?: 'json';
+  options?: {
+    temperature?: number;
+    top_p?: number;
+    num_predict?: number;
+    num_ctx?: number;
+  };
 }
 
-interface OllamaResponse {
+interface OllamaGenerateResponse {
   response: string;
+  done: boolean;
+  eval_duration?: number;
 }
 
 export class OllamaClient {
   private baseUrl: string;
-  private model: string;
 
-  constructor(baseUrl: string = 'http://localhost:11434', model: string = 'gemma4:e2b') {
+  constructor(baseUrl: string = OLLAMA_BASE) {
     this.baseUrl = baseUrl;
-    this.model = model;
   }
 
-  async generate(prompt: string): Promise<string> {
+  async generate(prompt: string, opts?: { json?: boolean; temperature?: number; maxTokens?: number }): Promise<string> {
+    const body: OllamaGenerateRequest = {
+      model: MODEL,
+      prompt,
+      stream: false,
+      ...(opts?.json ? { format: 'json' } : {}),
+      options: {
+        temperature: opts?.temperature ?? 0.1,
+        top_p: 0.9,
+        num_predict: opts?.maxTokens ?? 4096,
+        num_ctx: 8192,
+      },
+    };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 180_000);
+
     try {
-      const response = await fetch(`${this.baseUrl}/api/generate`, {
+      const res = await fetch(`${this.baseUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: this.model,
-          prompt,
-          stream: false
-        } as OllamaRequest)
+        body: JSON.stringify(body),
+        signal: controller.signal,
       });
 
-      if (!response.ok) {
-        throw new Error(`Ollama error: ${response.status}`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Ollama HTTP ${res.status}: ${text.slice(0, 200)}`);
       }
 
-      const data = (await response.json()) as OllamaResponse;
-      return data.response;
-    } catch (error) {
-      console.error('Ollama request failed:', error);
-      throw error;
+      const data = (await res.json()) as OllamaGenerateResponse;
+      return data.response?.trim() || '';
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
   async isHealthy(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
-      return response.ok;
+      const res = await fetch(`${this.baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
+      return res.ok;
     } catch {
       return false;
     }
