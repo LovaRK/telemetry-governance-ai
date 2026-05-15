@@ -131,31 +131,6 @@ export default function Home() {
 
   const hasData = data !== null && (data?.telemetry_assets?.length ?? 0) > 0;
 
-  // Fallback: fetch data directly if component state is null
-  const [fallbackAttempted, setFallbackAttempted] = useState(false);
-  useEffect(() => {
-    if (data === null && !loading && !fallbackAttempted) {
-      setFallbackAttempted(true);
-      const directFetch = async () => {
-        try {
-          const res = await fetch('/api/telemetry');
-          if (res.ok) {
-            const telemetry = await res.json();
-            if (telemetry?.snapshots?.length > 0) {
-              setData({
-                telemetry_assets: telemetry.snapshots,
-                kpis: telemetry.kpis,
-                requiresRefresh: false,
-              });
-            }
-          }
-        } catch (e) {
-          console.error('Direct fetch failed:', e);
-        }
-      };
-      directFetch();
-    }
-  }, [fallbackAttempted, data, loading]);
 
   return (
     <main style={{ minHeight: '100vh', background: '#0a0a0a' }}>
