@@ -3,104 +3,65 @@
 import { useEffect, useState } from 'react';
 import TopAppBar from '../components/layout/TopAppBar';
 import ExecutiveOverview from '../components/dashboard/ExecutiveOverview';
-import ValueWasteMatrix from '../components/dashboard/ValueWasteMatrix';
-import SourceIntelligenceGrid from '../components/dashboard/SourceIntelligenceGrid';
 import AgentIntelligencePanel from '../components/dashboard/AgentIntelligencePanel';
+import SourceIntelligenceGrid from '../components/dashboard/SourceIntelligenceGrid';
 import EmptyState from '../components/state/EmptyState';
-import { DashboardData } from '../lib/types';
-import { toDashboardAssets } from '../lib/mappers';
+import { ExecutiveSummary, CacheStatus } from '../lib/types';
 
-type Tab = 'overview' | 'telemetry' | 'recommendations';
+type Tab = 'overview' | 'telemetry';
 
-type CacheStatus = {
-  status: string;
-  isStale: boolean;
-  lastRefreshAt: string | null;
-  recordCount: number;
+const EMPTY_KPIS = {
+  roiScore: 0, gainScopeScore: 0, totalLicenseSpend: 0, licenseSpendLowValue: 0,
+  storageSavingsPotential: 0, totalDailyGb: 0, totalSourcetypes: 0,
+  tierCounts: { critical: 0, important: 0, niceToHave: 0, lowValue: 0 },
+  securityGaps: 0, operationalGaps: 0,
+  avgUtilization: 0, avgDetection: 0, avgQuality: 0, avgConfidence: 0,
 };
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [summary, setSummary] = useState<ExecutiveSummary | null>(null);
   const [formData, setFormData] = useState({ mcp_url: '', token: '', disable_ssl_verify: true });
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchSummary = async () => {
     try {
-      const [telemetryRes, cacheRes] = await Promise.all([
-        fetch('/api/telemetry'),
-        fetch('/api/cache?key=index_metrics')
+      const [summaryRes, cacheRes] = await Promise.all([
+        fetch('/api/executive-summary'),
+        fetch('/api/cache?key=index_metrics'),
       ]);
 
-      if (!telemetryRes.ok) {
-        console.error('Telemetry fetch failed:', telemetryRes.status, telemetryRes.statusText);
-        setData(null);
-        setLoading(false);
+      const cache = await cacheRes.json();
+      setCacheStatus(cache);
+
+      if (!summaryRes.ok) {
+        setSummary(null);
         return;
       }
 
-      const [telemetry, cache] = await Promise.all([
-        telemetryRes.json(),
-        cacheRes.json()
-      ]);
-
-      console.log('Telemetry data received:', telemetry);
-
-      if (!telemetry?.snapshots || telemetry.snapshots.length === 0) {
-        setData(null);
+      const data = await summaryRes.json();
+      if (data?.snapshots?.length > 0) {
+        setSummary(data as ExecutiveSummary);
       } else {
-        setData({
-          telemetry_assets: telemetry.snapshots,
-          kpis: telemetry.kpis,
-          requiresRefresh: false,
-        });
+        setSummary(null);
       }
-
-      setCacheStatus(cache);
     } catch (e) {
-      console.error('Failed to fetch data:', e);
-      setData(null);
-    } finally {
-      setLoading(false);
+      console.error('Failed to fetch summary:', e);
+      setSummary(null);
     }
   };
 
   useEffect(() => {
-    const init = async () => {
-      try {
-        const telemetryRes = await fetch('/api/telemetry');
-        const cacheRes = await fetch('/api/cache?key=index_metrics');
-
-        const telemetry = await telemetryRes.json();
-        const cache = await cacheRes.json();
-
-        if (telemetry?.snapshots && telemetry.snapshots.length > 0) {
-          setData({
-            telemetry_assets: telemetry.snapshots,
-            kpis: telemetry.kpis,
-            requiresRefresh: false,
-          });
-        } else {
-          setData(null);
-        }
-
-        setCacheStatus(cache);
-      } catch (e) {
-        console.error('Init fetch failed:', e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    init();
+    fetchSummary().finally(() => setLoading(false));
   }, []);
 
   const handleRefresh = async () => {
-    if (loading || !formData.mcp_url || !formData.token) return;
+    if (refreshing || !formData.mcp_url || !formData.token) return;
 
-    setLoading(true);
+    setRefreshing(true);
     setError(null);
     try {
       const res = await fetch('/api/cache', {
@@ -109,8 +70,8 @@ export default function Home() {
         body: JSON.stringify({
           mcpUrl: formData.mcp_url,
           token: formData.token,
-          disableSslVerify: formData.disable_ssl_verify
-        })
+          disableSslVerify: formData.disable_ssl_verify,
+        }),
       });
 
       if (!res.ok) {
@@ -120,191 +81,170 @@ export default function Home() {
         return;
       }
 
-      await fetchData();
+      await fetchSummary();
     } catch (e: any) {
-      console.error('Refresh failed:', e);
       setError(e.message || 'Refresh failed');
     } finally {
-      setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const hasData = data !== null && (data?.telemetry_assets?.length ?? 0) > 0;
-
+  const hasData = summary !== null && summary.snapshots.length > 0;
 
   return (
-    <main style={{ minHeight: '100vh', background: '#0a0a0a' }}>
+    <main style={{ minHeight: '100vh', background: '#050a14' }}>
       <TopAppBar
         cacheStatus={cacheStatus}
         onRefresh={handleRefresh}
-        loading={loading}
+        loading={refreshing}
         hasConfig={!!formData.mcp_url && !!formData.token}
       />
 
-      <div style={{ padding: '1rem', maxWidth: 1400, margin: '0 auto' }}>
-        {cacheStatus?.isStale && (
-          <div
-            style={{
-              marginBottom: '1rem',
-              padding: '0.75rem 1rem',
-              background: '#f59e0b15',
-              border: '1px solid #f59e0b40',
-              borderRadius: '8px',
-              color: '#f59e0b',
-              fontSize: '0.875rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}
-          >
-            ⚠ Data is stale. Refresh recommended for up-to-date recommendations.
-          </div>
-        )}
+      <div style={{ padding: '1.25rem', maxWidth: 1440, margin: '0 auto' }}>
 
-        {cacheStatus?.status === 'error' && (
-          <div
-            style={{
-              marginBottom: '1rem',
-              padding: '0.75rem 1rem',
-              background: '#ef444415',
-              border: '1px solid #ef444440',
-              borderRadius: '8px',
-              color: '#ef4444',
-              fontSize: '0.875rem'
-            }}
-          >
-            ⚠ Warning: Data may be incomplete. Some indices may have failed during last refresh.
-          </div>
-        )}
-
-        {error && (
-          <div
-            style={{
-              marginBottom: '1rem',
-              padding: '1rem',
-              background: '#fef2f2',
-              border: '1px solid #ef4444',
-              borderRadius: '8px',
-              color: '#ef4444'
-            }}
-          >
-            {error}
-          </div>
-        )}
-
-        <div style={{ marginBottom: '2rem', padding: '1.5rem', background: '#1a1a1a', borderRadius: '8px' }}>
-          <h2 style={{ marginBottom: '1rem', color: '#f8fafc' }}>Connect to Splunk MCP</h2>
-          <p style={{ color: '#9ca3af', marginBottom: '1rem', fontSize: '0.875rem' }}>
-            Enter your Splunk MCP credentials to fetch and aggregate telemetry data.
-            Data will be cached in PostgreSQL for fast display.
-          </p>
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+        {/* Splunk connect form */}
+        <div style={{ marginBottom: '1.5rem', padding: '1.25rem 1.5rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <input
               type="text"
-              placeholder="MCP URL (e.g., http://localhost:3000)"
+              placeholder="Splunk MCP URL (e.g., http://splunk:8089)"
               value={formData.mcp_url}
-              onChange={(e) => setFormData((prev) => ({ ...prev, mcp_url: e.target.value }))}
-              style={{ flex: 1, minWidth: '250px', padding: '0.75rem', background: '#0a0a0a', border: '1px solid #333', color: '#fff', borderRadius: '4px' }}
+              onChange={(e) => setFormData((p) => ({ ...p, mcp_url: e.target.value }))}
+              style={inputStyle}
             />
             <input
               type="password"
               placeholder="Token"
               value={formData.token}
-              onChange={(e) => setFormData((prev) => ({ ...prev, token: e.target.value }))}
-              style={{ flex: 1, minWidth: '200px', padding: '0.75rem', background: '#0a0a0a', border: '1px solid #333', color: '#fff', borderRadius: '4px' }}
+              onChange={(e) => setFormData((p) => ({ ...p, token: e.target.value }))}
+              style={{ ...inputStyle, maxWidth: 200 }}
             />
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#64748b', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+              <input
+                type="checkbox"
+                checked={formData.disable_ssl_verify}
+                onChange={(e) => setFormData((p) => ({ ...p, disable_ssl_verify: e.target.checked }))}
+              />
+              Skip SSL
+            </label>
             <button
               onClick={handleRefresh}
-              disabled={loading || !formData.mcp_url || !formData.token}
-              style={{ padding: '0.75rem 1.5rem', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', opacity: loading || !formData.mcp_url || !formData.token ? 0.5 : 1 }}
-            >
-              {loading ? 'Refreshing...' : 'Fetch & Cache'}
-            </button>
-          </div>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem', color: '#cbd5e1', fontSize: '0.875rem' }}>
-            <input
-              type="checkbox"
-              checked={formData.disable_ssl_verify}
-              onChange={(e) => setFormData((prev) => ({ ...prev, disable_ssl_verify: e.target.checked }))}
-            />
-            Disable SSL verification (for self-signed certs)
-          </label>
-        </div>
-
-        {data === null && <EmptyState onRefresh={handleRefresh} loading={loading} />}
-
-        {hasData && (
-          <>
-            <div
+              disabled={refreshing || !formData.mcp_url || !formData.token}
               style={{
-                marginBottom: '1rem',
-                padding: '0.5rem 0.75rem',
-                background: '#22c55e15',
-                borderRadius: '6px',
-                color: '#22c55e',
-                fontSize: '0.75rem',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.375rem'
+                padding: '0.625rem 1.25rem',
+                background: refreshing ? '#1e293b' : '#3b82f6',
+                color: refreshing ? '#64748b' : '#fff',
+                border: 'none',
+                borderRadius: 8,
+                cursor: refreshing || !formData.mcp_url || !formData.token ? 'not-allowed' : 'pointer',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                opacity: !formData.mcp_url || !formData.token ? 0.5 : 1,
               }}
             >
-              ✓ Data loaded successfully
+              {refreshing ? '⟳ Fetching…' : '↺ Refresh from Splunk'}
+            </button>
+          </div>
+          {refreshing && (
+            <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#64748b' }}>
+              Running LLM decision pipeline — this may take up to 5 minutes…
             </div>
+          )}
+        </div>
 
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-              {(['overview', 'telemetry', 'recommendations'] as Tab[]).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    background: activeTab === tab ? '#3b82f6' : 'transparent',
-                    color: activeTab === tab ? '#fff' : '#94a3b8',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontSize: '0.875rem',
-                    fontWeight: 500,
-                  }}
-                >
-                  {tab === 'overview' ? 'Overview' : tab === 'telemetry' ? 'Telemetry Intelligence' : 'Recommendations'}
-                </button>
-              ))}
+        {/* Alerts */}
+        {cacheStatus?.isStale && !error && (
+          <div style={alertStyle('#f59e0b')}>
+            ⚠ Data may be stale. Refresh recommended.
+          </div>
+        )}
+        {error && (
+          <div style={alertStyle('#ef4444')}>
+            ✕ {error}
+          </div>
+        )}
+
+        {/* Loading */}
+        {loading && (
+          <div style={{ textAlign: 'center', padding: '4rem', color: '#475569', fontSize: '0.875rem' }}>
+            Loading data…
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!loading && !hasData && (
+          <EmptyState onRefresh={handleRefresh} loading={refreshing} />
+        )}
+
+        {/* Dashboard */}
+        {!loading && hasData && summary && (
+          <>
+            {/* Header bar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {(['overview', 'telemetry'] as Tab[]).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    style={{
+                      padding: '0.5rem 1.25rem',
+                      background: activeTab === tab ? '#3b82f6' : 'transparent',
+                      color: activeTab === tab ? '#fff' : '#64748b',
+                      border: activeTab === tab ? 'none' : '1px solid #1e293b',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                    }}
+                  >
+                    {tab === 'overview' ? 'Executive Overview' : 'Telemetry Intelligence'}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#334155' }}>
+                {summary.snapshots.length} indexes · {summary.snapshotDate ? new Date(summary.snapshotDate).toLocaleDateString() : ''}
+              </div>
             </div>
 
             {activeTab === 'overview' && (
               <>
-                <ExecutiveOverview
-                  kpis={data.kpis || { totalIndices: 0, totalSourcetypes: 0, totalPotentialSavings: 0, avgConfidence: 0, highRiskCount: 0 }}
-                  summary={data.summary || { totalAssets: 0, totalPotentialSavings: 0 }}
-                />
-                <AgentIntelligencePanel />
-                <ValueWasteMatrix assets={toDashboardAssets(data.telemetry_assets || [])} />
+                <AgentIntelligencePanel snapshots={summary.snapshots} kpis={summary.kpis} />
+                <ExecutiveOverview summary={summary} />
               </>
             )}
 
-            {activeTab === 'telemetry' && <SourceIntelligenceGrid assets={toDashboardAssets(data.telemetry_assets || [])} />}
-
-            {activeTab === 'recommendations' && data?.summary && (
-              <div style={{ marginBottom: '2rem', padding: '1.5rem', background: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b' }}>
-                <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', fontWeight: 600, color: '#f8fafc' }}>Recommendation Summary</h3>
-                <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
-                  <div><span style={{ color: '#22c55e' }}>●</span> KEEP: {data.summary.keep || 0}</div>
-                  <div><span style={{ color: '#f59e0b' }}>●</span> OPTIMIZE: {data.summary.optimize || 0}</div>
-                  <div><span style={{ color: '#3b82f6' }}>●</span> ARCHIVE: {data.summary.archive || 0}</div>
-                  <div><span style={{ color: '#ef4444' }}>●</span> ELIMINATE: {data.summary.eliminate || 0}</div>
-                  <div><span style={{ color: '#8b5cf6' }}>●</span> INVESTIGATE: {data.summary.investigate || 0}</div>
-                </div>
-                {data.summary.totalPotentialSavings > 0 && (
-                  <div style={{ marginTop: '1rem', fontWeight: 600, color: '#22c55e', fontSize: '1.125rem' }}>
-                    Total Potential Savings: ${(data.summary.totalPotentialSavings / 1000).toFixed(0)}k/year
-                  </div>
-                )}
-              </div>
+            {activeTab === 'telemetry' && (
+              <SourceIntelligenceGrid snapshots={summary.snapshots} />
             )}
           </>
         )}
       </div>
     </main>
   );
+}
+
+const inputStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 240,
+  padding: '0.625rem 0.875rem',
+  background: '#0a0f1a',
+  border: '1px solid #1e293b',
+  color: '#f8fafc',
+  borderRadius: 8,
+  fontSize: '0.8rem',
+};
+
+function alertStyle(color: string): React.CSSProperties {
+  return {
+    marginBottom: '1rem',
+    padding: '0.75rem 1rem',
+    background: `${color}15`,
+    border: `1px solid ${color}40`,
+    borderRadius: 8,
+    color,
+    fontSize: '0.8rem',
+  };
 }

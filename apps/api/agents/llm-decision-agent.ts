@@ -349,7 +349,7 @@ export async function runLLMDecisionAgent(
     totalSourcetypes: inputs.length,
     tierCounts,
     securityGaps: allDecisions.filter((d) => d.detectionGap).length,
-    operationalGaps: allDecisions.filter((d) => d.action === 'OPTIMIZE' || d.action === 'INVESTIGATE').length,
+    operationalGaps: allDecisions.filter((d) => d.action === 'OPTIMIZE' || (d.action as string) === 'INVESTIGATE').length,
     avgUtilization: Math.round(avgUtil),
     avgDetection: Math.round(avgDet),
     avgQuality: Math.round(avgQual),
