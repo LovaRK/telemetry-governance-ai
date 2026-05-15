@@ -3,6 +3,20 @@
 import React from 'react';
 import { ExecutiveSummary } from '../../lib/types';
 
+function fmt$(v: number): string {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}k`;
+  if (v >= 1) return `$${v.toFixed(0)}`;
+  if (v > 0) return `$${v.toFixed(2)}`;
+  return '$0';
+}
+
+function fmtGB(v: number): string {
+  if (v < 0.001) return '< 0.001 GB';
+  if (v < 1) return `${(v * 1024).toFixed(1)} MB`;
+  return `${v.toFixed(1)} GB`;
+}
+
 interface Props {
   summary: ExecutiveSummary;
 }
@@ -124,6 +138,7 @@ export default function ExecutiveOverview({ summary }: Props) {
       })();
 
   const maxStairSavings = staircase.reduce((m, s) => Math.max(m, s.cumulative), 0) || 1;
+  const staircaseHasDelta = staircase.some((s) => s.savings > 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -147,7 +162,7 @@ export default function ExecutiveOverview({ summary }: Props) {
         <div style={{ padding: '1.5rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b', borderLeft: '4px solid #ef4444' }}>
           <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>Total License Spend</div>
           <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc' }}>
-            ${(kpis.totalLicenseSpend / 1000).toFixed(0)}k
+            {fmt$(kpis.totalLicenseSpend)}
           </div>
           <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>annual</div>
         </div>
@@ -156,7 +171,7 @@ export default function ExecutiveOverview({ summary }: Props) {
         <div style={{ padding: '1.5rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b', borderLeft: '4px solid #22c55e' }}>
           <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>Savings Potential</div>
           <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#22c55e' }}>
-            ${(kpis.storageSavingsPotential / 1000).toFixed(0)}k
+            {fmt$(kpis.storageSavingsPotential)}
           </div>
           <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
             {kpis.totalLicenseSpend > 0 ? ((kpis.storageSavingsPotential / kpis.totalLicenseSpend) * 100).toFixed(0) : 0}% of spend
@@ -167,7 +182,7 @@ export default function ExecutiveOverview({ summary }: Props) {
         <div style={{ padding: '1.5rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b', borderLeft: '4px solid #8b5cf6' }}>
           <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>Daily Ingest</div>
           <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc' }}>
-            {kpis.totalDailyGb.toFixed(1)} <span style={{ fontSize: '1rem', fontWeight: 400, color: '#94a3b8' }}>GB</span>
+            {fmtGB(kpis.totalDailyGb)}
           </div>
           <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>{kpis.totalSourcetypes} sourcetypes</div>
         </div>
@@ -265,21 +280,39 @@ export default function ExecutiveOverview({ summary }: Props) {
           </div>
           {staircase.length === 0
             ? <div style={{ color: '#475569', fontSize: '0.875rem' }}>No savings data yet — run a refresh to generate agent decisions</div>
+            : !staircaseHasDelta
+            ? (
+              <div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', marginBottom: '0.75rem' }}>
+                  {staircase.map((step, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '0.375rem 0.5rem', background: '#1e293b', borderRadius: 4 }}>
+                      <span style={{ color: '#94a3b8' }}>{step.label}</span>
+                      <span style={{ color: '#f8fafc', fontWeight: 600 }}>{fmt$(step.cumulative)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: '#475569', fontStyle: 'italic' }}>
+                  No cost reduction projected — all tiers at current spend level
+                </div>
+              </div>
+            )
             : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {staircase.map((step, i) => {
-                  const widthPct = (step.cumulative / maxStairSavings) * 100;
+                  const widthPct = Math.max(4, (step.cumulative / maxStairSavings) * 100);
                   const color = ACTION_COLORS[step.action] || '#3b82f6';
                   return (
                     <div key={i}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.2rem' }}>
-                        <span style={{ color: '#94a3b8' }}>{step.label} <span style={{ color: '#475569' }}>({step.count})</span></span>
-                        <span style={{ color: '#f8fafc', fontWeight: 600 }}>${(step.savings / 1000).toFixed(0)}k</span>
+                        <span style={{ color: '#94a3b8' }}>{step.label}</span>
+                        <span style={{ color: step.savings > 0 ? '#22c55e' : '#f8fafc', fontWeight: 600 }}>
+                          {step.savings > 0 ? `−${fmt$(step.savings)}` : fmt$(step.cumulative)}
+                        </span>
                       </div>
                       <div style={{ height: 20, background: '#1e293b', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
-                        <div style={{ height: '100%', width: `${widthPct}%`, background: `${color}30`, borderRadius: 4 }} />
+                        <div style={{ height: '100%', width: `${widthPct}%`, background: `${color}30`, borderRadius: 4, transition: 'width 0.4s ease' }} />
                         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', paddingLeft: 8, fontSize: '0.65rem', color: '#64748b' }}>
-                          cumulative: ${(step.cumulative / 1000).toFixed(0)}k
+                          {fmt$(step.cumulative)}
                         </div>
                       </div>
                     </div>
@@ -333,7 +366,7 @@ function QuickWinRow({ indexName, action, savings, tier, reasoning }: { indexNam
     <div style={{ marginBottom: '0.75rem', paddingBottom: '0.75rem', borderBottom: '1px solid #1e293b' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.25rem' }}>
         <span style={{ fontWeight: 600, color: '#f8fafc', fontSize: '0.875rem' }}>{indexName}</span>
-        <span style={{ color: '#22c55e', fontWeight: 700, fontSize: '0.875rem' }}>${(savings / 1000).toFixed(0)}k</span>
+        <span style={{ color: '#22c55e', fontWeight: 700, fontSize: '0.875rem' }}>{savings > 0 ? fmt$(savings) : '—'}</span>
       </div>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.25rem' }}>
         <span style={{ padding: '0.1rem 0.4rem', borderRadius: 3, fontSize: '0.65rem', background: `${ACTION_COLORS[action] || '#3b82f6'}20`, color: ACTION_COLORS[action] || '#3b82f6', fontWeight: 600 }}>

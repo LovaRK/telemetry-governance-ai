@@ -9,24 +9,24 @@ export default function DetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetch = async () => {
+    const loadData = async () => {
       try {
-        // Check if data exists first
         const statusRes = await fetch('/api/cache-status');
         const statusData = await statusRes.json();
 
         if (!statusData.has_data) {
-          setError('No data available. Run refresh first.');
+          setError('No data available. Run a Splunk refresh first.');
+          setLoading(false);
           return;
         }
 
-        // Fetch detail data (all tables)
+        const safeJson = (r: Response) => r.ok ? r.json() : Promise.resolve({ data: [] });
         const [decisions, fields, security, quality, audit] = await Promise.all([
-          fetch('/api/agent-decisions').then(r => r.json()),
-          fetch('/api/field-usage').then(r => r.json()),
-          fetch('/api/security-coverage').then(r => r.json()),
-          fetch('/api/quality-hotspots').then(r => r.json()),
-          fetch('/api/search-audit').then(r => r.json()),
+          fetch('/api/agent-decisions').then(safeJson),
+          fetch('/api/field-usage').then(safeJson),
+          fetch('/api/security-coverage').then(safeJson),
+          fetch('/api/quality-hotspots').then(safeJson),
+          fetch('/api/search-audit').then(safeJson),
         ]);
 
         setData({
@@ -43,7 +43,7 @@ export default function DetailPage() {
       }
     };
 
-    fetch();
+    loadData();
   }, []);
 
   return (
@@ -61,7 +61,7 @@ export default function DetailPage() {
 
         {loading ? (
           <div style={{ color: '#64748b' }}>Loading detail data…</div>
-        ) : (
+        ) : data && (
           <>
             {/* Sourcing Scoring Table */}
             <Section title="Sourcing Scoring Table">

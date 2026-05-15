@@ -33,22 +33,23 @@ export default function TopAppBar({ cacheStatus, onRefresh, loading, hasConfig }
           width: 32,
           height: 32,
           borderRadius: 8,
-          background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+          background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontWeight: 700,
+          fontWeight: 800,
           color: '#fff',
           fontSize: '0.875rem',
+          letterSpacing: '-0.02em',
         }}>
-          A
+          d
         </div>
         <div>
-          <div style={{ fontWeight: 700, color: '#f8fafc', fontSize: '0.9375rem', letterSpacing: '-0.01em' }}>
-            Aetheris Sentinel
+          <div style={{ fontWeight: 700, color: '#f8fafc', fontSize: '0.9375rem', letterSpacing: '-0.02em' }}>
+            datasensAI
           </div>
           <div style={{ fontSize: '0.6875rem', color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-            Agentic Telemetry OS
+            Executive ROI Overview
           </div>
         </div>
       </div>

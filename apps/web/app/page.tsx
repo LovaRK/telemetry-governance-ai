@@ -94,6 +94,7 @@ export default function Home() {
     }
   };
 
+  const hasConfig = !!(formData.mcp_url.trim() && formData.token.trim());
   const hasData = summary !== null && summary.snapshots.length > 0;
 
   return (
@@ -107,56 +108,58 @@ export default function Home() {
 
       <div style={{ padding: '1.25rem', maxWidth: 1440, margin: '0 auto' }}>
 
-        {/* Splunk connect form */}
-        <div style={{ marginBottom: '1.5rem', padding: '1.25rem 1.5rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              placeholder="Splunk MCP URL (e.g., http://splunk:8089)"
-              value={formData.mcp_url}
-              onChange={(e) => setFormData((p) => ({ ...p, mcp_url: e.target.value }))}
-              style={inputStyle}
-            />
-            <input
-              type="password"
-              placeholder="Token"
-              value={formData.token}
-              onChange={(e) => setFormData((p) => ({ ...p, token: e.target.value }))}
-              style={{ ...inputStyle, maxWidth: 200 }}
-            />
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#64748b', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
-              <input
-                type="checkbox"
-                checked={formData.disable_ssl_verify}
-                onChange={(e) => setFormData((p) => ({ ...p, disable_ssl_verify: e.target.checked }))}
-              />
-              Skip SSL
-            </label>
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing || !formData.mcp_url || !formData.token}
-              style={{
-                padding: '0.625rem 1.25rem',
-                background: refreshing ? '#1e293b' : '#3b82f6',
-                color: refreshing ? '#64748b' : '#fff',
-                border: 'none',
-                borderRadius: 8,
-                cursor: refreshing || !formData.mcp_url || !formData.token ? 'not-allowed' : 'pointer',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                whiteSpace: 'nowrap',
-                opacity: !formData.mcp_url || !formData.token ? 0.5 : 1,
-              }}
-            >
-              {refreshing ? '⟳ Fetching…' : '↺ Refresh from Splunk'}
-            </button>
-          </div>
-          {refreshing && (
-            <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#64748b' }}>
-              Running LLM decision pipeline — this may take up to 5 minutes…
+        {/* Splunk connection — compact bar when configured, full form when not */}
+        {hasConfig ? (
+          <div style={{ marginBottom: '1.5rem', padding: '0.625rem 1rem', background: '#0f172a', borderRadius: 10, border: '1px solid #1e293b', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', overflow: 'hidden' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block', flexShrink: 0 }} />
+              <span style={{ fontSize: '0.8rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Connected — <span style={{ color: '#64748b' }}>{formData.mcp_url}</span>
+              </span>
             </div>
-          )}
-        </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+              {refreshing && (
+                <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Running LLM pipeline… (up to 5 min)</span>
+              )}
+              <button onClick={handleRefresh} disabled={refreshing}
+                style={{ padding: '0.375rem 0.875rem', background: refreshing ? '#1e293b' : '#3b82f6', color: refreshing ? '#64748b' : '#fff', border: 'none', borderRadius: 6, cursor: refreshing ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {refreshing ? '⟳ Fetching…' : '↺ Refresh'}
+              </button>
+              <button onClick={() => setFormData({ mcp_url: '', token: '', disable_ssl_verify: true })}
+                style={{ padding: '0.375rem 0.625rem', background: 'transparent', color: '#475569', border: '1px solid #1e293b', borderRadius: 6, cursor: 'pointer', fontSize: '0.75rem' }}>
+                Change
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginBottom: '1.5rem', padding: '1.25rem 1.5rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
+            <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '0.875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Connect to Splunk
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="text" placeholder="Splunk MCP URL (e.g., http://splunk:8089)"
+                value={formData.mcp_url} onChange={(e) => setFormData((p) => ({ ...p, mcp_url: e.target.value }))}
+                style={inputStyle} />
+              <input type="password" placeholder="Token"
+                value={formData.token} onChange={(e) => setFormData((p) => ({ ...p, token: e.target.value }))}
+                style={{ ...inputStyle, maxWidth: 200 }} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#64748b', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={formData.disable_ssl_verify}
+                  onChange={(e) => setFormData((p) => ({ ...p, disable_ssl_verify: e.target.checked }))} />
+                Skip SSL
+              </label>
+              <button onClick={handleRefresh} disabled={refreshing || !formData.mcp_url || !formData.token}
+                style={{ padding: '0.625rem 1.25rem', background: refreshing ? '#1e293b' : '#3b82f6', color: refreshing ? '#64748b' : '#fff', border: 'none', borderRadius: 8, cursor: refreshing || !formData.mcp_url || !formData.token ? 'not-allowed' : 'pointer', fontSize: '0.875rem', fontWeight: 600, whiteSpace: 'nowrap', opacity: !formData.mcp_url || !formData.token ? 0.5 : 1 }}>
+                {refreshing ? '⟳ Fetching…' : '↺ Connect & Refresh'}
+              </button>
+            </div>
+            {refreshing && (
+              <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#64748b' }}>
+                Running LLM decision pipeline — this may take up to 5 minutes…
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Alerts */}
         {cacheStatus?.isStale && !error && (

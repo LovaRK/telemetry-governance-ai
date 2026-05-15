@@ -1,6 +1,36 @@
 import { NextResponse } from 'next/server';
 import { query } from '@core/database/connection';
 
+function parseDollars(s: string): number {
+  if (!s) return 0;
+  const m = s.match(/\$?([\d,]+(?:\.\d+)?)/);
+  return m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+}
+
+function normalizeQuickWins(raw: any[]): any[] {
+  return raw.map((qw) => ({
+    indexName: qw.indexName ?? qw.index ?? '',
+    action: qw.action ?? '',
+    savings: typeof qw.savings === 'number' ? qw.savings : parseDollars(qw.impact ?? ''),
+    tier: qw.tier ?? '',
+    reasoning: qw.reasoning ?? qw.details ?? qw.impact ?? '',
+  }));
+}
+
+function normalizeSavingsStaircase(raw: any[]): any[] {
+  return raw.map((step, i) => {
+    const amount = typeof step.amount === 'number' ? step.amount : (typeof step.savings === 'number' ? step.savings : 0);
+    const prevAmount = i === 0 ? amount : (typeof raw[i - 1].amount === 'number' ? raw[i - 1].amount : 0);
+    return {
+      label: step.label ?? step.stage ?? `Stage ${i + 1}`,
+      savings: i === 0 ? 0 : Math.max(0, prevAmount - amount),
+      cumulative: amount,
+      action: (step.action ?? (step.stage ?? '').replace(/^After /, '').replace(/ /g, '_').toUpperCase()) || 'CURRENT',
+      count: step.count ?? 0,
+    };
+  });
+}
+
 export async function GET() {
   try {
     // Read LLM agent output from executive_kpis — latest snapshot only
@@ -85,8 +115,8 @@ export async function GET() {
         avgQuality: parseFloat(k.avg_quality),
         avgConfidence: parseFloat(k.avg_confidence),
       },
-      quickWins: typeof k.quick_wins === 'string' ? JSON.parse(k.quick_wins) : (k.quick_wins || []),
-      savingsStaircase: typeof k.savings_staircase === 'string' ? JSON.parse(k.savings_staircase) : (k.savings_staircase || []),
+      quickWins: normalizeQuickWins(typeof k.quick_wins === 'string' ? JSON.parse(k.quick_wins) : (k.quick_wins || [])),
+      savingsStaircase: normalizeSavingsStaircase(typeof k.savings_staircase === 'string' ? JSON.parse(k.savings_staircase) : (k.savings_staircase || [])),
       agentReasoning: k.agent_reasoning,
       snapshotDate: k.snapshot_date,
       snapshots,

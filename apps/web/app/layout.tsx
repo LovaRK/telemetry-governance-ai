@@ -2,8 +2,8 @@ import './globals.css';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Aetheris Sentinel — Agentic Telemetry OS',
-  description: 'Production-grade Splunk-native telemetry analytics with explainable AI, aggregated data caching, and decision traceability'
+  title: 'datasensAI — Executive ROI Overview',
+  description: 'Splunk telemetry intelligence: LLM-driven tier classification, cost optimization, and security gap analysis'
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

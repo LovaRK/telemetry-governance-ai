@@ -3,6 +3,14 @@
 import React from 'react';
 import { SnapshotRow, ExecutiveKPIs } from '../../lib/types';
 
+function fmt$(v: number): string {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}k`;
+  if (v >= 1) return `$${v.toFixed(0)}`;
+  if (v > 0) return `$${v.toFixed(2)}`;
+  return '$0';
+}
+
 interface Props {
   snapshots: SnapshotRow[];
   kpis: ExecutiveKPIs;
@@ -62,7 +70,7 @@ export default function AgentIntelligencePanel({ snapshots, kpis }: Props) {
               <span style={{ color: '#22c55e', fontWeight: 700, fontSize: '0.875rem' }}>{quickWins.length}</span>
             </div>
             <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: '0.2rem' }}>
-              ${quickWins.reduce((acc, q) => acc + (q.estimatedSavings || 0), 0).toLocaleString()} potential
+              {fmt$(quickWins.reduce((acc, q) => acc + (q.estimatedSavings || 0), 0))} potential
             </div>
           </div>
           <div style={{ padding: '0.75rem', background: '#1e293b', borderRadius: 8 }}>
@@ -71,18 +79,18 @@ export default function AgentIntelligencePanel({ snapshots, kpis }: Props) {
               <span style={{ color: '#3b82f6', fontWeight: 700, fontSize: '0.875rem' }}>{s3Candidates.length}</span>
             </div>
             <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: '0.2rem' }}>
-              ${s3Candidates.reduce((acc, q) => acc + (q.estimatedSavings || 0), 0).toLocaleString()} potential
+              {fmt$(s3Candidates.reduce((acc, q) => acc + (q.estimatedSavings || 0), 0))} potential
             </div>
           </div>
           <div style={{ padding: '0.75rem', background: '#1e293b', borderRadius: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Low-Value Spend</span>
               <span style={{ color: '#ef4444', fontWeight: 700, fontSize: '0.875rem' }}>
-                ${(kpis.licenseSpendLowValue / 1000).toFixed(0)}k
+                {fmt$(kpis.licenseSpendLowValue)}
               </span>
             </div>
             <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: '0.2rem' }}>
-              of ${(kpis.totalLicenseSpend / 1000).toFixed(0)}k total spend
+              of {fmt$(kpis.totalLicenseSpend)} total spend
             </div>
           </div>
         </div>

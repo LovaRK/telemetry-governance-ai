@@ -90,6 +90,10 @@ export async function runAggregation(
   const decisions = agentSummary.decisions;
 
   await transaction(async (client) => {
+    // Clear today's rows before inserting to avoid conflicts on re-run
+    await client.query(`DELETE FROM telemetry_snapshots WHERE snapshot_date = $1`, [today]);
+    await client.query(`DELETE FROM agent_decisions WHERE snapshot_date = $1`, [today]);
+
     for (let i = 0; i < decisions.length; i += BATCH_SIZE) {
       const batch = decisions.slice(i, i + BATCH_SIZE);
       const sp = `sp_batch_${Math.floor(i / BATCH_SIZE)}`;
@@ -100,6 +104,7 @@ export async function runAggregation(
             (inp) => inp.index === decision.index && (inp.sourcetype || null) === (decision.sourcetype || null)
           );
           await upsertDecision(client, decision, input, snapshotId, today);
+          await upsertAgentDecision(client, decision, snapshotId, today);
           inserted++;
         }
         await client.query(`RELEASE SAVEPOINT ${sp}`);
@@ -263,6 +268,51 @@ async function upsertExecutiveKpis(
       JSON.stringify(summary.quickWins),
       JSON.stringify(summary.savingsStaircase),
       summary.agentReasoning,
+    ]
+  );
+}
+
+async function upsertAgentDecision(
+  client: PoolClient,
+  decision: LLMDecision,
+  snapshotId: string,
+  today: string
+): Promise<void> {
+  await client.query(
+    `
+    INSERT INTO agent_decisions (
+      snapshot_id, snapshot_date,
+      index_name, sourcetype,
+      tier, action,
+      composite_score, utilization_score, detection_score, quality_score, risk_score,
+      annual_license_cost, estimated_savings,
+      confidence, confidence_score,
+      recommendation, reasoning, evidence,
+      is_quick_win, is_s3_candidate, detection_gap
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+`,
+    [
+      snapshotId,
+      today,
+      decision.index,
+      decision.sourcetype || null,
+      decision.tier,
+      decision.action,
+      decision.compositeScore,
+      decision.utilizationScore,
+      decision.detectionScore,
+      decision.qualityScore,
+      decision.riskScore,
+      decision.annualLicenseCost,
+      decision.estimatedSavings,
+      decision.confidence,
+      decision.confidenceScore,
+      decision.recommendation,
+      decision.reasoning,
+      JSON.stringify(decision.evidence),
+      decision.isQuickWin,
+      decision.isS3Candidate,
+      decision.detectionGap,
     ]
   );
 }
