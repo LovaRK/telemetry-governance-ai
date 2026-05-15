@@ -1,34 +1,19 @@
-version: '3.8'
-
 services:
   web:
     build:
-      context: ./apps/web
-      dockerfile: ../docker/Dockerfile.web
+      context: ..
+      dockerfile: docker/Dockerfile.web
     ports:
-      - "3000:3000"
+      - "3002:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://api:3001
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - DATABASE_URL=postgresql://telemetry:telemetry@postgres:5432/telemetry_os
+      - NODE_ENV=development
     depends_on:
-      - api
-    volumes:
-      - ./apps/web:/app
-      - /app/node_modules
-
-  api:
-    build:
-      context: .
-      dockerfile: ./docker/Dockerfile.api
-    ports:
-      - "3001:3001"
-    environment:
-      - SPLUNK_MCP_URL
-      - SPLUNK_MCP_TOKEN
-      - OLLAMA_BASE_URL
-      - OLLAMA_MODEL
-    volumes:
-      - .:/app
-      - /app/node_modules
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
 
   ollama:
     image: ollama/ollama:latest
@@ -36,6 +21,48 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_NUM_PARALLEL=1
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: '8'
+        reservations:
+          memory: 14G
+    shm_size: 4g
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    environment:
+      - POSTGRES_USER=telemetry
+      - POSTGRES_PASSWORD=telemetry
+      - POSTGRES_DB=telemetry_os
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telemetry -d telemetry_os"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2'
 
 volumes:
   ollama_data:
+  postgres_data:

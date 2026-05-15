@@ -16,14 +16,19 @@ This MVP demonstrates how traditional telemetry dashboards can evolve into **exp
 User Input (MCP URL + Token)
          ↓
 ┌─────────────────────────────────────────────────────────┐
-│  VISIBLE AGENTIC SEQUENTIAL PIPELINE                   │
-│                                                         │
-│  Connection Agent → Discovery → Context → Reasoning    │
-│      → Prioritization → UI Spec                        │
+│  REFRESH PATH (User Triggered)                         │
+│  POST /api/cache → Splunk MCP → Aggregate → PostgreSQL │
+└─────────────────────────────────────────────────────────┘
+         ↓
+┌─────────────────────────────────────────────────────────┐
+│  DISPLAY PATH (Cache-First)                            │
+│  GET /api/pipeline → PostgreSQL → Dashboard           │
 └─────────────────────────────────────────────────────────┘
          ↓
 Dashboard Renderer ← Decision Trace Panel
 ```
+
+**Data Policy**: ZERO mock data, ZERO demo mode, ZERO fallback values. Empty state shown when no data.
 
 **Implementation**: Sequential async functions with lightweight LangGraph stage orchestration. No distributed agents or autonomous multi-agent coordination in V1.
 
@@ -295,16 +300,16 @@ Each insight carries:
 
 | Layer | Technology |
 |-------|------------|
-| UI | Next.js (App Router) + Recharts |
+| UI | Next.js (App Router) + Recharts + Tailwind CSS |
 | Agent Runtime | Sequential async functions with lightweight LangGraph |
-| LLM | Ollama + Gemma4 (local) |
-| Splunk Access | MCP (via SSE) |
-| State | In-memory |
+| LLM | Ollama + Gemma4:e2b (local) |
+| Splunk Access | MCP (HTTP REST API) |
+| Cache | PostgreSQL (aggregated data, not raw events) |
 | Container | Docker Compose |
 
-**No**: PostgreSQL, Redis, Kafka, Vector DB, Auth systems, Multi-agent swarm.
-
 **Core Constraint**: No hardcoded business logic or static dashboard rules. Reasoning and prioritization must be agent-driven.
+
+**Data Policy**: Real Splunk data only. No mock data, no demo fallback. Empty state when no cache exists.
 
 ---
 
@@ -313,23 +318,21 @@ Each insight carries:
 ```
 .
 ├── apps/
-│   └── web/              # Next.js frontend
+│   ├── api/             # Next.js API routes
+│   │   ├── services/    # splunk-client, aggregation-service, scoring-service
+│   │   ├── repositories/ # telemetry-repository, trace-repository
+│   │   └── lib/         # db connection pool
+│   └── web/             # Next.js frontend
+│       ├── app/         # page.tsx, api routes
+│       └── components/  # dashboard components
 ├── core/
-│   ├── pipeline/         # Sequential agent execution
-│   ├── prompts/          # Agent prompts
-│   ├── schemas/         # JSON schemas
-│   └── renderers/       # Component renderers
-├── agents/
-│   ├── connection/      # Connection agent
-│   ├── discovery/       # Discovery agent
-│   ├── context/         # Telemetry context agent
-│   ├── reasoning/      # Reasoning agent (Gemma4)
-│   ├── prioritization/  # Prioritization agent
-│   └── ui-spec/         # UI spec generator
-├── tools/
-│   └── splunk-mcp/      # MCP tool definitions
-└── docker/
-    └── docker-compose.yml
+│   ├── pipeline/        # runPipelineFromCache (cache-first)
+│   ├── scoring/        # deterministic classification
+│   └── prompts/        # Agent prompts
+├── infrastructure/
+│   ├── schema.sql      # PostgreSQL schema (4 tables, 12+ indexes)
+│   └── docker-compose.yml
+└── docs/               # Specifications and plans
 ```
 
 ---

@@ -3,11 +3,16 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY package*.json ./
-COPY apps/web/package*.json ./apps/web/
 RUN npm install
+
+COPY apps/web/package*.json ./apps/web/
+WORKDIR /app/apps/web
+RUN npm install
+
+WORKDIR /app
 
 COPY . .
 
 EXPOSE 3001
 
-CMD ["node", "apps/web/src/server.js"]
+CMD ["sh", "-c", "cd apps/web && npm run start -- -p 3001 -H 0.0.0.0"]

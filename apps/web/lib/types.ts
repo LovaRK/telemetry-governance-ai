@@ -70,8 +70,29 @@ export interface DashboardData {
     anomaliesDetected: number;
     wasteIdentified: string;
     recommendationsGenerated: number;
+    totalAssets: number;
+    totalPotentialSavings: number;
   } & SummaryStats;
+  kpis?: {
+    totalIndices: number;
+    totalSourcetypes: number;
+    totalPotentialSavings: number;
+    avgConfidence: number;
+    highRiskCount: number;
+  };
+  decision_trace?: {
+    decision_traces: any[];
+    overall_confidence: number;
+    trace_id: string;
+  };
   error?: string;
+  requiresRefresh?: boolean;
+  cacheStatus?: {
+    status: string;
+    isStale: boolean;
+    lastRefreshAt: string | null;
+    recordCount: number;
+  };
 }
 
 export interface FormData {

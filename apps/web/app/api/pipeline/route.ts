@@ -1,35 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runPipeline } from '@core/pipeline/index';
+import { runPipelineFromCache } from '@core/pipeline/index';
+import { getCacheStatus } from '@api/services/cache-service';
 
-export async function POST(request: NextRequest) {
+/**
+ * GET /api/pipeline
+ * Reads from cached PostgreSQL data (no MCP calls).
+ * This is the primary endpoint for dashboard display.
+ */
+export async function GET(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { mcp_url, token } = body;
+    // First check cache status
+    const cache = await getCacheStatus('index_metrics');
+    
+    // Run pipeline from cache (reads from PostgreSQL only)
+    const result = await runPipelineFromCache();
 
-    if (!mcp_url || !token) {
-      return NextResponse.json({ error: 'Missing mcp_url or token' }, { status: 400 });
-    }
-
-    const result = await runPipeline({ mcp_url, token });
-
-    const assets = result.value?.telemetry_assets || [];
-    const recommendations = result.composition?.components || [];
+    // Format response
+    const assets = result.telemetry_assets || [];
+    const summary = result.summary || {
+      totalAssets: 0,
+      keep: 0,
+      optimize: 0,
+      archive: 0,
+      eliminate: 0,
+      investigate: 0,
+      totalPotentialSavings: 0
+    };
 
     return NextResponse.json({
-      connection: result.connection,
       timeline: result.timeline,
       telemetry_assets: assets,
-      recommendations,
       summary: {
-        totalAssets: assets.length,
-        keep: assets.filter((a: any) => a.recommendation?.action === 'KEEP').length,
-        optimize: assets.filter((a: any) => a.recommendation?.action === 'OPTIMIZE').length,
-        archive: assets.filter((a: any) => a.recommendation?.action === 'ARCHIVE').length,
-        eliminate: assets.filter((a: any) => a.recommendation?.action === 'ELIMINATE').length,
-        investigate: assets.filter((a: any) => a.recommendation?.action === 'INVESTIGATE').length,
-        totalPotentialSavings: assets.reduce((sum: number, a: any) => sum + (a.estimated_savings || 0), 0),
-        dataFreshness: result.value?.data_freshness_seconds
-      }
+        ...summary,
+        dataFreshness: cache.lastRefreshAt 
+          ? Math.floor((Date.now() - new Date(cache.lastRefreshAt).getTime()) / 1000) 
+          : null
+      },
+      kpis: result.kpis,
+      decision_trace: result.decision_trace,
+      error: result.error,
+      cacheStatus: {
+        status: cache.status,
+        isStale: cache.isStale,
+        lastRefreshAt: cache.lastRefreshAt,
+        recordCount: cache.recordCount
+      },
+      requiresRefresh: !cache.recordCount || cache.isStale
     });
   } catch (error) {
     return NextResponse.json(
@@ -37,4 +53,19 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * POST /api/pipeline
+ * This endpoint is DEPRECATED.
+ * Use POST /api/cache to trigger Splunk refresh instead.
+ */
+export async function POST(request: NextRequest) {
+  return NextResponse.json(
+    { 
+      error: 'Direct pipeline execution is deprecated. Use POST /api/cache to refresh data from Splunk.',
+      hint: 'POST /api/cache with { mcpUrl: "...", token: "..." } to fetch and aggregate data'
+    },
+    { status: 410 }
+  );
 }

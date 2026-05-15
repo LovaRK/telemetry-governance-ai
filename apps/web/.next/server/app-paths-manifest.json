@@ -1,0 +1,6 @@
+{
+  "/api/telemetry/route": "app/api/telemetry/route.js",
+  "/api/cache/route": "app/api/cache/route.js",
+  "/api/decisions/route": "app/api/decisions/route.js",
+  "/page": "app/page.js"
+}

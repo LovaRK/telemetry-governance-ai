@@ -4,9 +4,14 @@ export function determineRecommendation(
   value_score: number,
   waste_score: number,
   risk_score: number,
-  config = DEFAULT_SCORING_CONFIG
+  metadata?: { search_frequency?: number; daily_gb?: number; dashboard_refs?: number }
 ): { action: 'KEEP' | 'OPTIMIZE' | 'ARCHIVE' | 'ELIMINATE' | 'INVESTIGATE'; priority: 'HIGH' | 'MEDIUM' | 'LOW' } {
+  const config = DEFAULT_SCORING_CONFIG;
   const { thresholds } = config;
+
+  if ((metadata?.search_frequency ?? 0) === 0 && (metadata?.daily_gb ?? 0) > 10) {
+    return { action: 'ELIMINATE', priority: 'HIGH' };
+  }
 
   if (waste_score >= thresholds.eliminate_waste_min && value_score <= thresholds.eliminate_value_max) {
     return { action: 'ELIMINATE', priority: 'HIGH' };

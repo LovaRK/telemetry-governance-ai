@@ -30,9 +30,9 @@ export interface ScoringConfig {
 export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   weights: DEFAULT_VALUE_WEIGHTS,
   thresholds: {
-    keep_min_value: 65,
-    optimize_waste_min: 50,
-    eliminate_waste_min: 80,
-    eliminate_value_max: 20
+    keep_min_value: 50,
+    optimize_waste_min: 40,
+    eliminate_waste_min: 60,
+    eliminate_value_max: 25
   }
 };
