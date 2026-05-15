@@ -40,13 +40,8 @@ export default function AgentIntelligencePanel({ decisions = [], onAction }: Pro
   useEffect(() => {
     if (decisions.length > 0) {
       setData({ top_decisions: decisions, quick_wins: [], total_potential_savings: decisions.reduce((s, d) => s + d.savings, 0) });
-      return;
     }
-    fetch('/api/decisions')
-      .then(r => r.json())
-      .then(setData)
-      .catch(console.error);
-  }, [decisions]);
+  }, []);
 
   const handleAction = async (index: string, action: string, status: 'APPROVED' | 'IGNORED' | 'REVERTED') => {
     setLoading(true);
