@@ -47,7 +47,7 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infrastructure/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./infrastructure/schema.sql/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     environment:
       - POSTGRES_USER=telemetry
       - POSTGRES_PASSWORD=telemetry
