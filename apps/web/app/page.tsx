@@ -29,14 +29,19 @@ export default function Home() {
 
   const fetchSummary = async () => {
     try {
-      const [summaryRes, cacheRes] = await Promise.all([
-        fetch('/api/executive-summary'),
-        fetch('/api/cache?key=index_metrics'),
-      ]);
+      // CRITICAL: Check if data exists first
+      const statusRes = await fetch('/api/cache-status');
+      const statusData = await statusRes.json();
+      setCacheStatus(statusData);
 
-      const cache = await cacheRes.json();
-      setCacheStatus(cache);
+      // If no data, don't try to load dashboard
+      if (!statusData.has_data) {
+        setSummary(null);
+        return;
+      }
 
+      // Data exists, fetch the actual summary
+      const summaryRes = await fetch('/api/executive-summary');
       if (!summaryRes.ok) {
         setSummary(null);
         return;
