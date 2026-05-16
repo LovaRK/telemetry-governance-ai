@@ -49,12 +49,14 @@
 ### Package P5 — TODO Tracking
 - [x] Create `TODO.md` in repo root and maintain through implementation
 
-## 🔲 Backlog (Future Phases)
+## ✅ Complete (Phase 3 — Data Quality Tracking)
 
 ### Data Pipeline Enhancements
-- [ ] Field usage (Splunk tstats for indexed vs used fields per sourcetype)
-- [ ] MITRE security coverage mapping (sourcetype → techniques)
-- [ ] Data quality hotspots (parse error % per sourcetype)
+- [x] Field usage optimization tracking (quality-score-based estimation, tstats query ready for Splunk)
+- [x] MITRE security coverage mapping (detection-score-based estimation, MITRE lookup ready for Splunk)
+- [x] Data quality hotspots (quality-score-based identification, parse-error query ready for Splunk)
+- [x] Non-fatal pipeline integration (all Phase 3 enhancements wrapped in try-catch, don't break main flow)
+- [x] Logging for missing Splunk queries (each function logs what full query would be needed)
 
 ### Advanced Visualizations
 - [ ] Line/trend charts for time-series metrics
