@@ -84,10 +84,16 @@ export default function DetailPage() {
             {/* E2: Sourcetype Health Board */}
             {snapshots.length > 0 && <HealthBoard snapshots={snapshots} />}
 
+            {/* E16: Under-Utilized Sourcetypes */}
+            {snapshots.length > 0 && <UnderUtilized snapshots={snapshots} />}
+
+            {/* E12/E13: Retention Overview */}
+            {snapshots.length > 0 && <RetentionOverview snapshots={snapshots} />}
+
             {data && (
               <>
-                {/* Sourcing Scoring Table */}
-                <Section title="Sourcing Scoring Table">
+                {/* E3: Sourcing Scoring Table (populated after Splunk refresh) */}
+                <Section title="Sourcing Scoring Detail">
                   <Table
                     columns={['Index', 'Sourcetype', 'Tier', 'Score', 'Utilization', 'Detection', 'Quality', 'Cost/Year', 'Action']}
                     rows={data.decisions.slice(0, 20)}
@@ -219,6 +225,133 @@ function HealthBoard({ snapshots }: { snapshots: SnapshotRow[] }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// E16: Under-Utilized Sourcetypes
+function UnderUtilized({ snapshots }: { snapshots: SnapshotRow[] }) {
+  const underUtil = snapshots
+    .filter((s) => s.utilizationScore < 40)
+    .sort((a, b) => a.utilizationScore - b.utilizationScore);
+
+  if (underUtil.length === 0) return null;
+
+  const TIER_COLORS: Record<string, string> = {
+    Critical: '#ef4444', Important: '#f59e0b', 'Nice-to-Have': '#3b82f6', 'Low Value': '#64748b',
+  };
+
+  return (
+    <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
+      <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', fontWeight: 600 }}>
+        Under-Utilized Sourcetypes — {underUtil.length} indexes below 40% utilization
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid #1e293b' }}>
+              {['Index', 'Tier', 'Utilization', 'GB/Day', 'Cost/Yr', 'Action', 'Suggested Use Case'].map((h) => (
+                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {underUtil.map((s) => {
+              const tierColor = TIER_COLORS[s.tier] || '#64748b';
+              const useCase = s.utilizationScore < 10
+                ? 'Consider eliminating — near-zero query activity'
+                : s.utilizationScore < 25
+                ? 'Review retention policy — archive or reduce retention'
+                : 'Investigate query patterns — possible optimization';
+              return (
+                <tr key={s.indexName} style={{ borderBottom: '1px solid #0f172a' }}>
+                  <td style={{ padding: '0.5rem 0.75rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <span style={{ padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', background: `${tierColor}20`, color: tierColor, fontWeight: 600 }}>{s.tier}</span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <span style={{ color: '#ef4444', fontWeight: 700 }}>{s.utilizationScore}%</span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: '#94a3b8' }}>{s.dailyAvgGb < 0.001 ? '< 0.001' : s.dailyAvgGb.toFixed(3)}</td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: '#94a3b8' }}>{s.costPerYear > 0 ? `$${s.costPerYear.toFixed(2)}` : '$0'}</td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <span style={{ padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', fontWeight: 600,
+                      color: s.classification === 'ELIMINATE' ? '#ef4444' : s.classification === 'ARCHIVE' ? '#3b82f6' : '#f59e0b',
+                      background: s.classification === 'ELIMINATE' ? '#ef444420' : s.classification === 'ARCHIVE' ? '#3b82f620' : '#f59e0b20',
+                    }}>{s.classification}</span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: '#64748b', fontSize: '0.72rem' }}>{useCase}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// E12/E13: Retention Overview
+function RetentionOverview({ snapshots }: { snapshots: SnapshotRow[] }) {
+  const fmt$ = (v: number) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}k` : v >= 1 ? `$${v.toFixed(0)}` : v > 0 ? `$${v.toFixed(2)}` : '$0';
+
+  type RetItem = { indexName: string; tier: string; retentionDays: number; utilizationScore: number; costPerYear: number; recommendation: string };
+  const items: RetItem[] = snapshots
+    .map((s) => {
+      let rec = '';
+      if (s.retentionDays > 365 && s.utilizationScore < 30) {
+        rec = `Reduce from ${s.retentionDays}d → 90d — high retention, low utilization`;
+      } else if (s.retentionDays > 180 && s.utilizationScore < 50) {
+        rec = `Consider reducing from ${s.retentionDays}d → 90d`;
+      } else if (s.retentionDays <= 30 && s.utilizationScore > 70) {
+        rec = `Increase from ${s.retentionDays}d — high utilization, short retention`;
+      } else {
+        rec = 'Retention looks appropriate';
+      }
+      return { indexName: s.indexName, tier: s.tier, retentionDays: s.retentionDays, utilizationScore: s.utilizationScore, costPerYear: s.costPerYear, recommendation: rec };
+    })
+    .sort((a, b) => b.retentionDays - a.retentionDays);
+
+  const TIER_COLORS: Record<string, string> = {
+    Critical: '#ef4444', Important: '#f59e0b', 'Nice-to-Have': '#3b82f6', 'Low Value': '#64748b',
+  };
+
+  return (
+    <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
+      <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', fontWeight: 600 }}>
+        Retention Optimization — {items.length} indexes
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid #1e293b' }}>
+              {['Index', 'Tier', 'Retention (days)', 'Utilization', 'Cost/Yr', 'Recommendation'].map((h) => (
+                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((s) => {
+              const tierColor = TIER_COLORS[s.tier] || '#64748b';
+              const isActionable = !s.recommendation.startsWith('Retention looks');
+              return (
+                <tr key={s.indexName} style={{ borderBottom: '1px solid #0f172a' }}>
+                  <td style={{ padding: '0.5rem 0.75rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <span style={{ padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', background: `${tierColor}20`, color: tierColor, fontWeight: 600 }}>{s.tier}</span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: '#94a3b8', fontWeight: 600 }}>{s.retentionDays}d</td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: s.utilizationScore < 30 ? '#ef4444' : s.utilizationScore < 60 ? '#f59e0b' : '#22c55e', fontWeight: 700 }}>
+                    {s.utilizationScore}%
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: '#94a3b8' }}>{fmt$(s.costPerYear)}</td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: isActionable ? '#f59e0b' : '#475569', fontSize: '0.75rem' }}>{s.recommendation}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
