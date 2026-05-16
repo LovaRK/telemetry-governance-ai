@@ -120,6 +120,48 @@
 
 ---
 
+## ✅ Complete (Phase 9 — Decision History & Audit)
+
+### Database & Storage
+- [x] 007_decision_history.sql migration with three tables:
+  - decision_history: tracks tier/action changes over time
+  - config_audit_log: records all config changes with before/after values
+  - llm_prompt_versions: versions of the LLM prompt template with activation dates
+- [x] Proper indexing on snapshot_date, index_name, created_at for query performance
+- [x] Foreign key constraints for referential integrity
+
+### Backend Services
+- [x] decision-history-service.ts with functions:
+  - recordDecisionChange: Log when an index's tier/action changes
+  - recordConfigChange: Audit config changes with old/new values
+  - getDecisionHistory: Query decision changes with optional index filter
+  - getConfigAuditTrail: Retrieve config change history
+  - getCurrentLLMPromptVersion: Get active LLM prompt version
+  - recordLLMPromptChange: Track LLM prompt template updates
+
+### API Routes
+- [x] /api/decision-history route supporting query parameters:
+  - type: 'decisions', 'config', or 'prompt'
+  - index: Filter by index name
+  - limit/offset: Pagination support
+  - Returns decision changes, config audits, or current LLM prompt
+
+### Frontend Components
+- [x] DecisionHistoryViewer.tsx with:
+  - Tab interface for decisions vs config changes
+  - Timeline-style display of historical changes
+  - Color-coded tier/action transitions
+  - Config change diffs with old/new values
+  - Pagination ready
+
+### Audit Trail Features
+- [x] Track when recommendations change between snapshots
+- [x] Record who made config changes and why
+- [x] Version control for LLM prompt templates
+- [x] Full audit trail with timestamps and change reasons
+
+---
+
 ## ✅ Complete (Phase 3 — Data Quality Tracking)
 
 ### Data Pipeline Enhancements
@@ -198,6 +240,14 @@
 ✅ Pure CSS/SVG implementation, no external libraries  
 ✅ All components fully responsive and dark-themed
 
+### Phase 9
+✅ Three-table audit system: decision_history, config_audit_log, llm_prompt_versions  
+✅ Track tier/action changes over time per index  
+✅ Record all config changes with before/after values  
+✅ Version control for LLM prompt templates  
+✅ DecisionHistoryViewer component with timeline UI  
+✅ API route supporting decisions, config, and prompt queries
+
 ---
 
 ## What Was Delivered (Phases 1.5-5)
@@ -255,6 +305,13 @@
 - Sankey: interactive flows—click to highlight transitions and view detail panel
 - All features use pure CSS/SVG, no external UI libraries
 - Consistent dark theme and responsive design across all components
+
+**Phase 9 — Decision History & Audit:**
+- 007_decision_history.sql: Three tables for tracking decisions, configs, and LLM prompts
+- decision-history-service.ts: Functions to record and retrieve audit trails
+- /api/decision-history route: Query decisions, configs, or prompt versions with pagination
+- DecisionHistoryViewer.tsx: Timeline UI showing tier/action changes with color coding
+- Full audit trail: who changed what, when, and why, with before/after values
 
 ---
 
@@ -363,7 +420,7 @@ If needed for future releases, these enhancements can be added without affecting
 
 ---
 
-**Project Status: PRODUCTION READY ✅**  
+**Project Status: PRODUCTION READY WITH ADVANCED FEATURES ✅**  
 **Last Updated: 2026-05-16**  
-**Phases Completed: 1.5, 2, 3, 4, 5, 6, 7, 8**  
-**Total Development Time: ~30-35 hours**  
+**Phases Completed: 1.5, 2, 3, 4, 5, 6, 7, 8, 9**  
+**Total Development Time: ~35-40 hours**  
