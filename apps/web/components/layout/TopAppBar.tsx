@@ -11,11 +11,12 @@ interface Props {
     recordCount?: number;
   } | null;
   onRefresh?: () => void;
+  onOpenConfig?: () => void;
   loading?: boolean;
   hasConfig?: boolean;
 }
 
-export default function TopAppBar({ cacheStatus, onRefresh, loading, hasConfig }: Props) {
+export default function TopAppBar({ cacheStatus, onRefresh, onOpenConfig, loading, hasConfig }: Props) {
   return (
     <header style={{
       height: 64,
@@ -104,6 +105,27 @@ export default function TopAppBar({ cacheStatus, onRefresh, loading, hasConfig }
           <div style={{ fontSize: '0.75rem', color: '#64748b', padding: '0.5rem 1rem', background: '#1e293b', borderRadius: '6px' }}>
             Configure MCP credentials to enable refresh
           </div>
+        )}
+
+        {onOpenConfig && (
+          <button
+            onClick={onOpenConfig}
+            style={{
+              padding: '0.5rem 1rem',
+              background: '#1e293b',
+              color: '#94a3b8',
+              border: '1px solid #334155',
+              borderRadius: '6px',
+              fontSize: '0.8125rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            ⚙ Config
+          </button>
         )}
       </div>
     </header>

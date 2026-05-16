@@ -5,6 +5,7 @@ import TopAppBar from '../components/layout/TopAppBar';
 import ExecutiveOverview from '../components/dashboard/ExecutiveOverview';
 import AgentIntelligencePanel from '../components/dashboard/AgentIntelligencePanel';
 import SourceIntelligenceGrid from '../components/dashboard/SourceIntelligenceGrid';
+import ConfigPanel from '../components/ConfigPanel';
 import { ExecutiveSummary, CacheStatus } from '../lib/types';
 
 type Tab = 'overview' | 'telemetry';
@@ -17,6 +18,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [configPanelOpen, setConfigPanelOpen] = useState(false);
 
   const fetchSummary = async () => {
     try {
@@ -123,7 +125,9 @@ export default function Home() {
   // ── Main app (refresh has run at least once) ─────────────────────────────
   return (
     <main style={{ minHeight: '100vh', background: '#050a14' }}>
-      <TopAppBar cacheStatus={cacheStatus} onRefresh={handleRefresh} loading={refreshing} hasConfig={!!formData.mcp_url && !!formData.token} />
+      <TopAppBar cacheStatus={cacheStatus} onRefresh={handleRefresh} onOpenConfig={() => setConfigPanelOpen(true)} loading={refreshing} hasConfig={!!formData.mcp_url && !!formData.token} />
+
+      <ConfigPanel open={configPanelOpen} onClose={() => setConfigPanelOpen(false)} />
 
       <div style={{ padding: '1.25rem', maxWidth: 1440, margin: '0 auto' }}>
 

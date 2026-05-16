@@ -31,7 +31,15 @@ export class SplunkClient {
 
   constructor(config: SplunkMCPConfig) {
     if (!config.mcpUrl) throw new Error('Splunk MCP URL is required');
-    this.config = config;
+    // Normalize URL: strip whitespace, ensure proper protocol
+    let normalized = config.mcpUrl.trim();
+    // Remove common key prefixes accidentally typed: "url:", "url-", "mcpUrl", etc.
+    normalized = normalized.replace(/^(url|mcpUrl|mcp_url|splunk)[:\-]?\s*/i, '');
+    // Strip any non-http prefix that isn't a valid protocol
+    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+      normalized = `http://${normalized}`;
+    }
+    this.config = { ...config, mcpUrl: normalized };
   }
 
   private get timeoutMs(): number {

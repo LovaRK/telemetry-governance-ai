@@ -1,3 +1,8 @@
+/**
+ * @deprecated This file is deprecated. All decision logic now comes from TelemetryDecisionAgent (llm-decision-agent.ts).
+ * The LLM makes all scoring decisions - no hardcoded weights or thresholds.
+ */
+
 export interface ValueWeights {
   search_usage: number;
   dashboard_refs: number;

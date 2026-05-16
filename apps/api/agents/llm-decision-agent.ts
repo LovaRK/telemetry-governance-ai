@@ -71,9 +71,7 @@ export interface AgentDecisionSummary {
 }
 
 const SYSTEM_PROMPT = `You are a Splunk FinOps and Security intelligence agent.
-You analyze telemetry data from Splunk indexes and sourcetypes to make cost optimization and security decisions.
-
-Your decisions are final and will be displayed on an executive dashboard. Be analytical, specific, and commercially aware.
+STRICT OUTPUT MODE: Output ONLY valid JSON. No explanations, no markdown, no text before or after.
 
 For each index/sourcetype you must evaluate:
 1. BUSINESS VALUE: Is this data being searched/used? When was it last accessed? What is its event volume?
@@ -173,22 +171,50 @@ Return ONLY the JSON. No explanation text before or after.`;
 }
 
 function extractJson(raw: string): string {
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error('No JSON object found in LLM response');
-  return match[0];
+  // Try direct parse first
+  try {
+    JSON.parse(raw);
+    return raw;
+  } catch { /* not direct JSON */ }
+  
+  // Try to find JSON block
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      JSON.parse(jsonMatch[0]);
+      return jsonMatch[0];
+    } catch { /* invalid JSON in block */ }
+  }
+  
+  // Try to extract decisions array
+  const arrMatch = raw.match(/\[\s*\{[\s\S]*\}\s*\]/);
+  if (arrMatch) {
+    try {
+      const parsed = JSON.parse(arrMatch[0]);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return JSON.stringify({ decisions: parsed });
+      }
+    } catch { /* invalid array */ }
+  }
+  
+  throw new Error('No valid JSON found in LLM response. Response may contain markdown or explanations.');
 }
 
 const VALID_TIERS = new Set(['Critical', 'Important', 'Nice-to-Have', 'Low-Value']);
 const VALID_ACTIONS = new Set(['KEEP', 'OPTIMIZE', 'ARCHIVE', 'ELIMINATE', 'S3_CANDIDATE']);
+const VALID_CONFIDENCE = new Set(['HIGH', 'MEDIUM', 'LOW']);
 
 function validateDecision(d: any): string | null {
+  if (!d || typeof d !== 'object') return 'not an object';
   if (typeof d.index !== 'string' || d.index.trim() === '') return 'missing index';
   if (!VALID_TIERS.has(d.tier)) return `invalid tier: ${d.tier}`;
   if (!VALID_ACTIONS.has(d.action)) return `invalid action: ${d.action}`;
   if (typeof d.compositeScore !== 'number' || d.compositeScore < 0 || d.compositeScore > 100) return 'invalid compositeScore';
-  if (typeof d.utilizationScore !== 'number') return 'missing utilizationScore';
-  if (typeof d.detectionScore !== 'number') return 'missing detectionScore';
-  if (typeof d.qualityScore !== 'number') return 'missing qualityScore';
+  if (typeof d.utilizationScore !== 'number' || d.utilizationScore < 0 || d.utilizationScore > 100) return 'invalid utilizationScore';
+  if (typeof d.detectionScore !== 'number' || d.detectionScore < 0 || d.detectionScore > 100) return 'invalid detectionScore';
+  if (typeof d.qualityScore !== 'number' || d.qualityScore < 0 || d.qualityScore > 100) return 'invalid qualityScore';
+  if (typeof d.riskScore !== 'number' || d.riskScore < 0 || d.riskScore > 100) return 'invalid riskScore';
+  if (d.confidenceScore !== undefined && (typeof d.confidenceScore !== 'number' || d.confidenceScore < 0 || d.confidenceScore > 1)) return 'invalid confidenceScore (must be 0-1)';
   return null;
 }
 
@@ -236,6 +262,17 @@ export async function runLLMDecisionAgent(
   }
 
   const BATCH_SIZE = 5;
+  const LLM_TIMEOUT_MS = 30000; // 30 second timeout per batch
+
+  // Timeout wrapper
+  const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+    Promise.race([
+      promise,
+      new Promise<T>((_, reject) => 
+        setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+      )
+    ]);
+
   console.log(`[LLMDecisionAgent] Starting reasoning for ${inputs.length} inputs in batches of ${BATCH_SIZE} (parallel)`);
 
   // Build all batches up front

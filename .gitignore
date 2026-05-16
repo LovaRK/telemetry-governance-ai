@@ -1,1 +1,9 @@
 node_modules
+.env.local
+.DS_Store
+apps/web/.next/
+.next/
+*.bak
+tools/mock-splunk-mcp.js
+LLM_ARCHITECTURE_PLAN.md
+PROJECT.md

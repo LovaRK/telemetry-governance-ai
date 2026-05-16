@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { ExecutiveSummary } from '../../lib/types';
+import Tooltip, { TOOLTIPS } from '../Tooltip';
 
 function fmt$(v: number): string {
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
@@ -149,10 +150,10 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
 
   const tierTotal = kpis.tierCounts.critical + kpis.tierCounts.important + kpis.tierCounts.niceToHave + kpis.tierCounts.lowValue;
   const tierBars = [
-    { label: 'Critical', key: 'critical', value: kpis.tierCounts.critical, color: TIER_COLORS.critical },
-    { label: 'Important', key: 'important', value: kpis.tierCounts.important, color: TIER_COLORS.important },
-    { label: 'Nice-to-Have', key: 'niceToHave', value: kpis.tierCounts.niceToHave, color: TIER_COLORS.niceToHave },
-    { label: 'Low Value', key: 'lowValue', value: kpis.tierCounts.lowValue, color: TIER_COLORS.lowValue },
+    { label: 'Critical', key: 'critical', value: kpis.tierCounts.critical, color: TIER_COLORS.critical, tooltip: TOOLTIPS.tierCritical },
+    { label: 'Important', key: 'important', value: kpis.tierCounts.important, color: TIER_COLORS.important, tooltip: TOOLTIPS.tierImportant },
+    { label: 'Nice-to-Have', key: 'niceToHave', value: kpis.tierCounts.niceToHave, color: TIER_COLORS.niceToHave, tooltip: TOOLTIPS.tierNiceToHave },
+    { label: 'Low Value', key: 'lowValue', value: kpis.tierCounts.lowValue, color: TIER_COLORS.lowValue, tooltip: TOOLTIPS.tierLowValue },
   ];
 
   const actionCounts: Record<string, number> = {};
@@ -271,11 +272,11 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
       ) : null}
       <div style={{ display: hasAgentDecisions ? 'grid' : 'none', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr', gap: '1rem' }}>
         <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={cardTitle}>ROI Score</div>
+          <Tooltip content={TOOLTIPS.roiScore}><div style={cardTitle}>ROI Score</div></Tooltip>
           <Gauge value={kpis.roiScore} label="" color="#22c55e" />
         </div>
         <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={cardTitle}>GainScope</div>
+          <Tooltip content={TOOLTIPS.gainScopeScore}><div style={cardTitle}>GainScope</div></Tooltip>
           <Gauge value={kpis.gainScopeScore} label="" color="#3b82f6" />
         </div>
         <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
@@ -332,10 +333,10 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
 
         <div style={card()}>
           <div style={cardTitle}>Score Averages</div>
-          <ScoreBar label="Utilization" value={kpis.avgUtilization} color="#3b82f6" />
-          <ScoreBar label="Detection Coverage" value={kpis.avgDetection} color="#8b5cf6" />
-          <ScoreBar label="Data Quality" value={kpis.avgQuality} color="#22c55e" />
-          <ScoreBar label="Confidence" value={kpis.avgConfidence * 100} color="#f59e0b" />
+          <Tooltip content={TOOLTIPS.utilizationScore}><ScoreBar label="Utilization" value={kpis.avgUtilization} color="#3b82f6" /></Tooltip>
+          <Tooltip content={TOOLTIPS.detectionScore}><ScoreBar label="Detection Coverage" value={kpis.avgDetection} color="#8b5cf6" /></Tooltip>
+          <Tooltip content={TOOLTIPS.qualityScore}><ScoreBar label="Data Quality" value={kpis.avgQuality} color="#22c55e" /></Tooltip>
+          <Tooltip content={TOOLTIPS.confidenceScore}><ScoreBar label="Confidence" value={kpis.avgConfidence * 100} color="#f59e0b" /></Tooltip>
           <div style={{ marginTop: '0.75rem', fontSize: '0.7rem', color: '#475569', textAlign: 'right' }}>
             Snapshot: {snapshotDate ? new Date(snapshotDate).toLocaleDateString() : '—'}
           </div>
@@ -460,7 +461,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
       {/* Row 4 — Savings Staircase + Quick Wins */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
         <div style={card()}>
-          <div style={cardTitle}>Savings Staircase</div>
+          <Tooltip content={TOOLTIPS.savingsStaircase}><div style={cardTitle}>Savings Staircase</div></Tooltip>
           {staircase.length === 0
             ? <div style={{ color: '#475569', fontSize: '0.875rem' }}>No savings data yet</div>
             : !staircaseHasDelta

@@ -1,6 +1,7 @@
 import { PoolClient } from 'pg';
 import { SplunkClient } from './splunk-client';
 import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/llm-decision-agent';
+import { loadUserConfig } from './config-service';
 import { query, transaction } from '../../../core/database/connection';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -32,6 +33,11 @@ export async function runAggregation(
   const start = Date.now();
   const snapshotId = uuidv4();
 
+  // Load user config for cost model
+  const userConfig = await loadUserConfig();
+  const costPerGbPerDay = config.costPerGbPerDay ?? userConfig.costPerGbPerDay;
+  console.log(`[Aggregation] Using cost model: $${costPerGbPerDay}/GB/day from user config`);
+
   // ── Step 1: Fetch raw data from Splunk ──────────────────────────────────────
   const indexMetrics = await splunk.getIndexMetrics();
   if (indexMetrics.length === 0) {
@@ -62,7 +68,7 @@ export async function runAggregation(
       retentionDays: m.retentionDays,
       firstEvent: m.firstEvent,
       lastEvent: m.lastEvent,
-      licenseGbPerDay: config.costPerGbPerDay,
+      licenseGbPerDay: costPerGbPerDay,
     })),
     ...sourcetypeMetrics.map((m) => ({
       index: m.index,
@@ -77,7 +83,7 @@ export async function runAggregation(
 
   // ── Step 3: LLM agent makes ALL decisions ──────────────────────────────────
   console.log(`[Aggregation] Sending ${allInputs.length} metrics to LLM decision agent...`);
-  const agentSummary = await runLLMDecisionAgent(allInputs, config.costPerGbPerDay);
+  const agentSummary = await runLLMDecisionAgent(allInputs, costPerGbPerDay);
   console.log(`[Aggregation] LLM agent completed. ${agentSummary.decisions.length} decisions received.`);
 
   // ── Step 4: Persist decisions to DB ────────────────────────────────────────
@@ -322,6 +328,25 @@ async function upsertAgentDecision(
       recommendation, reasoning, evidence,
       is_quick_win, is_s3_candidate, detection_gap
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+    ON CONFLICT (snapshot_id, index_name, sourcetype) DO UPDATE SET
+      tier = EXCLUDED.tier,
+      action = EXCLUDED.action,
+      composite_score = EXCLUDED.composite_score,
+      utilization_score = EXCLUDED.utilization_score,
+      detection_score = EXCLUDED.detection_score,
+      quality_score = EXCLUDED.quality_score,
+      risk_score = EXCLUDED.risk_score,
+      annual_license_cost = EXCLUDED.annual_license_cost,
+      estimated_savings = EXCLUDED.estimated_savings,
+      confidence = EXCLUDED.confidence,
+      confidence_score = EXCLUDED.confidence_score,
+      recommendation = EXCLUDED.recommendation,
+      reasoning = EXCLUDED.reasoning,
+      evidence = EXCLUDED.evidence,
+      is_quick_win = EXCLUDED.is_quick_win,
+      is_s3_candidate = EXCLUDED.is_s3_candidate,
+      detection_gap = EXCLUDED.detection_gap,
+      updated_at = NOW()
 `,
     [
       snapshotId,

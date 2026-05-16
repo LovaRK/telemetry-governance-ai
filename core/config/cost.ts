@@ -1,3 +1,8 @@
+/**
+ * @deprecated This file is deprecated. Cost calculations are now done by TelemetryDecisionAgent.
+ * User cost model is stored in user_config table via ConfigService.
+ */
+
 export interface CostConfig {
   cost_per_gb_per_day: number;
   retention_days: number;

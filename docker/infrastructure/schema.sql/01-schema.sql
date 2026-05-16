@@ -222,3 +222,26 @@ CREATE TABLE IF NOT EXISTS search_audit (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_search_audit_date ON search_audit(snapshot_date DESC);
+
+-- ============================================
+-- User Configuration (cost model, weights, retention policies)
+-- ============================================
+CREATE TABLE IF NOT EXISTS user_config (
+    id                  SERIAL PRIMARY KEY,
+    config_key          VARCHAR(100) NOT NULL UNIQUE,
+    cost_per_gb_per_day DECIMAL(8,4) NOT NULL DEFAULT 0.50,
+    max_retention_days  INTEGER NOT NULL DEFAULT 730,
+    max_parallel        INTEGER NOT NULL DEFAULT 2,
+    decision_weights    JSONB DEFAULT '{}',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_config_key ON user_config(config_key);
+
+CREATE TRIGGER update_user_config_updated_at
+    BEFORE UPDATE ON user_config
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Initialize default config
+INSERT INTO user_config (config_key, cost_per_gb_per_day) VALUES ('default', 0.50) ON CONFLICT DO NOTHING;

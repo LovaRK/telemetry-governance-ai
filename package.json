@@ -9,7 +9,7 @@
     "tools"
   ],
   "scripts": {
-    "dev": "docker-compose up",
+    "dev": "docker-compose -f docker/docker-compose.yml up",
     "build": "docker-compose build",
     "clean": "docker-compose down -v"
   },
