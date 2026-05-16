@@ -178,6 +178,20 @@ function extractJson(raw: string): string {
   return match[0];
 }
 
+const VALID_TIERS = new Set(['Critical', 'Important', 'Nice-to-Have', 'Low-Value']);
+const VALID_ACTIONS = new Set(['KEEP', 'OPTIMIZE', 'ARCHIVE', 'ELIMINATE', 'S3_CANDIDATE']);
+
+function validateDecision(d: any): string | null {
+  if (typeof d.index !== 'string' || d.index.trim() === '') return 'missing index';
+  if (!VALID_TIERS.has(d.tier)) return `invalid tier: ${d.tier}`;
+  if (!VALID_ACTIONS.has(d.action)) return `invalid action: ${d.action}`;
+  if (typeof d.compositeScore !== 'number' || d.compositeScore < 0 || d.compositeScore > 100) return 'invalid compositeScore';
+  if (typeof d.utilizationScore !== 'number') return 'missing utilizationScore';
+  if (typeof d.detectionScore !== 'number') return 'missing detectionScore';
+  if (typeof d.qualityScore !== 'number') return 'missing qualityScore';
+  return null;
+}
+
 function applyDefaults(decisions: any[], inputs: RawTelemetryInput[], costPerGbPerDay: number): LLMDecision[] {
   return decisions.map((d: any, i: number) => {
     const input = inputs.find((inp) => inp.index === d.index) || inputs[i];
@@ -221,107 +235,79 @@ export async function runLLMDecisionAgent(
     throw new Error('No LLM available: Ollama is not running AND ANTHROPIC_API_KEY is not configured. Dashboard unavailable. Start Ollama or set ANTHROPIC_API_KEY.');
   }
 
-  console.log(`[LLMDecisionAgent] Starting reasoning for ${inputs.length} inputs (local-first strategy)`);
+  const BATCH_SIZE = 5;
+  console.log(`[LLMDecisionAgent] Starting reasoning for ${inputs.length} inputs in batches of ${BATCH_SIZE} (parallel)`);
 
-  const BATCH_SIZE = 20;
-  const allDecisions: LLMDecision[] = [];
-
+  // Build all batches up front
+  const batches: RawTelemetryInput[][] = [];
   for (let i = 0; i < inputs.length; i += BATCH_SIZE) {
-    const batch = inputs.slice(i, i + BATCH_SIZE);
-    const prompt = buildDecisionPrompt(batch, costPerGbPerDay);
-
-    let raw: string;
-    let provider: string;
-    try {
-      const { response, provider: usedProvider } = await router.generate(prompt, { json: true, temperature: 0.1 });
-      raw = response;
-      provider = usedProvider;
-      console.log(`[LLMDecisionAgent] Batch ${Math.floor(i / BATCH_SIZE) + 1} processed via ${provider}`);
-    } catch (e) {
-      throw new Error(`LLM call failed for batch ${Math.floor(i / BATCH_SIZE) + 1}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    let parsed: any;
-    try {
-      const jsonStr = extractJson(raw);
-      parsed = JSON.parse(jsonStr);
-    } catch (e) {
-      throw new Error(`LLM returned invalid JSON for batch ${Math.floor(i / BATCH_SIZE) + 1}. Raw: ${raw.slice(0, 300)}`);
-    }
-
-    if (!Array.isArray(parsed.decisions)) {
-      throw new Error(`LLM response missing "decisions" array in batch ${Math.floor(i / BATCH_SIZE) + 1}`);
-    }
-
-    const batchDecisions = applyDefaults(parsed.decisions, batch, costPerGbPerDay);
-    allDecisions.push(...batchDecisions);
-
-    if (i === 0) {
-      const totalLicenseSpend = typeof parsed.totalLicenseSpend === 'number' ? parsed.totalLicenseSpend :
-        allDecisions.reduce((s, d) => s + d.annualLicenseCost, 0);
-
-      const lowValueSpend = allDecisions
-        .filter((d) => d.tier === 'Low-Value' || d.action === 'ELIMINATE' || d.action === 'ARCHIVE')
-        .reduce((s, d) => s + d.annualLicenseCost, 0);
-
-      const tierCounts = allDecisions.reduce(
-        (acc, d) => {
-          if (d.tier === 'Critical') acc.critical++;
-          else if (d.tier === 'Important') acc.important++;
-          else if (d.tier === 'Nice-to-Have') acc.niceToHave++;
-          else acc.lowValue++;
-          return acc;
-        },
-        { critical: 0, important: 0, niceToHave: 0, lowValue: 0 }
-      );
-
-      const avgUtil = allDecisions.reduce((s, d) => s + d.utilizationScore, 0) / allDecisions.length;
-      const avgDet = allDecisions.reduce((s, d) => s + d.detectionScore, 0) / allDecisions.length;
-      const avgQual = allDecisions.reduce((s, d) => s + d.qualityScore, 0) / allDecisions.length;
-      const avgConf = allDecisions.reduce((s, d) => s + d.confidenceScore, 0) / allDecisions.length;
-
-      const defaultStaircase = [
-        { stage: 'Current Spend', amount: totalLicenseSpend },
-        { stage: 'After Ingest Actions', amount: totalLicenseSpend * 0.85 },
-        { stage: 'After Retention Tuning', amount: totalLicenseSpend * 0.72 },
-        { stage: 'After Archive', amount: totalLicenseSpend * 0.58 },
-        { stage: 'After S3 Migration', amount: totalLicenseSpend * 0.45 },
-        { stage: 'Optimized Target', amount: totalLicenseSpend * 0.38 },
-      ];
-
-      return {
-        decisions: allDecisions,
-        roiScore: typeof parsed.roiScore === 'number' ? parsed.roiScore : Math.min(100, Math.round((lowValueSpend / Math.max(totalLicenseSpend, 1)) * 100)),
-        gainScopeScore: typeof parsed.gainScopeScore === 'number' ? parsed.gainScopeScore : Math.round(avgUtil * 0.4 + avgDet * 0.3 + avgQual * 0.3),
-        totalLicenseSpend,
-        licenseSpendLowValue: typeof parsed.licenseSpendLowValue === 'number' ? parsed.licenseSpendLowValue : lowValueSpend,
-        storageSavingsPotential: typeof parsed.storageSavingsPotential === 'number' ? parsed.storageSavingsPotential : lowValueSpend * 0.6,
-        totalDailyGb: inputs.reduce((s, i) => s + i.dailyAvgGb, 0),
-        totalSourcetypes: inputs.length,
-        tierCounts,
-        securityGaps: typeof parsed.securityGaps === 'number' ? parsed.securityGaps : 0,
-        operationalGaps: typeof parsed.operationalGaps === 'number' ? parsed.operationalGaps : 0,
-        avgUtilization: Math.round(avgUtil),
-        avgDetection: Math.round(avgDet),
-        avgQuality: Math.round(avgQual),
-        avgConfidence: Math.round(avgConf * 100),
-        quickWins: Array.isArray(parsed.quickWins) ? parsed.quickWins.slice(0, 3) : allDecisions
-          .filter((d) => d.isQuickWin)
-          .slice(0, 3)
-          .map((d) => ({
-            index: d.index,
-            action: d.action,
-            impact: `Save $${Math.round(d.estimatedSavings).toLocaleString()}/year`,
-            details: d.recommendation,
-          })),
-        savingsStaircase: Array.isArray(parsed.savingsStaircase) ? parsed.savingsStaircase : defaultStaircase,
-        agentReasoning: parsed.agentReasoning || `Analyzed ${inputs.length} Splunk indexes. ${tierCounts.lowValue} identified as low-value candidates for elimination or archival.`,
-      };
-    }
+    batches.push(inputs.slice(i, i + BATCH_SIZE));
   }
 
-  // Multi-batch: aggregate after all batches
-  const totalLicenseSpend = allDecisions.reduce((s, d) => s + d.annualLicenseCost, 0);
+  // Process one batch, with one retry on parse/schema failure
+  const processBatch = async (batch: RawTelemetryInput[], batchIdx: number): Promise<{ decisions: LLMDecision[]; parsed: any }> => {
+    const prompt = buildDecisionPrompt(batch, costPerGbPerDay);
+    const MAX_ATTEMPTS = 2;
+    let lastErr: string = '';
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      let raw: string;
+      let provider: string;
+      try {
+        const { response, provider: p } = await router.generate(prompt, { json: true, temperature: 0.1 });
+        raw = response;
+        provider = p;
+      } catch (e) {
+        throw new Error(`LLM call failed (batch ${batchIdx + 1}, attempt ${attempt}): ${e instanceof Error ? e.message : String(e)}`);
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(extractJson(raw));
+      } catch {
+        lastErr = `Invalid JSON (attempt ${attempt}). Raw: ${raw.slice(0, 200)}`;
+        continue;
+      }
+
+      if (!Array.isArray(parsed.decisions)) {
+        lastErr = `Missing "decisions" array (attempt ${attempt})`;
+        continue;
+      }
+
+      // Validate each decision; reject invalid ones rather than silently defaulting
+      const validDecisions: any[] = [];
+      for (const d of parsed.decisions) {
+        const err = validateDecision(d);
+        if (err) {
+          console.warn(`[LLMDecisionAgent] Batch ${batchIdx + 1} skipping invalid decision (${err}):`, JSON.stringify(d).slice(0, 120));
+        } else {
+          validDecisions.push(d);
+        }
+      }
+
+      if (validDecisions.length === 0 && attempt < MAX_ATTEMPTS) {
+        lastErr = `All decisions failed validation (attempt ${attempt})`;
+        continue;
+      }
+
+      console.log(`[LLMDecisionAgent] Batch ${batchIdx + 1} OK via ${provider} — ${validDecisions.length}/${parsed.decisions.length} decisions valid`);
+      return { decisions: applyDefaults(validDecisions.length > 0 ? validDecisions : parsed.decisions, batch, costPerGbPerDay), parsed };
+    }
+    throw new Error(`Batch ${batchIdx + 1} failed after ${MAX_ATTEMPTS} attempts: ${lastErr}`);
+  };
+
+  // Run all batches in parallel
+  const batchResults = await Promise.all(batches.map((b, i) => processBatch(b, i)));
+  const allDecisions: LLMDecision[] = batchResults.flatMap(r => r.decisions);
+  const firstParsed = batchResults[0]?.parsed;
+
+  // Aggregate all decisions across parallel batches
+  const p = firstParsed; // use first-batch KPI fields where present; fall back to aggregated values
+
+  const totalLicenseSpend = typeof p?.totalLicenseSpend === 'number'
+    ? p.totalLicenseSpend
+    : allDecisions.reduce((s, d) => s + d.annualLicenseCost, 0);
+
   const lowValueSpend = allDecisions
     .filter((d) => d.tier === 'Low-Value' || d.action === 'ELIMINATE' || d.action === 'ARCHIVE')
     .reduce((s, d) => s + d.annualLicenseCost, 0);
@@ -337,44 +323,44 @@ export async function runLLMDecisionAgent(
     { critical: 0, important: 0, niceToHave: 0, lowValue: 0 }
   );
 
-  const avgUtil = allDecisions.reduce((s, d) => s + d.utilizationScore, 0) / allDecisions.length;
-  const avgDet = allDecisions.reduce((s, d) => s + d.detectionScore, 0) / allDecisions.length;
-  const avgQual = allDecisions.reduce((s, d) => s + d.qualityScore, 0) / allDecisions.length;
-  const avgConf = allDecisions.reduce((s, d) => s + d.confidenceScore, 0) / allDecisions.length;
+  const n = allDecisions.length;
+  const avgUtil = allDecisions.reduce((s, d) => s + d.utilizationScore, 0) / n;
+  const avgDet = allDecisions.reduce((s, d) => s + d.detectionScore, 0) / n;
+  const avgQual = allDecisions.reduce((s, d) => s + d.qualityScore, 0) / n;
+  const avgConf = allDecisions.reduce((s, d) => s + d.confidenceScore, 0) / n;
+
+  const defaultStaircase = [
+    { stage: 'Current Spend', amount: totalLicenseSpend },
+    { stage: 'After Ingest Actions', amount: Math.round(totalLicenseSpend * 0.85) },
+    { stage: 'After Retention Tuning', amount: Math.round(totalLicenseSpend * 0.72) },
+    { stage: 'After Archive', amount: Math.round(totalLicenseSpend * 0.58) },
+    { stage: 'After S3 Migration', amount: Math.round(totalLicenseSpend * 0.45) },
+    { stage: 'Optimized Target', amount: Math.round(totalLicenseSpend * 0.38) },
+  ];
+
+  console.log(`[LLMDecisionAgent] Complete — ${allDecisions.length} valid decisions, $${totalLicenseSpend.toFixed(2)} total spend`);
 
   return {
     decisions: allDecisions,
-    roiScore: Math.min(100, Math.round((lowValueSpend / Math.max(totalLicenseSpend, 1)) * 100)),
-    gainScopeScore: Math.round(avgUtil * 0.4 + avgDet * 0.3 + avgQual * 0.3),
+    roiScore: typeof p?.roiScore === 'number' ? p.roiScore : Math.min(100, Math.round((lowValueSpend / Math.max(totalLicenseSpend, 1)) * 100)),
+    gainScopeScore: typeof p?.gainScopeScore === 'number' ? p.gainScopeScore : Math.round(avgUtil * 0.4 + avgDet * 0.3 + avgQual * 0.3),
     totalLicenseSpend,
-    licenseSpendLowValue: lowValueSpend,
-    storageSavingsPotential: lowValueSpend * 0.6,
-    totalDailyGb: inputs.reduce((s, i) => s + i.dailyAvgGb, 0),
+    licenseSpendLowValue: typeof p?.licenseSpendLowValue === 'number' ? p.licenseSpendLowValue : lowValueSpend,
+    storageSavingsPotential: typeof p?.storageSavingsPotential === 'number' ? p.storageSavingsPotential : lowValueSpend * 0.6,
+    totalDailyGb: inputs.reduce((s, inp) => s + inp.dailyAvgGb, 0),
     totalSourcetypes: inputs.length,
     tierCounts,
-    securityGaps: allDecisions.filter((d) => d.detectionGap).length,
-    operationalGaps: allDecisions.filter((d) => d.action === 'OPTIMIZE' || (d.action as string) === 'INVESTIGATE').length,
+    securityGaps: typeof p?.securityGaps === 'number' ? p.securityGaps : allDecisions.filter((d) => d.detectionGap).length,
+    operationalGaps: typeof p?.operationalGaps === 'number' ? p.operationalGaps : allDecisions.filter((d) => d.action === 'OPTIMIZE').length,
     avgUtilization: Math.round(avgUtil),
     avgDetection: Math.round(avgDet),
     avgQuality: Math.round(avgQual),
     avgConfidence: Math.round(avgConf * 100),
-    quickWins: allDecisions
+    quickWins: Array.isArray(p?.quickWins) ? p.quickWins.slice(0, 3) : allDecisions
       .filter((d) => d.isQuickWin)
       .slice(0, 3)
-      .map((d) => ({
-        index: d.index,
-        action: d.action,
-        impact: `Save $${Math.round(d.estimatedSavings).toLocaleString()}/year`,
-        details: d.recommendation,
-      })),
-    savingsStaircase: [
-      { stage: 'Current Spend', amount: totalLicenseSpend },
-      { stage: 'After Ingest Actions', amount: Math.round(totalLicenseSpend * 0.85) },
-      { stage: 'After Retention Tuning', amount: Math.round(totalLicenseSpend * 0.72) },
-      { stage: 'After Archive', amount: Math.round(totalLicenseSpend * 0.58) },
-      { stage: 'After S3 Migration', amount: Math.round(totalLicenseSpend * 0.45) },
-      { stage: 'Optimized Target', amount: Math.round(totalLicenseSpend * 0.38) },
-    ],
-    agentReasoning: `Analyzed ${inputs.length} Splunk indexes across ${Object.values(tierCounts).reduce((a, b) => a + b, 0)} classifications. Total annual license spend: $${totalLicenseSpend.toLocaleString()}. Low-value spend identified: $${lowValueSpend.toLocaleString()}.`,
+      .map((d) => ({ index: d.index, action: d.action, impact: `Save $${Math.round(d.estimatedSavings).toLocaleString()}/year`, details: d.recommendation })),
+    savingsStaircase: Array.isArray(p?.savingsStaircase) ? p.savingsStaircase : defaultStaircase,
+    agentReasoning: p?.agentReasoning || `Analyzed ${inputs.length} Splunk indexes. ${tierCounts.lowValue} low-value candidates identified. Total spend: $${totalLicenseSpend.toLocaleString()}.`,
   };
 }

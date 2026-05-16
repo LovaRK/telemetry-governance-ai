@@ -91,11 +91,14 @@ export interface ExecutiveSummary {
 }
 
 export interface CacheStatus {
-  status: string;
-  isStale: boolean;
+  status: 'fresh' | 'stale' | 'empty' | 'error';
+  hasEverRefreshed: boolean;
+  hasData: boolean;
+  hasAgentDecisions: boolean;
   lastRefreshAt: string | null;
+  nextRefreshAt: string | null;
   recordCount: number;
-  sourceType?: string;
+  message?: string;
 }
 
 export interface FormData {

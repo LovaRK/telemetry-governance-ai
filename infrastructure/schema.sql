@@ -219,6 +219,8 @@ CREATE TABLE IF NOT EXISTS search_audit (
     confidence_score DECIMAL(5,2) DEFAULT 0,
     reason          TEXT,
     status          VARCHAR(30),
+    risk_level      VARCHAR(10) NOT NULL DEFAULT 'MEDIUM',
+    is_unused       BOOLEAN NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_search_audit_date ON search_audit(snapshot_date DESC);

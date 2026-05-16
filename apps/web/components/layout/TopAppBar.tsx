@@ -6,7 +6,8 @@ interface Props {
   cacheStatus?: {
     status: string;
     lastRefreshAt: string | null;
-    isStale: boolean;
+    hasEverRefreshed?: boolean;
+    hasAgentDecisions?: boolean;
     recordCount?: number;
   } | null;
   onRefresh?: () => void;
@@ -55,21 +56,22 @@ export default function TopAppBar({ cacheStatus, onRefresh, loading, hasConfig }
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-        {cacheStatus && (
+        {cacheStatus?.hasEverRefreshed && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem' }}>
             <span style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              background: cacheStatus.isStale ? '#f59e0b' : '#22c55e',
+              width: 8, height: 8, borderRadius: '50%',
+              background: cacheStatus.status === 'stale' ? '#f59e0b' : '#22c55e',
               display: 'inline-block',
             }} />
-            <span style={{ color: cacheStatus.isStale ? '#f59e0b' : '#22c55e' }}>
-              {cacheStatus.isStale ? 'Cache Stale' : 'Cache Fresh'}
+            <span style={{ color: cacheStatus.status === 'stale' ? '#f59e0b' : '#22c55e' }}>
+              {cacheStatus.status === 'stale' ? 'Cache Stale' : 'Cache Fresh'}
             </span>
+            {!cacheStatus.hasAgentDecisions && (
+              <span style={{ color: '#f59e0b', marginLeft: '0.5rem' }}>⚠ No LLM decisions yet</span>
+            )}
             {cacheStatus.lastRefreshAt && (
               <span style={{ color: '#64748b' }}>
-                (updated {new Date(cacheStatus.lastRefreshAt).toLocaleTimeString()})
+                · {new Date(cacheStatus.lastRefreshAt).toLocaleTimeString()}
               </span>
             )}
           </div>

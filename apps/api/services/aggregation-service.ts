@@ -131,16 +131,20 @@ export async function runAggregation(
         );
         for (const s of savedSearches) {
           const isOrphan = s.isScheduled && !s.lastRun;
-          const confidence = isOrphan ? 30 : s.isAlert ? 80 : 60;
+          const isUnused = !s.isScheduled && !s.isAlert && !s.lastRun;
+          const confidence = isOrphan ? 30 : isUnused ? 40 : s.isAlert ? 80 : 60;
           const reason = isOrphan ? 'Scheduled search with no recorded execution'
+            : isUnused ? 'Not scheduled, not an alert, never run'
             : s.isAlert ? 'Active alert'
             : 'Saved search';
+          const riskLevel = isOrphan ? 'HIGH' : isUnused ? 'HIGH' : s.isAlert ? 'LOW' : 'MEDIUM';
+          const status = isOrphan ? 'orphan' : isUnused ? 'unused' : 'active';
           await client.query(
-            `INSERT INTO search_audit (snapshot_date, search_name, search_type, app, schedule, is_scheduled, is_alert, last_run, confidence_score, reason, status)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            `INSERT INTO search_audit (snapshot_date, search_name, search_type, app, schedule, is_scheduled, is_alert, last_run, confidence_score, reason, status, risk_level, is_unused)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
             [today, s.name, s.isAlert ? 'alert' : 'scheduled', s.app, s.schedule,
              s.isScheduled, s.isAlert, s.lastRun, confidence, reason,
-             isOrphan ? 'orphan' : 'active']
+             status, riskLevel, isUnused]
           );
         }
         console.log(`[Aggregation] Search audit: ${savedSearches.length} searches audited.`);

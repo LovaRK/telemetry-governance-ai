@@ -14,9 +14,10 @@ function fmt$(v: number): string {
 interface Props {
   snapshots: SnapshotRow[];
   kpis: ExecutiveKPIs;
+  hasAgentDecisions?: boolean;
 }
 
-export default function AgentIntelligencePanel({ snapshots, kpis }: Props) {
+export default function AgentIntelligencePanel({ snapshots, kpis, hasAgentDecisions = false }: Props) {
   const s3Candidates = snapshots.filter((s) => s.isS3Candidate);
   const detectionGaps = snapshots.filter((s) => s.detectionGap);
   const quickWins = snapshots.filter((s) => s.isQuickWin);
@@ -29,16 +30,18 @@ export default function AgentIntelligencePanel({ snapshots, kpis }: Props) {
         <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', fontWeight: 600 }}>
           🔴 Top Risk Indexes
         </div>
-        {topByRisk.length === 0
-          ? <div style={{ color: '#475569', fontSize: '0.8rem' }}>No data</div>
-          : topByRisk.map((s) => (
-            <div key={s.indexName} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
-              <span style={{ color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>{s.indexName}</span>
-              <span style={{ color: s.riskScore > 70 ? '#ef4444' : s.riskScore > 40 ? '#f59e0b' : '#22c55e', fontWeight: 700 }}>
-                {s.riskScore.toFixed(0)}
-              </span>
-            </div>
-          ))
+        {!hasAgentDecisions
+          ? <div style={{ color: '#475569', fontSize: '0.8rem' }}>⏳ Awaiting LLM decisions</div>
+          : topByRisk.length === 0
+            ? <div style={{ color: '#475569', fontSize: '0.8rem' }}>No data</div>
+            : topByRisk.map((s) => (
+              <div key={s.indexName} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
+                <span style={{ color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>{s.indexName}</span>
+                <span style={{ color: s.riskScore > 70 ? '#ef4444' : s.riskScore > 40 ? '#f59e0b' : '#22c55e', fontWeight: 700 }}>
+                  {s.riskScore.toFixed(0)}
+                </span>
+              </div>
+            ))
         }
       </div>
 

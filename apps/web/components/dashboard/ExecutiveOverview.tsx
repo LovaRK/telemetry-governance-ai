@@ -17,7 +17,7 @@ function fmtGB(v: number): string {
   return `${v.toFixed(1)} GB`;
 }
 
-interface Props { summary: ExecutiveSummary; }
+interface Props { summary: ExecutiveSummary; hasAgentDecisions?: boolean; }
 
 function Gauge({ value, max = 100, label, color }: { value: number; max?: number; label: string; color: string }) {
   const pct = Math.min(value / max, 1);
@@ -144,7 +144,7 @@ const tierColor = (tier: string) =>
   /important/i.test(tier) ? '#f59e0b' :
   /nice/i.test(tier) ? '#3b82f6' : '#64748b';
 
-export default function ExecutiveOverview({ summary }: Props) {
+export default function ExecutiveOverview({ summary, hasAgentDecisions = false }: Props) {
   const { kpis, quickWins, savingsStaircase, agentReasoning, snapshotDate, snapshots } = summary;
 
   const tierTotal = kpis.tierCounts.critical + kpis.tierCounts.important + kpis.tierCounts.niceToHave + kpis.tierCounts.lowValue;
@@ -292,8 +292,17 @@ export default function ExecutiveOverview({ summary }: Props) {
         </div>
       </div>
 
-      {/* Row 2 — Tier Distribution + Score Averages + Agent Actions */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+      {/* Row 2 — Tier Distribution + Score Averages + Agent Actions (requires LLM decisions) */}
+      {!hasAgentDecisions ? (
+        <div style={{ padding: '1.25rem 1.5rem', background: '#1c1008', border: '1px solid #f59e0b40', borderRadius: 12, color: '#f59e0b', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <span style={{ fontSize: '1.25rem' }}>⏳</span>
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: '0.2rem' }}>LLM decisions pending</div>
+            <div style={{ color: '#b45309', fontSize: '0.78rem' }}>Tier classifications, risk scores, agent actions, and recommendations are hidden until the LLM pipeline completes. Run a Splunk refresh to generate decisions.</div>
+          </div>
+        </div>
+      ) : null}
+      <div style={{ display: hasAgentDecisions ? 'grid' : 'none', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
         <div style={card()}>
           <div style={cardTitle}>Tier Distribution <span style={{ color: '#334155' }}>— {tierTotal} indexes</span></div>
           <div style={{ height: 12, borderRadius: 6, overflow: 'hidden', display: 'flex', marginBottom: '1rem' }}>
@@ -346,8 +355,8 @@ export default function ExecutiveOverview({ summary }: Props) {
         </div>
       </div>
 
-      {/* Row 2.5 — D7: Score Profile by Tier */}
-      <div style={card()}>
+      {/* Row 2.5 — D7: Score Profile by Tier (requires LLM decisions) */}
+      <div style={{ ...card(), display: hasAgentDecisions ? undefined : 'none' }}>
         <div style={cardTitle}>Score Profile by Tier</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '1.25rem' }}>
           {tierGroups.map(tg => (

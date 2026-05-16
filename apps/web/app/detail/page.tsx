@@ -10,15 +10,20 @@ export default function DetailPage() {
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasEverRefreshed, setHasEverRefreshed] = useState(false);
+  const [hasAgentDecisions, setHasAgentDecisions] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
       try {
         const statusRes = await fetch('/api/cache-status');
         const statusData = await statusRes.json();
+        const everRefreshed = statusData.hasEverRefreshed ?? false;
+        setHasEverRefreshed(everRefreshed);
+        setHasAgentDecisions(statusData.hasAgentDecisions ?? false);
 
-        if (!statusData.has_data) {
-          setError('No data available. Run a Splunk refresh first.');
+        if (!everRefreshed) {
+          setError('No Splunk refresh has run yet. Connect to Splunk from the main dashboard and run a refresh.');
           setLoading(false);
           return;
         }
@@ -104,44 +109,58 @@ export default function DetailPage() {
 
             {data && (
               <>
-                {/* E3: Sourcing Scoring Table (populated after Splunk refresh) */}
+                {/* E3: LLM Sourcing Scoring Table — gated on agent_decisions */}
                 <Section title="Sourcing Scoring Detail">
-                  <Table
-                    columns={['Index', 'Sourcetype', 'Tier', 'Score', 'Utilization', 'Detection', 'Quality', 'Cost/Year', 'Action']}
-                    rows={data.decisions.slice(0, 20)}
-                    rowKeys={['index_name', 'sourcetype', 'tier', 'composite_score', 'utilization_score', 'detection_score', 'quality_score', 'annual_license_cost', 'action']}
-                  />
+                  {!hasAgentDecisions
+                    ? <PipelineGate label="LLM decisions not yet generated — run a Splunk refresh to populate this table." />
+                    : data.decisions.length === 0
+                      ? <EmptyTable label="No decisions found" />
+                      : <Table
+                          columns={['Index', 'Sourcetype', 'Tier', 'Score', 'Utilization', 'Detection', 'Quality', 'Cost/Year', 'Action']}
+                          rows={data.decisions.slice(0, 20)}
+                          rowKeys={['index_name', 'sourcetype', 'tier', 'composite_score', 'utilization_score', 'detection_score', 'quality_score', 'annual_license_cost', 'action']}
+                        />
+                  }
                 </Section>
 
-                {/* Field Usage Table */}
+                {/* E6: Field Usage — requires Splunk tstats field query */}
                 <Section title="Field Usage Analysis">
-                  <Table
-                    columns={['Sourcetype', 'Fields Indexed', 'Fields Used', 'Optimization %']}
-                    rows={data.fields.slice(0, 20)}
-                    rowKeys={['sourcetype', 'fields_indexed', 'fields_used', 'optimization_pct']}
-                  />
+                  {data.fields.length === 0
+                    ? <PipelineGate label="Populated by field-level Splunk tstats query — not yet implemented in pipeline." />
+                    : <Table
+                        columns={['Sourcetype', 'Fields Indexed', 'Fields Used', 'Optimization %']}
+                        rows={data.fields.slice(0, 20)}
+                        rowKeys={['sourcetype', 'fields_indexed', 'fields_used', 'optimization_pct']}
+                      />
+                  }
                 </Section>
 
-                {/* Security Coverage */}
+                {/* E7: MITRE Security Coverage — requires Splunk mapping */}
                 <Section title="Security Coverage (MITRE)">
-                  <Table
-                    columns={['Sourcetype', 'Coverage %', 'Active Alerts', 'Detection Gaps']}
-                    rows={data.security.slice(0, 20)}
-                    rowKeys={['sourcetype', 'coverage_pct', 'active_alerts', 'detection_gaps']}
-                  />
+                  {data.security.length === 0
+                    ? <PipelineGate label="Populated by MITRE ATT&CK sourcetype mapping — not yet implemented in pipeline." />
+                    : <Table
+                        columns={['Sourcetype', 'Coverage %', 'Active Alerts', 'Detection Gaps']}
+                        rows={data.security.slice(0, 20)}
+                        rowKeys={['sourcetype', 'coverage_pct', 'active_alerts', 'detection_gaps']}
+                      />
+                  }
                 </Section>
 
-                {/* Quality Hotspots */}
+                {/* E4: Data Quality — requires Splunk parse-error query */}
                 <Section title="Data Quality Analysis">
-                  <Table
-                    columns={['Sourcetype', 'Issue Count', 'Quality Score', 'Impact']}
-                    rows={data.quality.slice(0, 20)}
-                    rowKeys={['sourcetype', 'issue_count', 'quality_score', 'estimated_impact']}
-                  />
+                  {data.quality.length === 0
+                    ? <PipelineGate label="Populated by Splunk parse-error and timestamp-skew query — not yet implemented in pipeline." />
+                    : <Table
+                        columns={['Sourcetype', 'Issue Count', 'Quality Score', 'Impact']}
+                        rows={data.quality.slice(0, 20)}
+                        rowKeys={['sourcetype', 'issue_count', 'quality_score', 'estimated_impact']}
+                      />
+                  }
                 </Section>
 
                 {/* E10/E11: Search Audit */}
-                <SearchAudit rows={data.audit} />
+                <SearchAudit rows={data.audit} hasEverRefreshed={hasEverRefreshed} />
               </>
             )}
           </>
@@ -620,20 +639,25 @@ function RetentionOverview({ snapshots }: { snapshots: SnapshotRow[] }) {
 }
 
 // E10/E11: Search Audit
-function SearchAudit({ rows }: { rows: any[] }) {
+function SearchAudit({ rows, hasEverRefreshed }: { rows: any[]; hasEverRefreshed?: boolean }) {
   if (!rows || rows.length === 0) {
     return (
       <div style={{ marginBottom: '2rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
         <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', fontWeight: 600 }}>
           Saved Search &amp; Alert Audit
         </div>
-        <div style={{ color: '#475569', fontSize: '0.875rem' }}>No data — populated on next Splunk refresh</div>
+        <div style={{ color: '#475569', fontSize: '0.875rem' }}>
+          {hasEverRefreshed
+            ? 'No saved searches found in last Splunk refresh.'
+            : 'Connect to Splunk and run a refresh to populate saved search audit data.'}
+        </div>
       </div>
     );
   }
 
   const orphans = rows.filter(r => r.status === 'orphan');
-  const lowConf = rows.filter(r => Number(r.confidence_score) < 50 && r.status !== 'orphan');
+  const unused = rows.filter(r => r.status === 'unused' || r.is_unused);
+  const lowConf = rows.filter(r => Number(r.confidence_score) < 50 && r.status !== 'orphan' && r.status !== 'unused');
   const active = rows.filter(r => r.status === 'active' && Number(r.confidence_score) >= 50);
 
   return (
@@ -641,41 +665,51 @@ function SearchAudit({ rows }: { rows: any[] }) {
       <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', fontWeight: 600 }}>
         Saved Search &amp; Alert Audit — {rows.length} total
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1.5rem' }}>
         <div style={{ padding: '0.875rem', background: '#0a1628', borderRadius: 8, border: '1px solid #ef444430' }}>
           <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#ef4444' }}>{orphans.length}</div>
           <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.25rem' }}>Orphan Searches</div>
         </div>
+        <div style={{ padding: '0.875rem', background: '#0a1628', borderRadius: 8, border: '1px solid #ef444430' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#ef4444' }}>{unused.length}</div>
+          <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.25rem' }}>Unused Searches</div>
+        </div>
         <div style={{ padding: '0.875rem', background: '#0a1628', borderRadius: 8, border: '1px solid #f59e0b30' }}>
           <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f59e0b' }}>{lowConf.length}</div>
-          <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.25rem' }}>Low-Confidence Searches</div>
+          <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.25rem' }}>Low-Confidence</div>
         </div>
         <div style={{ padding: '0.875rem', background: '#0a1628', borderRadius: 8, border: '1px solid #22c55e30' }}>
           <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#22c55e' }}>{active.length}</div>
           <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.25rem' }}>Active Alerts</div>
         </div>
       </div>
-      {orphans.length > 0 && (
+      {(orphans.length > 0 || unused.length > 0) && (
         <>
-          <div style={{ fontSize: '0.65rem', color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', fontWeight: 600 }}>Orphan Searches (no execution history)</div>
+          <div style={{ fontSize: '0.65rem', color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', fontWeight: 600 }}>High-Risk Searches (Orphan / Unused)</div>
           <div style={{ overflowX: 'auto', marginBottom: '1rem' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid #1e293b' }}>
-                  {['Name', 'App', 'Type', 'Schedule'].map(h => (
+                  {['Name', 'App', 'Type', 'Status', 'Risk', 'Reason'].map(h => (
                     <th key={h} style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#64748b', fontWeight: 500 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {orphans.slice(0, 10).map((r, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid #0f172a' }}>
-                    <td style={{ padding: '0.4rem 0.5rem', color: '#f8fafc', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.search_name}</td>
-                    <td style={{ padding: '0.4rem 0.5rem', color: '#94a3b8' }}>{r.app}</td>
-                    <td style={{ padding: '0.4rem 0.5rem', color: '#94a3b8' }}>{r.search_type || '—'}</td>
-                    <td style={{ padding: '0.4rem 0.5rem', color: '#64748b' }}>{r.schedule || '—'}</td>
-                  </tr>
-                ))}
+                {[...orphans, ...unused].slice(0, 15).map((r, i) => {
+                  const rl = (r.risk_level || 'MEDIUM').toUpperCase();
+                  const rlColor = rl === 'HIGH' ? '#ef4444' : rl === 'LOW' ? '#22c55e' : '#f59e0b';
+                  return (
+                    <tr key={i} style={{ borderBottom: '1px solid #0f172a' }}>
+                      <td style={{ padding: '0.4rem 0.5rem', color: '#f8fafc', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.search_name}</td>
+                      <td style={{ padding: '0.4rem 0.5rem', color: '#94a3b8' }}>{r.app}</td>
+                      <td style={{ padding: '0.4rem 0.5rem', color: '#94a3b8' }}>{r.search_type || '—'}</td>
+                      <td style={{ padding: '0.4rem 0.5rem', color: '#64748b', textTransform: 'capitalize' }}>{r.status}</td>
+                      <td style={{ padding: '0.4rem 0.5rem', fontWeight: 700, color: rlColor }}>{rl}</td>
+                      <td style={{ padding: '0.4rem 0.5rem', color: '#64748b', fontSize: '0.72rem' }}>{r.reason || '—'}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -709,6 +743,18 @@ function SearchAudit({ rows }: { rows: any[] }) {
       )}
     </div>
   );
+}
+
+function PipelineGate({ label }: { label: string }) {
+  return (
+    <div style={{ padding: '0.75rem 1rem', background: '#0c1a0c', border: '1px solid #166534', borderRadius: 8, color: '#4ade80', fontSize: '0.8rem' }}>
+      ⏳ {label}
+    </div>
+  );
+}
+
+function EmptyTable({ label }: { label: string }) {
+  return <div style={{ color: '#475569', fontSize: '0.875rem' }}>{label}</div>;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

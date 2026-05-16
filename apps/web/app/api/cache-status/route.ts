@@ -3,51 +3,62 @@ import { query } from '@core/database/connection';
 
 export async function GET() {
   try {
-    // Check if any data exists in the system
-    const countResult = await query(`
-      SELECT COUNT(*) as total FROM telemetry_snapshots
+    // Primary truth: cache_metadata row set by the aggregation pipeline after every refresh
+    const cacheRes = await query(`
+      SELECT last_refresh_at, next_refresh_at, status, record_count
+      FROM cache_metadata
+      WHERE cache_key = 'index_metrics'
+      LIMIT 1
     `);
 
-    const hasData = parseInt(countResult.rows[0]?.total || '0', 10) > 0;
+    const hasEverRefreshed = cacheRes.rows.length > 0 && cacheRes.rows[0].last_refresh_at !== null;
 
-    // Get latest refresh info
-    let lastRefresh = null;
-    let refreshStatus = 'empty';
-
-    if (hasData) {
-      const latestResult = await query(`
-        SELECT MAX(snapshot_date) as latest_date FROM telemetry_snapshots
-      `);
-      lastRefresh = latestResult.rows[0]?.latest_date;
-      refreshStatus = 'fresh';
-    } else {
-      const errorResult = await query(`
-        SELECT error_message FROM refresh_jobs
-        WHERE status = 'failed'
-        ORDER BY created_at DESC
-        LIMIT 1
-      `);
-
-      if (errorResult.rows.length > 0) {
-        refreshStatus = 'failed';
-      }
+    if (!hasEverRefreshed) {
+      return NextResponse.json({
+        hasEverRefreshed: false,
+        hasData: false,
+        hasAgentDecisions: false,
+        status: 'empty',
+        lastRefreshAt: null,
+        nextRefreshAt: null,
+        recordCount: 0,
+        message: 'Connect to Splunk and run a refresh to populate data.',
+      });
     }
 
+    const row = cacheRes.rows[0];
+    const now = new Date();
+    const nextRefresh = row.next_refresh_at ? new Date(row.next_refresh_at) : null;
+    const isStale = nextRefresh ? now > nextRefresh : false;
+    const status = isStale ? 'stale' : (row.status || 'fresh');
+
+    // Check whether LLM decisions exist for the current snapshot
+    const agentRes = await query(`
+      SELECT COUNT(*) AS cnt FROM agent_decisions
+      WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM agent_decisions)
+    `).catch(() => ({ rows: [{ cnt: '0' }] }));
+    const hasAgentDecisions = parseInt(agentRes.rows[0]?.cnt ?? '0', 10) > 0;
+
     return NextResponse.json({
-      has_data: hasData,
-      status: refreshStatus, // 'fresh' | 'failed' | 'empty'
-      last_refresh: lastRefresh,
-      record_count: parseInt(countResult.rows[0]?.total || '0', 10),
-      message: !hasData ? 'No data available. Run refresh from Splunk first.' : 'Dashboard data is ready.'
+      hasEverRefreshed: true,
+      hasData: true,
+      hasAgentDecisions,
+      status,
+      lastRefreshAt: row.last_refresh_at,
+      nextRefreshAt: row.next_refresh_at,
+      recordCount: row.record_count ?? 0,
+      message: isStale ? 'Data may be stale — refresh recommended.' : 'Dashboard data is ready.',
     });
-  } catch (error) {
-    return NextResponse.json(
-      {
-        has_data: false,
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Cache status check failed'
-      },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({
+      hasEverRefreshed: false,
+      hasData: false,
+      hasAgentDecisions: false,
+      status: 'error',
+      lastRefreshAt: null,
+      nextRefreshAt: null,
+      recordCount: 0,
+      message: 'Cache status check failed.',
+    }, { status: 500 });
   }
 }

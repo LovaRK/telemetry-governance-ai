@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { SnapshotRow } from '../../lib/types';
 
-interface Props { snapshots: SnapshotRow[]; }
+interface Props { snapshots: SnapshotRow[]; hasAgentDecisions?: boolean; }
 
 const PAGE_SIZE = 15;
 
@@ -27,7 +27,7 @@ function ScorePip({ value }: { value: number }) {
   return <span style={{ fontWeight: 700, color }}>{value.toFixed(0)}</span>;
 }
 
-export default function SourceIntelligenceGrid({ snapshots }: Props) {
+export default function SourceIntelligenceGrid({ snapshots, hasAgentDecisions = false }: Props) {
   const [sortKey, setSortKey] = useState<string>('compositeScore');
   const [sortDesc, setSortDesc] = useState(true);
   const [filterTier, setFilterTier] = useState('');
@@ -64,6 +64,11 @@ export default function SourceIntelligenceGrid({ snapshots }: Props) {
 
   return (
     <div style={{ padding: '1.5rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
+      {!hasAgentDecisions && (
+        <div style={{ marginBottom: '1rem', padding: '0.625rem 1rem', background: '#1c1008', border: '1px solid #f59e0b40', borderRadius: 8, color: '#f59e0b', fontSize: '0.78rem' }}>
+          ⏳ Tier, Action, Risk, and Recommendation columns are populated by the LLM pipeline — run a Splunk refresh to generate decisions.
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.5rem' }}>
         <h3 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600, color: '#f8fafc', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
           Telemetry Intelligence — {sorted.length} indexes

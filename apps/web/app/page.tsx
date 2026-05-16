@@ -5,18 +5,9 @@ import TopAppBar from '../components/layout/TopAppBar';
 import ExecutiveOverview from '../components/dashboard/ExecutiveOverview';
 import AgentIntelligencePanel from '../components/dashboard/AgentIntelligencePanel';
 import SourceIntelligenceGrid from '../components/dashboard/SourceIntelligenceGrid';
-import EmptyState from '../components/state/EmptyState';
 import { ExecutiveSummary, CacheStatus } from '../lib/types';
 
 type Tab = 'overview' | 'telemetry';
-
-const EMPTY_KPIS = {
-  roiScore: 0, gainScopeScore: 0, totalLicenseSpend: 0, licenseSpendLowValue: 0,
-  storageSavingsPotential: 0, totalDailyGb: 0, totalSourcetypes: 0,
-  tierCounts: { critical: 0, important: 0, niceToHave: 0, lowValue: 0 },
-  securityGaps: 0, operationalGaps: 0,
-  avgUtilization: 0, avgDetection: 0, avgQuality: 0, avgConfidence: 0,
-};
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
@@ -29,23 +20,18 @@ export default function Home() {
 
   const fetchSummary = async () => {
     try {
-      // CRITICAL: Check if data exists first
       const statusRes = await fetch('/api/cache-status');
-      const statusData = await statusRes.json();
+      const statusData: CacheStatus = await statusRes.json();
       setCacheStatus(statusData);
 
-      // If no data, don't try to load dashboard
-      if (!statusData.has_data) {
+      // GATE: only load dashboard if a real Splunk refresh has ever run
+      if (!statusData.hasEverRefreshed) {
         setSummary(null);
         return;
       }
 
-      // Data exists, fetch the actual summary
       const summaryRes = await fetch('/api/executive-summary');
-      if (!summaryRes.ok) {
-        setSummary(null);
-        return;
-      }
+      if (!summaryRes.ok) { setSummary(null); return; }
 
       const data = await summaryRes.json();
       if (data?.snapshots?.length > 0) {
@@ -59,13 +45,10 @@ export default function Home() {
     }
   };
 
-  useEffect(() => {
-    fetchSummary().finally(() => setLoading(false));
-  }, []);
+  useEffect(() => { fetchSummary().finally(() => setLoading(false)); }, []);
 
   const handleRefresh = async () => {
     if (refreshing || !formData.mcp_url || !formData.token) return;
-
     setRefreshing(true);
     setError(null);
     try {
@@ -78,14 +61,12 @@ export default function Home() {
           disableSslVerify: formData.disable_ssl_verify,
         }),
       });
-
       if (!res.ok) {
         const err = await res.json();
         const parts = [err.error, err.reason, err.hint].filter(Boolean);
         setError(parts.join(' — '));
         return;
       }
-
       await fetchSummary();
     } catch (e: any) {
       setError(e.message || 'Refresh failed');
@@ -94,124 +75,120 @@ export default function Home() {
     }
   };
 
-  const hasConfig = !!(formData.mcp_url.trim() && formData.token.trim());
   const hasData = summary !== null && summary.snapshots.length > 0;
+  const hasAgentDecisions = cacheStatus?.hasAgentDecisions ?? false;
+  const isStale = cacheStatus?.status === 'stale';
 
+  // ── Connection screen (no refresh has ever run) ──────────────────────────
+  if (!loading && !cacheStatus?.hasEverRefreshed) {
+    return (
+      <main style={{ minHeight: '100vh', background: '#050a14', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2rem', padding: '2rem' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #2563eb, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff', fontSize: '1.25rem', margin: '0 auto 1rem' }}>d</div>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc', letterSpacing: '-0.02em' }}>datasensAI</div>
+          <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Connect to Splunk to get started</div>
+        </div>
+
+        <div style={{ width: '100%', maxWidth: 540, padding: '2rem', background: '#0f172a', borderRadius: 16, border: '1px solid #1e293b' }}>
+          <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '1.25rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Splunk Connection
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <input type="text" placeholder="Splunk URL (e.g., http://splunk:8089)"
+              value={formData.mcp_url} onChange={(e) => setFormData(p => ({ ...p, mcp_url: e.target.value }))}
+              style={inputStyle} />
+            <input type="password" placeholder="Token"
+              value={formData.token} onChange={(e) => setFormData(p => ({ ...p, token: e.target.value }))}
+              style={inputStyle} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b', fontSize: '0.8rem' }}>
+              <input type="checkbox" checked={formData.disable_ssl_verify}
+                onChange={(e) => setFormData(p => ({ ...p, disable_ssl_verify: e.target.checked }))} />
+              Skip SSL verification
+            </label>
+            {error && (
+              <div style={{ padding: '0.75rem', background: '#7f1d1d20', border: '1px solid #ef444440', borderRadius: 8, color: '#ef4444', fontSize: '0.8rem' }}>
+                {error}
+              </div>
+            )}
+            <button onClick={handleRefresh} disabled={refreshing || !formData.mcp_url || !formData.token}
+              style={{ padding: '0.75rem', background: refreshing ? '#1e293b' : '#3b82f6', color: refreshing ? '#64748b' : '#fff', border: 'none', borderRadius: 8, cursor: refreshing || !formData.mcp_url || !formData.token ? 'not-allowed' : 'pointer', fontSize: '0.875rem', fontWeight: 600, opacity: !formData.mcp_url || !formData.token ? 0.5 : 1 }}>
+              {refreshing ? '⟳ Running LLM pipeline… (up to 5 min)' : '↺ Connect & Refresh'}
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // ── Main app (refresh has run at least once) ─────────────────────────────
   return (
     <main style={{ minHeight: '100vh', background: '#050a14' }}>
-      <TopAppBar
-        cacheStatus={cacheStatus}
-        onRefresh={handleRefresh}
-        loading={refreshing}
-        hasConfig={!!formData.mcp_url && !!formData.token}
-      />
+      <TopAppBar cacheStatus={cacheStatus} onRefresh={handleRefresh} loading={refreshing} hasConfig={!!formData.mcp_url && !!formData.token} />
 
       <div style={{ padding: '1.25rem', maxWidth: 1440, margin: '0 auto' }}>
 
-        {/* Splunk connection — compact bar when configured, full form when not */}
-        {hasConfig ? (
-          <div style={{ marginBottom: '1.5rem', padding: '0.625rem 1rem', background: '#0f172a', borderRadius: 10, border: '1px solid #1e293b', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+        {/* Compact connection bar */}
+        <div style={{ marginBottom: '1.5rem', padding: '0.625rem 1rem', background: '#0f172a', borderRadius: 10, border: '1px solid #1e293b', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+          {formData.mcp_url ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', overflow: 'hidden' }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block', flexShrink: 0 }} />
               <span style={{ fontSize: '0.8rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                Connected — <span style={{ color: '#64748b' }}>{formData.mcp_url}</span>
+                {formData.mcp_url}
               </span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
-              {refreshing && (
-                <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Running LLM pipeline… (up to 5 min)</span>
-              )}
-              <button onClick={handleRefresh} disabled={refreshing}
-                style={{ padding: '0.375rem 0.875rem', background: refreshing ? '#1e293b' : '#3b82f6', color: refreshing ? '#64748b' : '#fff', border: 'none', borderRadius: 6, cursor: refreshing ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                {refreshing ? '⟳ Fetching…' : '↺ Refresh'}
-              </button>
+          ) : (
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flex: 1, flexWrap: 'wrap' }}>
+              <input type="text" placeholder="Splunk URL" value={formData.mcp_url}
+                onChange={(e) => setFormData(p => ({ ...p, mcp_url: e.target.value }))}
+                style={{ ...inputStyle, minWidth: 200 }} />
+              <input type="password" placeholder="Token" value={formData.token}
+                onChange={(e) => setFormData(p => ({ ...p, token: e.target.value }))}
+                style={{ ...inputStyle, maxWidth: 180 }} />
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+            {refreshing && <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Running LLM pipeline…</span>}
+            <button onClick={handleRefresh} disabled={refreshing}
+              style={{ padding: '0.375rem 0.875rem', background: refreshing ? '#1e293b' : '#3b82f6', color: refreshing ? '#64748b' : '#fff', border: 'none', borderRadius: 6, cursor: refreshing ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>
+              {refreshing ? '⟳ Fetching…' : '↺ Refresh'}
+            </button>
+            {formData.mcp_url && (
               <button onClick={() => setFormData({ mcp_url: '', token: '', disable_ssl_verify: true })}
                 style={{ padding: '0.375rem 0.625rem', background: 'transparent', color: '#475569', border: '1px solid #1e293b', borderRadius: 6, cursor: 'pointer', fontSize: '0.75rem' }}>
                 Change
               </button>
-            </div>
-          </div>
-        ) : (
-          <div style={{ marginBottom: '1.5rem', padding: '1.25rem 1.5rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
-            <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '0.875rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Connect to Splunk
-            </div>
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <input type="text" placeholder="Splunk MCP URL (e.g., http://splunk:8089)"
-                value={formData.mcp_url} onChange={(e) => setFormData((p) => ({ ...p, mcp_url: e.target.value }))}
-                style={inputStyle} />
-              <input type="password" placeholder="Token"
-                value={formData.token} onChange={(e) => setFormData((p) => ({ ...p, token: e.target.value }))}
-                style={{ ...inputStyle, maxWidth: 200 }} />
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#64748b', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
-                <input type="checkbox" checked={formData.disable_ssl_verify}
-                  onChange={(e) => setFormData((p) => ({ ...p, disable_ssl_verify: e.target.checked }))} />
-                Skip SSL
-              </label>
-              <button onClick={handleRefresh} disabled={refreshing || !formData.mcp_url || !formData.token}
-                style={{ padding: '0.625rem 1.25rem', background: refreshing ? '#1e293b' : '#3b82f6', color: refreshing ? '#64748b' : '#fff', border: 'none', borderRadius: 8, cursor: refreshing || !formData.mcp_url || !formData.token ? 'not-allowed' : 'pointer', fontSize: '0.875rem', fontWeight: 600, whiteSpace: 'nowrap', opacity: !formData.mcp_url || !formData.token ? 0.5 : 1 }}>
-                {refreshing ? '⟳ Fetching…' : '↺ Connect & Refresh'}
-              </button>
-            </div>
-            {refreshing && (
-              <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#64748b' }}>
-                Running LLM decision pipeline — this may take up to 5 minutes…
-              </div>
             )}
           </div>
+        </div>
+
+        {/* Stale data warning */}
+        {isStale && !error && (
+          <div style={alertStyle('#f59e0b')}>⚠ Data is stale — refresh recommended to get current Splunk signals.</div>
         )}
 
-        {/* Alerts */}
-        {cacheStatus?.isStale && !error && (
+        {/* No LLM decisions warning */}
+        {!hasAgentDecisions && hasData && (
           <div style={alertStyle('#f59e0b')}>
-            ⚠ Data may be stale. Refresh recommended.
-          </div>
-        )}
-        {error && (
-          <div style={alertStyle('#ef4444')}>
-            ✕ {error}
+            ⚠ LLM decisions have not been generated yet. Intelligence sections (tier classifications, risk scores, recommendations) will be hidden until the pipeline completes a full run.
           </div>
         )}
 
-        {/* Loading */}
-        {loading && (
-          <div style={{ textAlign: 'center', padding: '4rem', color: '#475569', fontSize: '0.875rem' }}>
-            Loading data…
-          </div>
-        )}
+        {error && <div style={alertStyle('#ef4444')}>✕ {error}</div>}
 
-        {/* Empty state */}
-        {!loading && !hasData && (
-          <EmptyState onRefresh={handleRefresh} loading={refreshing} />
-        )}
+        {loading && <div style={{ textAlign: 'center', padding: '4rem', color: '#475569', fontSize: '0.875rem' }}>Loading…</div>}
 
-        {/* Dashboard */}
+        {/* Dashboard tabs */}
         {!loading && hasData && summary && (
           <>
-            {/* Header bar */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {(['overview', 'telemetry'] as Tab[]).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    style={{
-                      padding: '0.5rem 1.25rem',
-                      background: activeTab === tab ? '#3b82f6' : 'transparent',
-                      color: activeTab === tab ? '#fff' : '#64748b',
-                      border: activeTab === tab ? 'none' : '1px solid #1e293b',
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.04em',
-                    }}
-                  >
+                  <button key={tab} onClick={() => setActiveTab(tab)}
+                    style={{ padding: '0.5rem 1.25rem', background: activeTab === tab ? '#3b82f6' : 'transparent', color: activeTab === tab ? '#fff' : '#64748b', border: activeTab === tab ? 'none' : '1px solid #1e293b', borderRadius: 8, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                     {tab === 'overview' ? 'Executive Overview' : 'Telemetry Detail'}
                   </button>
                 ))}
-                <a href="/detail" style={{ padding: '0.5rem 1.25rem', background: 'transparent', color: '#334155', border: '1px solid #1e293b', borderRadius: 8, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <a href="/detail" style={{ padding: '0.5rem 1.25rem', background: 'transparent', color: '#334155', border: '1px solid #1e293b', borderRadius: 8, fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                   Enhanced Viz ↗
                 </a>
               </div>
@@ -222,13 +199,13 @@ export default function Home() {
 
             {activeTab === 'overview' && (
               <>
-                <AgentIntelligencePanel snapshots={summary.snapshots} kpis={summary.kpis} />
-                <ExecutiveOverview summary={summary} />
+                <AgentIntelligencePanel snapshots={summary.snapshots} kpis={summary.kpis} hasAgentDecisions={hasAgentDecisions} />
+                <ExecutiveOverview summary={summary} hasAgentDecisions={hasAgentDecisions} />
               </>
             )}
 
             {activeTab === 'telemetry' && (
-              <SourceIntelligenceGrid snapshots={summary.snapshots} />
+              <SourceIntelligenceGrid snapshots={summary.snapshots} hasAgentDecisions={hasAgentDecisions} />
             )}
           </>
         )}
@@ -239,8 +216,8 @@ export default function Home() {
 
 const inputStyle: React.CSSProperties = {
   flex: 1,
-  minWidth: 240,
-  padding: '0.625rem 0.875rem',
+  minWidth: 200,
+  padding: '0.5rem 0.875rem',
   background: '#0a0f1a',
   border: '1px solid #1e293b',
   color: '#f8fafc',
