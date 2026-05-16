@@ -1,4 +1,25 @@
 -- ============================================
+-- DEPRECATED: This file is a SNAPSHOT REFERENCE only
+--
+-- DO NOT USE DIRECTLY FOR NEW DEPLOYMENTS!
+--
+-- Database schema is now managed via versioned migrations:
+--   /infrastructure/migrations/001_init.sql
+--   /infrastructure/migrations/002_executive_kpis.sql
+--   /infrastructure/migrations/003_agent_decisions.sql
+--   /infrastructure/migrations/004_search_audit.sql
+--   /infrastructure/migrations/005_data_quality.sql
+--   /infrastructure/migrations/006_user_config.sql
+--
+-- The migration system (scripts/init-db.js) will automatically:
+-- 1. Create the applied_migrations tracking table
+-- 2. Run all pending migrations in order
+-- 3. Skip migrations already applied
+-- 4. Support rollback and schema evolution
+--
+-- This snapshot is kept for reference and as a quick schema overview.
+-- ============================================
+--
 -- Agentic Telemetry Operating System — PostgreSQL Schema
 -- Production-grade, optimized for time-series + drilldown
 -- ============================================
@@ -160,6 +181,10 @@ CREATE TRIGGER update_executive_kpis_updated_at
     BEFORE UPDATE ON executive_kpis
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_agent_decisions_updated_at
+    BEFORE UPDATE ON agent_decisions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- Migration: add snapshot_id to existing telemetry_snapshots if not present
 DO $$
 BEGIN
@@ -197,11 +222,17 @@ CREATE TABLE IF NOT EXISTS agent_decisions (
     is_quick_win        BOOLEAN DEFAULT FALSE,
     is_s3_candidate     BOOLEAN DEFAULT FALSE,
     detection_gap       BOOLEAN DEFAULT FALSE,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_decisions_date ON agent_decisions(snapshot_date DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_decisions_index ON agent_decisions(index_name);
+
+-- Unique constraint for upsert operations
+ALTER TABLE agent_decisions
+  ADD CONSTRAINT uq_agent_decision_identity
+  UNIQUE (snapshot_id, index_name, sourcetype);
 
 -- ============================================
 -- Search Audit (saved searches + alerts from Splunk REST)

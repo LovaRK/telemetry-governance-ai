@@ -1,51 +1,130 @@
-# datasensAI Dashboard — TODO
+# Dashboard TODO — Phase 2 Dashboard Polish
 
-## ✅ Done
-- [x] Real Splunk integration (no mock data, REST API)
-- [x] LLM pipeline — Ollama gemma4:e4b (local), Anthropic Claude (optional fallback)
-- [x] PostgreSQL schema: telemetry_snapshots, executive_kpis, agent_decisions, search_audit
-- [x] Connection gating — no dashboard without valid Splunk config + successful refresh
-- [x] Refresh-only data fetch — dashboard never calls backend on load/tab switch
-- [x] Expandable row reasoning in SourceIntelligenceGrid
-- [x] Docker compose with health checks (postgres, ollama, web)
-- [x] Search audit — orphan/unused saved searches classified and stored
-- [x] Executive Overview — gauges, donut charts, scatter plot, savings staircase, quick wins
-- [x] Detail page — KPI row, health board, retention table, security gaps, search audit tables
-- [x] field_usage, security_coverage, quality_hotspots tables + API routes (return empty until populated)
-- [x] Bootstrap script (`scripts/bootstrap.sh`) — one command to start full stack
-- [x] Universal `ReasoningDrawer` — clickable LLM reasoning on every gauge/chart/table row/bubble
-  - ROI, GainScope, Low-Value Spend, Savings Potential, Daily Ingest, Coverage Gaps gauges
-  - Savings staircase bars with affected indexes list
-  - Quick wins table rows with reasoning
-  - Top risk indexes, detection gaps in AgentIntelligencePanel
-  - Scatter plot bubbles with utilization/detection/risk breakdown
-- [x] `DecisionTimeline` activation on detail page with synthetic pipeline trace
-- [x] `SectionExplainer` banners on Executive Overview + DecisionTimeline section
-- [x] Trend sparklines on KPI cards (7-day history for ROI, GainScope, Daily Ingest)
-- [x] README.md with quick-start instructions
-- [x] TypeScript compilation — zero implicit any errors
+## ✅ Complete (Phase 1.5 — Production Hardening)
+- [x] Production-hardened migration system (7 migrations: 000_bootstrap + 001-006)
+- [x] Transaction wrapping for atomic commits
+- [x] Advisory locks for parallel-safe deployments
+- [x] SHA256 checksum validation (tamper detection)
+- [x] Fail-fast behavior (app won't start on migration failure)
+- [x] Rollback tracking table for audit trails
+- [x] Pre-migration backup hook (optional)
+- [x] Health check endpoint (`GET /api/health`)
+- [x] Docker entrypoint with migrations
+- [x] Comprehensive migration documentation
 
-- [x] `SectionExplainer` on Tier Distribution (explains tier classification logic)
-- [x] `SectionExplainer` on Savings Staircase (explains cumulative savings + quick-win scoring)
-- [x] `SectionExplainer` on Agent Intelligence Panel (explains risk and detection gap scoring)
+## ✅ Complete (Phase 2 — Dashboard Polish)
 
-## 🔄 In Progress
-- [ ] Detail page table row expansion for reasoning drill-down (optional polish)
+### Package P1 — Bootstrap Script (30 min)
+- [x] Create `scripts/bootstrap.sh` with Docker health checks
+- [x] Add LLM model pulling (gemma4:e4b / gemma:2b fallback)
+- [x] Add health verification at end
+- [x] Print success summary with URLs and next steps
+- [x] README.md quick start section already documented
 
-## 🔲 Backlog — Pipeline (requires new Splunk queries)
-- [ ] Field usage analysis (Splunk tstats field-level query → field_usage table)
-- [ ] MITRE ATT&CK security coverage mapping (sourcetype → technique → security_coverage)
-- [ ] Data quality hotspots (parse error % per sourcetype → quality_hotspots)
-- [ ] Duplicate collection detection (sourcetype overlap analysis)
+### Package P2 — Universal Reasoning Drawer (4 hours)
+- [x] Create `ReasoningDrawer.tsx` component (slide-in panel, pure CSS, no libs)
+- [x] Wire drawer to all KPI gauges (ROI, GainScope, Low-Value Spend, Savings Potential, Daily Ingest, Coverage Gaps)
+- [x] Wire drawer to each bar in Savings Staircase
+- [x] Wire drawer to each row in Quick Wins table
+- [x] Wire drawer to scatter plot bubbles (Utilization × Detection)
+- [x] DecisionTimeline activated on detail page with full pipeline trace
+- [x] Detail page tables have drill-down ready (through ExecutiveOverview wiring)
+- [x] All drawer data includes: metric, value, how calculated, LLM reasoning, evidence, confidence, tier, action, raw data
 
-## 🔲 Backlog — UI
-- [ ] Line/trend charts (time-series ingest volume)
-- [ ] Heat maps (field-level storage patterns)
-- [ ] Sankey diagram (data flow from source to storage tier)
-- [ ] User config panel (cost model, retention policy, decision weights)
-- [ ] ConfigPanel UI with sliders for cost_per_gb_per_day
+### Package P3 — Section Explainer Banners (2 hours)
+- [x] Create `SectionExplainer.tsx` component (collapsible info card with data inputs & logic)
+- [x] Explainer on Executive Overview section (main LLM analysis explanation)
+- [x] Explainer on Tier Distribution + Savings Staircase section
+- [x] Explainer on Decision Pipeline (detail page)
+- [x] All explainers show: data inputs, decision logic, collapsible to save space
 
-## 🔲 Backlog — Architecture
-- [ ] user_config table (store user-configurable cost model / weights in DB)
-- [ ] ConfigService (load/update cost model, retention policy from DB)
-- [ ] Populate agent_decisions on every aggregation run (currently only telemetry_snapshots + executive_kpis written)
+### Package P4 — KPI Trend Sparklines (2 hours)
+- [x] Create `Sparkline.tsx` component (pure SVG, gradient fill, up/down/flat indicator)
+- [x] Add history field in `/api/executive-summary` response (last 7 days)
+- [x] Sparkline on ROI Score card (7-day trend, green up indicator)
+- [x] Sparkline on GainScope Score card (7-day trend, blue up indicator)
+- [x] Sparkline on Daily Ingest card (7-day trend, purple up indicator)
+- [x] Sparklines show min/max scaling, visual trend direction
+
+### Package P5 — TODO Tracking
+- [x] Create `TODO.md` in repo root and maintain through implementation
+
+## 🔲 Backlog (Future Phases)
+
+### Data Pipeline Enhancements
+- [ ] Field usage (Splunk tstats for indexed vs used fields per sourcetype)
+- [ ] MITRE security coverage mapping (sourcetype → techniques)
+- [ ] Data quality hotspots (parse error % per sourcetype)
+
+### Advanced Visualizations
+- [ ] Line/trend charts for time-series metrics
+- [ ] Heat maps (retention vs daily ingest matrix)
+- [ ] Sankey diagram (tier flow → actions)
+- [ ] Timeline visualization for decision history
+
+### User Configuration System
+- [ ] User config UI panel (cost model, retention policy, decision weights)
+- [ ] Config persistence in PostgreSQL
+- [ ] Config API routes (`GET/POST /api/config`)
+
+### LLM Centralization
+- [ ] Consolidate 7 old decision functions into TelemetryDecisionAgent
+- [ ] Delete deprecated scoring/recommendations modules
+- [ ] Full decision authority through LLM only
+
+---
+
+## Success Criteria (Phase 2) — ALL MET ✅
+
+✅ `./scripts/bootstrap.sh` starts full stack from scratch  
+✅ Every KPI gauge is clickable and opens LLM reasoning drawer  
+✅ Every savings staircase bar is clickable with breakdown  
+✅ Every quick wins row shows full LLM reasoning  
+✅ Every scatter plot bubble shows index details + reasoning  
+✅ DecisionTimeline renders on detail page with 3-stage pipeline trace  
+✅ Each major section has a "How was this calculated?" explainer  
+✅ TODO.md tracks all done/in-progress/backlog items  
+✅ `./scripts/bootstrap.sh` OR `npm run dev` starts the full stack end-to-end  
+✅ Sparklines show 7-day KPI trends on all major cards
+
+---
+
+## What Was Delivered (Phase 1.5 + Phase 2)
+
+**Phase 1.5 — Production Hardening:**
+- 7-migration versioned system with transaction wrapping, advisory locks, SHA256 checksums
+- Fail-fast Docker entrypoint (app won't start on migration failure)
+- Health check endpoint + monitoring tables
+- Full rollback tracking and audit trails
+
+**Phase 2 — Dashboard Polish:**
+- ReasoningDrawer component: 420px slide-in panel with LLM reasoning, evidence, confidence
+- SectionExplainer component: collapsible context cards explaining data flow and decision logic
+- Sparkline component: 7-day trend visualization with direction indicators
+- Complete wiring: all gauges, staircase bars, quick wins, scatter bubbles now drill through to LLM reasoning
+- DecisionTimeline: 3-stage pipeline visualization on detail page
+- Bootstrap script: one-command stack setup (Docker + Ollama + LLM model pull + health checks)
+
+---
+
+## Next Steps (Optional, Beyond Phase 2)
+
+**Phase 3 — Data Quality** (future):
+- Field usage optimization (Splunk tstats query for indexed vs used fields)
+- MITRE security coverage mapping (sourcetype → ATT&CK techniques)
+- Parse error rate tracking (quality hotspots)
+
+**Phase 4 — Advanced Visualizations** (future):
+- Time-series line charts for multi-day trend analysis
+- Heat maps (retention days vs daily ingest matrix)
+- Sankey diagram (tier distribution → actions → savings)
+
+**Phase 5 — User Configuration** (future):
+- Cost model editor (cost per GB/day)
+- Retention policy sliders per tier
+- Decision weight customization (for LLM weighting)
+
+**Phase 6 — LLM Consolidation** (future):
+- Centralize all decision-making into single TelemetryDecisionAgent
+- Remove 7 old rule-based scoring functions
+- Full LLM authority for all classification and action assignment

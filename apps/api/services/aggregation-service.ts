@@ -68,7 +68,6 @@ export async function runAggregation(
       retentionDays: m.retentionDays,
       firstEvent: m.firstEvent,
       lastEvent: m.lastEvent,
-      licenseGbPerDay: costPerGbPerDay,
     })),
     ...sourcetypeMetrics.map((m) => ({
       index: m.index,
@@ -83,7 +82,7 @@ export async function runAggregation(
 
   // ── Step 3: LLM agent makes ALL decisions ──────────────────────────────────
   console.log(`[Aggregation] Sending ${allInputs.length} metrics to LLM decision agent...`);
-  const agentSummary = await runLLMDecisionAgent(allInputs, costPerGbPerDay);
+  const agentSummary = await runLLMDecisionAgent(allInputs, userConfig);
   console.log(`[Aggregation] LLM agent completed. ${agentSummary.decisions.length} decisions received.`);
 
   // ── Step 4: Persist decisions to DB ────────────────────────────────────────
@@ -109,6 +108,12 @@ export async function runAggregation(
           const input = allInputs.find(
             (inp) => inp.index === decision.index && (inp.sourcetype || null) === (decision.sourcetype || null)
           );
+          console.log('[Aggregation] Processing decision for:', decision.index, {
+            riskScore: decision.riskScore,
+            confidenceScore: decision.confidenceScore,
+            annualLicenseCost: decision.annualLicenseCost,
+            utilScore: decision.utilizationScore
+          });
           await upsertDecision(client, decision, input, snapshotId, today);
           await upsertAgentDecision(client, decision, snapshotId, today);
           inserted++;
@@ -138,19 +143,17 @@ export async function runAggregation(
         for (const s of savedSearches) {
           const isOrphan = s.isScheduled && !s.lastRun;
           const isUnused = !s.isScheduled && !s.isAlert && !s.lastRun;
-          const confidence = isOrphan ? 30 : isUnused ? 40 : s.isAlert ? 80 : 60;
+          const confidenceScore = isOrphan ? 0.3 : isUnused ? 0.4 : s.isAlert ? 0.8 : 0.6;
           const reason = isOrphan ? 'Scheduled search with no recorded execution'
             : isUnused ? 'Not scheduled, not an alert, never run'
             : s.isAlert ? 'Active alert'
             : 'Saved search';
           const riskLevel = isOrphan ? 'HIGH' : isUnused ? 'HIGH' : s.isAlert ? 'LOW' : 'MEDIUM';
-          const status = isOrphan ? 'orphan' : isUnused ? 'unused' : 'active';
           await client.query(
-            `INSERT INTO search_audit (snapshot_date, search_name, search_type, app, schedule, is_scheduled, is_alert, last_run, confidence_score, reason, status, risk_level, is_unused)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+            `INSERT INTO search_audit (snapshot_date, search_name, search_type, app, schedule, confidence_score, reason, risk_level, is_unused)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
             [today, s.name, s.isAlert ? 'alert' : 'scheduled', s.app, s.schedule,
-             s.isScheduled, s.isAlert, s.lastRun, confidence, reason,
-             status, riskLevel, isUnused]
+             confidenceScore, reason, riskLevel, isUnused]
           );
         }
         console.log(`[Aggregation] Search audit: ${savedSearches.length} searches audited.`);
@@ -169,6 +172,22 @@ export async function runAggregation(
   };
 }
 
+// Sanitize decision fields: ensure all numeric fields are actual numbers (not strings)
+function sanitizeDecision(d: LLMDecision): LLMDecision {
+  return {
+    ...d,
+    confidence: Number(d.confidence) || 0.5,
+    confidenceScore: Number(d.confidenceScore) || 0.5,
+    riskScore: Number(d.riskScore) || 0,
+    utilizationScore: Number(d.utilizationScore) || 0,
+    detectionScore: Number(d.detectionScore) || 0,
+    qualityScore: Number(d.qualityScore) || 0,
+    compositeScore: Number(d.compositeScore) || 0,
+    annualLicenseCost: Number(d.annualLicenseCost) || 0,
+    estimatedSavings: Number(d.estimatedSavings) || 0,
+  };
+}
+
 async function upsertDecision(
   client: PoolClient,
   decision: LLMDecision,
@@ -176,8 +195,11 @@ async function upsertDecision(
   snapshotId: string,
   today: string
 ): Promise<void> {
-  const granularity = decision.sourcetype ? 'sourcetype' : 'index';
-  const parentIndex = decision.sourcetype ? decision.index : null;
+  // Sanitize all numeric fields before insert
+  const clean = sanitizeDecision(decision);
+
+  const granularity = clean.sourcetype ? 'sourcetype' : 'index';
+  const parentIndex = clean.sourcetype ? clean.index : null;
 
   // Map LLM decision action to existing classification enum
   const classificationMap: Record<string, string> = {
@@ -216,36 +238,36 @@ async function upsertDecision(
       today,
       granularity,
       parentIndex,
-      decision.index,
-      decision.sourcetype || null,
+      clean.index,
+      clean.sourcetype || null,
       input?.totalEvents ?? 0,
       input?.dailyAvgGb ?? 0,
       input?.retentionDays ?? 90,
-      decision.utilizationScore,
-      decision.annualLicenseCost,
-      decision.riskScore,
-      classificationMap[decision.action] || 'KEEP',
-      decision.confidenceScore,
-      decision.recommendation,
+      clean.utilizationScore,
+      clean.annualLicenseCost,
+      clean.riskScore,
+      classificationMap[clean.action] || 'KEEP',
+      clean.confidenceScore,
+      clean.recommendation,
       JSON.stringify({
-        ...decision.evidence.map((e) => ({ text: e })),
-        reasoning: decision.reasoning,
-        tier: decision.tier,
-        action: decision.action,
-        confidence: decision.confidence,
-        isQuickWin: decision.isQuickWin,
-        isS3Candidate: decision.isS3Candidate,
-        detectionGap: decision.detectionGap,
-        estimatedSavings: decision.estimatedSavings,
-        compositeScore: decision.compositeScore,
-        utilizationScore: decision.utilizationScore,
-        detectionScore: decision.detectionScore,
-        qualityScore: decision.qualityScore,
+        ...clean.evidence.map((e) => ({ text: e })),
+        reasoning: clean.reasoning,
+        tier: clean.tier,
+        action: clean.action,
+        confidence: clean.confidence,
+        isQuickWin: clean.isQuickWin,
+        isS3Candidate: clean.isS3Candidate,
+        detectionGap: clean.detectionGap,
+        estimatedSavings: clean.estimatedSavings,
+        compositeScore: clean.compositeScore,
+        utilizationScore: clean.utilizationScore,
+        detectionScore: clean.detectionScore,
+        qualityScore: clean.qualityScore,
       }),
       JSON.stringify({
         firstEvent: input?.firstEvent,
         lastEvent: input?.lastEvent,
-        reasoning: decision.reasoning,
+        reasoning: clean.reasoning,
         agentDecision: true,
       }),
     ]
@@ -316,6 +338,9 @@ async function upsertAgentDecision(
   snapshotId: string,
   today: string
 ): Promise<void> {
+  // Sanitize numeric fields
+  const clean = sanitizeDecision(decision);
+
   await client.query(
     `
     INSERT INTO agent_decisions (
@@ -351,25 +376,25 @@ async function upsertAgentDecision(
     [
       snapshotId,
       today,
-      decision.index,
-      decision.sourcetype || null,
-      decision.tier,
-      decision.action,
-      decision.compositeScore,
-      decision.utilizationScore,
-      decision.detectionScore,
-      decision.qualityScore,
-      decision.riskScore,
-      decision.annualLicenseCost,
-      decision.estimatedSavings,
-      decision.confidence,
-      decision.confidenceScore,
-      decision.recommendation,
-      decision.reasoning,
-      JSON.stringify(decision.evidence),
-      decision.isQuickWin,
-      decision.isS3Candidate,
-      decision.detectionGap,
+      clean.index,
+      clean.sourcetype || null,
+      clean.tier,
+      clean.action,
+      clean.compositeScore,
+      clean.utilizationScore,
+      clean.detectionScore,
+      clean.qualityScore,
+      clean.riskScore,
+      clean.annualLicenseCost,
+      clean.estimatedSavings,
+      clean.confidence,
+      clean.confidenceScore,
+      clean.recommendation,
+      clean.reasoning,
+      JSON.stringify(clean.evidence),
+      clean.isQuickWin,
+      clean.isS3Candidate,
+      clean.detectionGap,
     ]
   );
 }

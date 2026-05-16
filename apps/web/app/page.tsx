@@ -14,7 +14,14 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [summary, setSummary] = useState<ExecutiveSummary | null>(null);
-  const [formData, setFormData] = useState({ mcp_url: '', token: '', disable_ssl_verify: true });
+  const [formData, setFormData] = useState({
+    mcp_url: '',
+    authType: 'token' as 'token' | 'basic',
+    token: '',
+    username: '',
+    password: '',
+    disable_ssl_verify: true
+  });
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,18 +57,30 @@ export default function Home() {
   useEffect(() => { fetchSummary().finally(() => setLoading(false)); }, []);
 
   const handleRefresh = async () => {
-    if (refreshing || !formData.mcp_url || !formData.token) return;
+    const hasAuth = formData.authType === 'token'
+      ? formData.token
+      : (formData.username && formData.password);
+
+    if (refreshing || !formData.mcp_url || !hasAuth) return;
     setRefreshing(true);
     setError(null);
     try {
+      const payload: any = {
+        mcpUrl: formData.mcp_url,
+        disableSslVerify: formData.disable_ssl_verify,
+      };
+
+      if (formData.authType === 'token') {
+        payload.token = formData.token;
+      } else {
+        payload.username = formData.username;
+        payload.password = formData.password;
+      }
+
       const res = await fetch('/api/cache', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mcpUrl: formData.mcp_url,
-          token: formData.token,
-          disableSslVerify: formData.disable_ssl_verify,
-        }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -96,12 +115,41 @@ export default function Home() {
             Splunk Connection
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <input type="text" placeholder="Splunk URL (e.g., http://splunk:8089)"
+            <input type="text" placeholder="Splunk URL (e.g., https://splunk.example.com:8089)"
               value={formData.mcp_url} onChange={(e) => setFormData(p => ({ ...p, mcp_url: e.target.value }))}
               style={inputStyle} />
-            <input type="password" placeholder="Token"
-              value={formData.token} onChange={(e) => setFormData(p => ({ ...p, token: e.target.value }))}
-              style={inputStyle} />
+
+            {/* Auth Type Selector */}
+            <div style={{ display: 'flex', gap: '0.5rem', fontSize: '0.8rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: formData.authType === 'token' ? '#3b82f6' : '#64748b', cursor: 'pointer', flex: 1, padding: '0.5rem', background: formData.authType === 'token' ? '#1e293b' : 'transparent', borderRadius: 6, border: '1px solid', borderColor: formData.authType === 'token' ? '#3b82f6' : '#334155' }}>
+                <input type="radio" name="authType" value="token" checked={formData.authType === 'token'} onChange={() => setFormData(p => ({ ...p, authType: 'token' }))} style={{ cursor: 'pointer' }} />
+                Token (Recommended)
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: formData.authType === 'basic' ? '#3b82f6' : '#64748b', cursor: 'pointer', flex: 1, padding: '0.5rem', background: formData.authType === 'basic' ? '#1e293b' : 'transparent', borderRadius: 6, border: '1px solid', borderColor: formData.authType === 'basic' ? '#3b82f6' : '#334155' }}>
+                <input type="radio" name="authType" value="basic" checked={formData.authType === 'basic'} onChange={() => setFormData(p => ({ ...p, authType: 'basic' }))} style={{ cursor: 'pointer' }} />
+                Username & Password
+              </label>
+            </div>
+
+            {/* Token Auth Fields */}
+            {formData.authType === 'token' && (
+              <input type="password" placeholder="Splunk Token"
+                value={formData.token} onChange={(e) => setFormData(p => ({ ...p, token: e.target.value }))}
+                style={inputStyle} />
+            )}
+
+            {/* Basic Auth Fields */}
+            {formData.authType === 'basic' && (
+              <>
+                <input type="text" placeholder="Username"
+                  value={formData.username} onChange={(e) => setFormData(p => ({ ...p, username: e.target.value }))}
+                  style={inputStyle} />
+                <input type="password" placeholder="Password"
+                  value={formData.password} onChange={(e) => setFormData(p => ({ ...p, password: e.target.value }))}
+                  style={inputStyle} />
+              </>
+            )}
+
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b', fontSize: '0.8rem' }}>
               <input type="checkbox" checked={formData.disable_ssl_verify}
                 onChange={(e) => setFormData(p => ({ ...p, disable_ssl_verify: e.target.checked }))} />
@@ -112,8 +160,8 @@ export default function Home() {
                 {error}
               </div>
             )}
-            <button onClick={handleRefresh} disabled={refreshing || !formData.mcp_url || !formData.token}
-              style={{ padding: '0.75rem', background: refreshing ? '#1e293b' : '#3b82f6', color: refreshing ? '#64748b' : '#fff', border: 'none', borderRadius: 8, cursor: refreshing || !formData.mcp_url || !formData.token ? 'not-allowed' : 'pointer', fontSize: '0.875rem', fontWeight: 600, opacity: !formData.mcp_url || !formData.token ? 0.5 : 1 }}>
+            <button onClick={handleRefresh} disabled={refreshing || !formData.mcp_url || (formData.authType === 'token' ? !formData.token : (!formData.username || !formData.password))}
+              style={{ padding: '0.75rem', background: refreshing ? '#1e293b' : '#3b82f6', color: refreshing ? '#64748b' : '#fff', border: 'none', borderRadius: 8, cursor: refreshing || !formData.mcp_url ? 'not-allowed' : 'pointer', fontSize: '0.875rem', fontWeight: 600, opacity: !formData.mcp_url ? 0.5 : 1 }}>
               {refreshing ? '⟳ Running LLM pipeline… (up to 5 min)' : '↺ Connect & Refresh'}
             </button>
           </div>
@@ -137,17 +185,33 @@ export default function Home() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', overflow: 'hidden' }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block', flexShrink: 0 }} />
               <span style={{ fontSize: '0.8rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {formData.mcp_url}
+                {formData.mcp_url} ({formData.authType === 'token' ? 'Token' : 'Basic'})
               </span>
             </div>
           ) : (
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flex: 1, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flex: 1, flexWrap: 'wrap' }}>
               <input type="text" placeholder="Splunk URL" value={formData.mcp_url}
                 onChange={(e) => setFormData(p => ({ ...p, mcp_url: e.target.value }))}
-                style={{ ...inputStyle, minWidth: 200 }} />
-              <input type="password" placeholder="Token" value={formData.token}
-                onChange={(e) => setFormData(p => ({ ...p, token: e.target.value }))}
-                style={{ ...inputStyle, maxWidth: 180 }} />
+                style={{ ...inputStyle, minWidth: 180 }} />
+              <select value={formData.authType} onChange={(e) => setFormData(p => ({ ...p, authType: e.target.value as 'token' | 'basic' }))}
+                style={{ ...inputStyle, maxWidth: 120, padding: '0.5rem 0.625rem' }}>
+                <option value="token">Token</option>
+                <option value="basic">Basic Auth</option>
+              </select>
+              {formData.authType === 'token' ? (
+                <input type="password" placeholder="Token" value={formData.token}
+                  onChange={(e) => setFormData(p => ({ ...p, token: e.target.value }))}
+                  style={{ ...inputStyle, maxWidth: 140 }} />
+              ) : (
+                <>
+                  <input type="text" placeholder="User" value={formData.username}
+                    onChange={(e) => setFormData(p => ({ ...p, username: e.target.value }))}
+                    style={{ ...inputStyle, maxWidth: 100 }} />
+                  <input type="password" placeholder="Pass" value={formData.password}
+                    onChange={(e) => setFormData(p => ({ ...p, password: e.target.value }))}
+                    style={{ ...inputStyle, maxWidth: 100 }} />
+                </>
+              )}
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
@@ -157,7 +221,7 @@ export default function Home() {
               {refreshing ? '⟳ Fetching…' : '↺ Refresh'}
             </button>
             {formData.mcp_url && (
-              <button onClick={() => setFormData({ mcp_url: '', token: '', disable_ssl_verify: true })}
+              <button onClick={() => setFormData({ mcp_url: '', authType: 'token', token: '', username: '', password: '', disable_ssl_verify: true })}
                 style={{ padding: '0.375rem 0.625rem', background: 'transparent', color: '#475569', border: '1px solid #1e293b', borderRadius: 6, cursor: 'pointer', fontSize: '0.75rem' }}>
                 Change
               </button>

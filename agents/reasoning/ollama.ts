@@ -1,5 +1,5 @@
 const OLLAMA_BASE = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const MODEL = 'gemma:2b';
+const MODEL = 'gemma2:9b';
 
 interface OllamaGenerateRequest {
   model: string;
@@ -37,7 +37,7 @@ export class OllamaClient {
         temperature: opts?.temperature ?? 0.1,
         top_p: 0.9,
         num_predict: opts?.maxTokens ?? 4096,
-        num_ctx: 8192,
+        num_ctx: 4096,
       },
     };
 

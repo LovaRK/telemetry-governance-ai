@@ -11,7 +11,8 @@
   "scripts": {
     "dev": "docker-compose -f docker/docker-compose.yml up",
     "build": "docker-compose build",
-    "clean": "docker-compose down -v"
+    "clean": "docker-compose down -v",
+    "migrate": "node scripts/init-db.js"
   },
   "dependencies": {
     "uuid": "^14.0.0"

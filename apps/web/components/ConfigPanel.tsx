@@ -40,8 +40,8 @@ export default function ConfigPanel({ open, onClose }: Props) {
       if (!res.ok) throw new Error('Failed to load config');
       const data = await res.json();
       setConfig(data);
-      setCost(data.costPerGbPerDay);
-      setRetentionDays(data.maxRetentionDays);
+      setCost(parseFloat(data.costPerGbPerDay));
+      setRetentionDays(parseInt(data.maxRetentionDays));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {

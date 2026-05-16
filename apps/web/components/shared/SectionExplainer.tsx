@@ -1,74 +1,161 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 
 interface SectionExplainerProps {
+  title: string;
   summary: string;
   dataInputs?: string[];
   decisionLogic?: string;
-  defaultOpen?: boolean;
+  isCollapsed?: boolean;
 }
 
 export default function SectionExplainer({
+  title,
   summary,
   dataInputs = [],
   decisionLogic,
-  defaultOpen = false,
+  isCollapsed = true,
 }: SectionExplainerProps) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [expanded, setExpanded] = useState(!isCollapsed);
 
   return (
-    <div style={{
-      marginBottom: '1rem', border: '1px solid #1e3a5f', borderRadius: 8,
-      background: '#0a1628', overflow: 'hidden',
-    }}>
+    <div
+      style={{
+        marginBottom: '24px',
+        padding: '16px',
+        backgroundColor: 'rgba(6, 182, 212, 0.05)',
+        border: '1px solid rgba(6, 182, 212, 0.2)',
+        borderRadius: '8px',
+      }}
+    >
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => setExpanded(!expanded)}
         style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem',
-          padding: '0.625rem 1rem', background: 'none', border: 'none',
-          cursor: 'pointer', textAlign: 'left',
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          color: '#06b6d4',
+          fontSize: '14px',
+          fontWeight: 600,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          width: '100%',
         }}
       >
-        <span style={{ fontSize: '0.8rem', color: '#38bdf8' }}>🤖</span>
-        <span style={{ fontSize: '0.75rem', color: '#93c5fd', flex: 1 }}>
-          How was this calculated?
+        <span
+          style={{
+            display: 'inline-block',
+            transition: 'transform 0.2s ease',
+            transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+            fontSize: '12px',
+          }}
+        >
+          ▶
         </span>
-        <span style={{ fontSize: '0.65rem', color: '#475569' }}>{open ? '▲' : '▼'}</span>
+        <span style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          {expanded ? '▼' : '▶'} How {title} is Calculated
+        </span>
       </button>
 
-      {open && (
-        <div style={{ padding: '0 1rem 0.875rem', borderTop: '1px solid #1e293b' }}>
-          <p style={{ margin: '0.75rem 0 0', fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.6 }}>
+      {expanded && (
+        <div
+          style={{
+            marginTop: '12px',
+            paddingTop: '12px',
+            borderTop: '1px solid rgba(6, 182, 212, 0.15)',
+          }}
+        >
+          {/* Summary */}
+          <p
+            style={{
+              margin: '0 0 16px 0',
+              fontSize: '13px',
+              color: '#cbd5e1',
+              lineHeight: '1.6',
+            }}
+          >
             {summary}
           </p>
 
+          {/* Data Inputs */}
           {dataInputs.length > 0 && (
-            <div style={{ marginTop: '0.625rem' }}>
-              <div style={{ fontSize: '0.7rem', color: '#475569', marginBottom: '0.35rem' }}>
-                Data inputs from Splunk:
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
-                {dataInputs.map((inp) => (
-                  <code key={inp} style={{
-                    padding: '0.1rem 0.5rem', background: '#1e293b', borderRadius: 4,
-                    fontSize: '0.7rem', color: '#7dd3fc', fontFamily: 'monospace',
-                  }}>
-                    {inp}
-                  </code>
+            <div style={{ marginBottom: '16px' }}>
+              <h4
+                style={{
+                  margin: '0 0 8px 0',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#94a3b8',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                }}
+              >
+                Data Inputs
+              </h4>
+              <ul
+                style={{
+                  margin: 0,
+                  padding: '0 0 0 20px',
+                  listStyle: 'disc',
+                }}
+              >
+                {dataInputs.map((input, idx) => (
+                  <li
+                    key={idx}
+                    style={{
+                      fontSize: '12px',
+                      color: '#cbd5e1',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    <code
+                      style={{
+                        backgroundColor: 'rgba(15, 23, 42, 0.8)',
+                        padding: '2px 6px',
+                        borderRadius: '3px',
+                        fontFamily: 'monospace',
+                        fontSize: '11px',
+                      }}
+                    >
+                      {input}
+                    </code>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           )}
 
+          {/* Decision Logic */}
           {decisionLogic && (
-            <div style={{
-              marginTop: '0.625rem', padding: '0.5rem 0.75rem',
-              background: '#111827', borderLeft: '2px solid #3b82f6',
-              borderRadius: '0 4px 4px 0', fontSize: '0.75rem',
-              color: '#cbd5e1', lineHeight: 1.55,
-            }}>
-              {decisionLogic}
+            <div>
+              <h4
+                style={{
+                  margin: '0 0 8px 0',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#94a3b8',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                }}
+              >
+                Decision Logic
+              </h4>
+              <div
+                style={{
+                  padding: '8px',
+                  backgroundColor: 'rgba(15, 23, 42, 0.8)',
+                  border: '1px solid rgba(51, 65, 85, 0.3)',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  color: '#cbd5e1',
+                  lineHeight: '1.5',
+                }}
+              >
+                {decisionLogic}
+              </div>
             </div>
           )}
         </div>

@@ -14,6 +14,7 @@
  */
 
 import { LLMRouter } from '../../../agents/reasoning/llm-router';
+import { UserConfig } from '../services/config-service';
 
 export interface RawTelemetryInput {
   index: string;
@@ -23,8 +24,6 @@ export interface RawTelemetryInput {
   retentionDays: number;
   firstEvent: string;
   lastEvent: string;
-  licenseGbPerDay?: number;
-  storageGbPerMonth?: number;
 }
 
 export interface LLMDecision {
@@ -93,7 +92,7 @@ Action definitions:
 - ELIMINATE: Stop ingesting, high cost zero value
 - S3_CANDIDATE: Route to Federated Search / S3, keep queryable but remove from hot tier`;
 
-function buildDecisionPrompt(inputs: RawTelemetryInput[], costPerGbPerDay: number): string {
+function buildDecisionPrompt(inputs: RawTelemetryInput[], config: UserConfig): string {
   const dataJson = JSON.stringify(inputs.map((i) => ({
     index: i.index,
     sourcetype: i.sourcetype || null,
@@ -102,12 +101,19 @@ function buildDecisionPrompt(inputs: RawTelemetryInput[], costPerGbPerDay: numbe
     retention_days: i.retentionDays,
     first_event: i.firstEvent,
     last_event: i.lastEvent,
-    annual_cost_usd: Math.round(i.dailyAvgGb * 365 * costPerGbPerDay * 100) / 100,
+    annual_cost_usd: Math.round(i.dailyAvgGb * 365 * config.costPerGbPerDay * 100) / 100,
   })), null, 2);
+
+  const retentionPolicyStr = Object.entries(config.retentionPolicy || {})
+    .map(([tier, days]) => `${tier}: ${days} days`)
+    .join(', ');
 
   return `${SYSTEM_PROMPT}
 
-COST MODEL: $${costPerGbPerDay}/GB/day license cost
+USER CONFIGURATION:
+- License cost model: $${config.costPerGbPerDay}/GB/day
+- Maximum retention allowed: ${config.maxRetentionDays} days
+- Tier-based retention policy: ${retentionPolicyStr || 'Not configured'}
 
 SPLUNK TELEMETRY DATA:
 ${dataJson}
@@ -209,19 +215,34 @@ function validateDecision(d: any): string | null {
   if (typeof d.index !== 'string' || d.index.trim() === '') return 'missing index';
   if (!VALID_TIERS.has(d.tier)) return `invalid tier: ${d.tier}`;
   if (!VALID_ACTIONS.has(d.action)) return `invalid action: ${d.action}`;
-  if (typeof d.compositeScore !== 'number' || d.compositeScore < 0 || d.compositeScore > 100) return 'invalid compositeScore';
-  if (typeof d.utilizationScore !== 'number' || d.utilizationScore < 0 || d.utilizationScore > 100) return 'invalid utilizationScore';
-  if (typeof d.detectionScore !== 'number' || d.detectionScore < 0 || d.detectionScore > 100) return 'invalid detectionScore';
-  if (typeof d.qualityScore !== 'number' || d.qualityScore < 0 || d.qualityScore > 100) return 'invalid qualityScore';
-  if (typeof d.riskScore !== 'number' || d.riskScore < 0 || d.riskScore > 100) return 'invalid riskScore';
-  if (d.confidenceScore !== undefined && (typeof d.confidenceScore !== 'number' || d.confidenceScore < 0 || d.confidenceScore > 1)) return 'invalid confidenceScore (must be 0-1)';
+
+  // Check all numeric fields
+  const numericFields = [
+    ['compositeScore', 0, 100],
+    ['utilizationScore', 0, 100],
+    ['detectionScore', 0, 100],
+    ['qualityScore', 0, 100],
+    ['riskScore', 0, 100],
+    ['annualLicenseCost', -Infinity, Infinity],
+    ['estimatedSavings', -Infinity, Infinity],
+  ] as const;
+
+  for (const [field, min, max] of numericFields) {
+    if (typeof d[field] !== 'number' || d[field] < min || d[field] > max) {
+      return `invalid ${field}: got ${JSON.stringify(d[field])} (expected number ${min}-${max})`;
+    }
+  }
+
+  if (d.confidenceScore !== undefined && (typeof d.confidenceScore !== 'number' || d.confidenceScore < 0 || d.confidenceScore > 1)) {
+    return `invalid confidenceScore: got ${JSON.stringify(d.confidenceScore)} (expected 0-1)`;
+  }
   return null;
 }
 
-function applyDefaults(decisions: any[], inputs: RawTelemetryInput[], costPerGbPerDay: number): LLMDecision[] {
+function applyDefaults(decisions: any[], inputs: RawTelemetryInput[], config: UserConfig): LLMDecision[] {
   return decisions.map((d: any, i: number) => {
     const input = inputs.find((inp) => inp.index === d.index) || inputs[i];
-    const annualCost = input ? Math.round(input.dailyAvgGb * 365 * costPerGbPerDay * 100) / 100 : 0;
+    const annualCost = input ? Math.round(input.dailyAvgGb * 365 * config.costPerGbPerDay * 100) / 100 : 0;
     return {
       index: d.index || (input?.index ?? `unknown_${i}`),
       sourcetype: d.sourcetype || input?.sourcetype,
@@ -248,7 +269,7 @@ function applyDefaults(decisions: any[], inputs: RawTelemetryInput[], costPerGbP
 
 export async function runLLMDecisionAgent(
   inputs: RawTelemetryInput[],
-  costPerGbPerDay: number = 0.5
+  config: UserConfig
 ): Promise<AgentDecisionSummary> {
   if (inputs.length === 0) {
     throw new Error('No telemetry inputs provided to LLM decision agent');
@@ -273,7 +294,7 @@ export async function runLLMDecisionAgent(
       )
     ]);
 
-  console.log(`[LLMDecisionAgent] Starting reasoning for ${inputs.length} inputs in batches of ${BATCH_SIZE} (parallel)`);
+  console.log(`[LLMDecisionAgent] Starting reasoning for ${inputs.length} inputs in batches of ${BATCH_SIZE} (sequential)`);
 
   // Build all batches up front
   const batches: RawTelemetryInput[][] = [];
@@ -283,7 +304,7 @@ export async function runLLMDecisionAgent(
 
   // Process one batch, with one retry on parse/schema failure
   const processBatch = async (batch: RawTelemetryInput[], batchIdx: number): Promise<{ decisions: LLMDecision[]; parsed: any }> => {
-    const prompt = buildDecisionPrompt(batch, costPerGbPerDay);
+    const prompt = buildDecisionPrompt(batch, config);
     const MAX_ATTEMPTS = 2;
     let lastErr: string = '';
 
@@ -328,13 +349,16 @@ export async function runLLMDecisionAgent(
       }
 
       console.log(`[LLMDecisionAgent] Batch ${batchIdx + 1} OK via ${provider} — ${validDecisions.length}/${parsed.decisions.length} decisions valid`);
-      return { decisions: applyDefaults(validDecisions.length > 0 ? validDecisions : parsed.decisions, batch, costPerGbPerDay), parsed };
+      return { decisions: applyDefaults(validDecisions.length > 0 ? validDecisions : parsed.decisions, batch, config), parsed };
     }
     throw new Error(`Batch ${batchIdx + 1} failed after ${MAX_ATTEMPTS} attempts: ${lastErr}`);
   };
 
-  // Run all batches in parallel
-  const batchResults = await Promise.all(batches.map((b, i) => processBatch(b, i)));
+  // Run batches sequentially (parallel_batches = 1)
+  const batchResults = [];
+  for (let i = 0; i < batches.length; i++) {
+    batchResults.push(await processBatch(batches[i], i));
+  }
   const allDecisions: LLMDecision[] = batchResults.flatMap(r => r.decisions);
   const firstParsed = batchResults[0]?.parsed;
 

@@ -6,64 +6,32 @@ services:
     ports:
       - "3002:3000"
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - DATABASE_URL=postgresql://telemetry:telemetry@postgres:5432/telemetry_os
       - NODE_ENV=development
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
     depends_on:
-      ollama:
-        condition: service_healthy
       postgres:
         condition: service_healthy
-
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_KEEP_ALIVE=24h
-      - OLLAMA_MAX_LOADED_MODELS=1
-      - OLLAMA_NUM_PARALLEL=1
-    deploy:
-      resources:
-        limits:
-          memory: 16G
-          cpus: '8'
-        reservations:
-          memory: 14G
-    shm_size: 4g
-    healthcheck:
-      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   postgres:
     image: postgres:16-alpine
     ports:
       - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./infrastructure/schema.sql/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     environment:
       - POSTGRES_USER=telemetry
       - POSTGRES_PASSWORD=telemetry
       - POSTGRES_DB=telemetry_os
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U telemetry -d telemetry_os"]
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: '2'
 
 volumes:
-  ollama_data:
   postgres_data:

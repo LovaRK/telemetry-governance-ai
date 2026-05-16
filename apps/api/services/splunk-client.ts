@@ -50,15 +50,29 @@ export class SplunkClient {
     return this.config.token
       .trim()
       .replace(/^Authorization:\s*/i, '')
-      .replace(/^(Bearer|Splunk)\s+/i, '')
+      .replace(/^(Bearer|Splunk|Basic)\s+/i, '')
       .trim();
   }
 
-  private getBearerHeader(): string {
+  private getAuthorizationHeader(): string {
+    const normalized = this.config.token.trim();
+    // If token already has auth type prefix (Bearer, Splunk, Basic), use as-is
+    if (/^(Bearer|Splunk|Basic)\s+/i.test(normalized)) {
+      return normalized;
+    }
+    // Otherwise default to Bearer
     return `Bearer ${this.getTokenValue()}`;
   }
 
+  private getBearerHeader(): string {
+    return this.getAuthorizationHeader();
+  }
+
   private getSplunkHeader(): string {
+    const normalized = this.config.token.trim();
+    if (/^Basic\s+/i.test(normalized)) {
+      return normalized; // Preserve Basic auth
+    }
     return `Splunk ${this.getTokenValue()}`;
   }
 
@@ -135,11 +149,15 @@ export class SplunkClient {
   async healthCheckFast(): Promise<{ success: boolean; latencyMs: number; error?: string }> {
     const start = Date.now();
     try {
+      const authHeader = this.getBearerHeader();
+      console.log('[SplunkClient.healthCheck] Token:', this.config.token);
+      console.log('[SplunkClient.healthCheck] Auth header:', authHeader);
       const res = await this.requestText(
         `${this.getRestBaseUrl()}/services/server/info?output_mode=json`,
         'GET',
-        { 'Authorization': this.getBearerHeader() }
+        { 'Authorization': authHeader }
       );
+      console.log('[SplunkClient.healthCheck] Response status:', res.status);
       if (!res.ok) {
         const hint =
           res.status === 401 ? 'Invalid or expired token' :

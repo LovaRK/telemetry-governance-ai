@@ -23,29 +23,12 @@ export class LLMRouter {
   }
 
   async generate(prompt: string, opts?: LLMRouterOpts): Promise<{ response: string; provider: LLMProvider }> {
-    // Try local Ollama first
-    const ollamaHealthy = await this.ollama.isHealthy();
-    if (ollamaHealthy) {
-      try {
-        const response = await this.ollama.generate(prompt, opts);
-        return { response, provider: 'ollama' };
-      } catch (e) {
-        console.warn(`[LLMRouter] Ollama generation failed, attempting Anthropic fallback: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    } else {
-      console.warn('[LLMRouter] Ollama is not healthy, attempting Anthropic fallback');
-    }
-
-    // Fallback to Anthropic
-    if (!this.anthropic) {
-      throw new Error('No LLM available: Ollama is down and ANTHROPIC_API_KEY is not configured. Dashboard unavailable.');
-    }
-
+    // Ollama only — no fallback, no switching
     try {
-      const response = await this.anthropic.generate(prompt, opts);
-      return { response, provider: 'anthropic' };
+      const response = await this.ollama.generate(prompt, opts);
+      return { response, provider: 'ollama' };
     } catch (e) {
-      throw new Error(`All LLM providers failed: ${e instanceof Error ? e.message : String(e)}`);
+      throw new Error(`Inference unavailable: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

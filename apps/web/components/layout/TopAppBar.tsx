@@ -107,26 +107,27 @@ export default function TopAppBar({ cacheStatus, onRefresh, onOpenConfig, loadin
           </div>
         )}
 
-        {onOpenConfig && (
-          <button
-            onClick={onOpenConfig}
-            style={{
-              padding: '0.5rem 1rem',
-              background: '#1e293b',
-              color: '#94a3b8',
-              border: '1px solid #334155',
-              borderRadius: '6px',
-              fontSize: '0.8125rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-            }}
-          >
-            ⚙ Config
-          </button>
-        )}
+        <button
+          onClick={() => {
+            console.log('CONFIG CLICK', onOpenConfig);
+            if (onOpenConfig) onOpenConfig();
+          }}
+          style={{
+            padding: '0.5rem 1rem',
+            background: '#1e293b',
+            color: '#94a3b8',
+            border: '1px solid #334155',
+            borderRadius: '6px',
+            fontSize: '0.8125rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          ⚙ Config
+        </button>
       </div>
     </header>
   );

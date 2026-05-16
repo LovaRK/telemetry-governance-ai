@@ -39,11 +39,26 @@ export async function POST(request: NextRequest) {
   const started = Date.now();
   try {
     const body = await request.json();
-    if (!body?.mcpUrl || !body?.token) {
-      return NextResponse.json({ error: 'mcpUrl and token are required' }, { status: 400 });
+    if (!body?.mcpUrl) {
+      return NextResponse.json({ error: 'mcpUrl is required' }, { status: 400 });
     }
 
-    const { mcpUrl, token, disableSslVerify = false, costPerGbPerDay = 0.5 } = body;
+    // Auth priority: token > username/password
+    let authToken = body.token;
+    if (!authToken && body.username && body.password) {
+      // Fallback to Basic Auth if token not provided
+      const credentials = Buffer.from(`${body.username}:${body.password}`).toString('base64');
+      authToken = `Basic ${credentials}`;
+    }
+
+    if (!authToken) {
+      return NextResponse.json(
+        { error: 'Authentication required', hint: 'Provide token OR (username + password)' },
+        { status: 400 }
+      );
+    }
+
+    const { mcpUrl, disableSslVerify = false, costPerGbPerDay = 0.5 } = body;
     const cacheKey = 'index_metrics';
 
     const alreadyRunning = await isRefreshing(cacheKey);
@@ -56,7 +71,7 @@ export async function POST(request: NextRequest) {
 
     await setCacheRefreshing(cacheKey);
 
-    const splunk = new SplunkClient({ mcpUrl, token, allowInsecureTls: !!disableSslVerify });
+    const splunk = new SplunkClient({ mcpUrl, token: authToken, allowInsecureTls: !!disableSslVerify });
 
     const health = await splunk.healthCheckFast();
     if (!health.success) {
