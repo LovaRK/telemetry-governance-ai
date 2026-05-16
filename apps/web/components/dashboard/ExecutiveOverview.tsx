@@ -202,6 +202,39 @@ export default function ExecutiveOverview({ summary }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
+      {/* D1 — Headline big numbers */}
+      <div style={{ display: 'flex', gap: '2rem', alignItems: 'center', padding: '1rem 1.5rem', background: '#0a1628', borderRadius: 10, border: '1px solid #1e293b', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', lineHeight: 1 }}>{fmtGB(kpis.totalDailyGb)}</div>
+          <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '0.25rem' }}>Daily Ingest</div>
+        </div>
+        <div style={{ color: '#1e293b', fontSize: '1.5rem', fontWeight: 300 }}>·</div>
+        <div>
+          <div style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', lineHeight: 1 }}>{kpis.totalSourcetypes}</div>
+          <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '0.25rem' }}>Indexes</div>
+        </div>
+        <div style={{ color: '#1e293b', fontSize: '1.5rem', fontWeight: 300 }}>·</div>
+        <div>
+          <div style={{ fontSize: '2.25rem', fontWeight: 800, color: '#f8fafc', lineHeight: 1 }}>{fmt$(kpis.totalLicenseSpend)}</div>
+          <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '0.25rem' }}>Annual Spend</div>
+        </div>
+        <div style={{ color: '#1e293b', fontSize: '1.5rem', fontWeight: 300 }}>·</div>
+        <div>
+          <div style={{ fontSize: '2.25rem', fontWeight: 800, color: '#22c55e', lineHeight: 1 }}>{fmt$(kpis.storageSavingsPotential)}</div>
+          <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '0.25rem' }}>Savings Potential</div>
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '1.5rem' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: kpis.securityGaps > 0 ? '#ef4444' : '#22c55e' }}>{kpis.securityGaps}</div>
+            <div style={{ fontSize: '0.6rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sec. Gaps</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: kpis.operationalGaps > 0 ? '#f59e0b' : '#22c55e' }}>{kpis.operationalGaps}</div>
+            <div style={{ fontSize: '0.6rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Ops Gaps</div>
+          </div>
+        </div>
+      </div>
+
       {/* Row 1 — Gauges + KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr', gap: '1rem' }}>
         <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>

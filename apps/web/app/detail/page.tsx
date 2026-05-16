@@ -84,6 +84,9 @@ export default function DetailPage() {
             {/* E2: Sourcetype Health Board */}
             {snapshots.length > 0 && <HealthBoard snapshots={snapshots} />}
 
+            {/* E14: Duplicate Collection Detection */}
+            {snapshots.length > 0 && <DuplicateCollection snapshots={snapshots} />}
+
             {/* E7/E8: Security Detection Gaps */}
             {snapshots.length > 0 && <SecurityGaps snapshots={snapshots} />}
 
@@ -228,6 +231,45 @@ function HealthBoard({ snapshots }: { snapshots: SnapshotRow[] }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// E14: Duplicate Collection Detection
+function DuplicateCollection({ snapshots }: { snapshots: SnapshotRow[] }) {
+  // Find sourcetypes that appear in more than one index
+  const sourcetypeMap = new Map<string, SnapshotRow[]>();
+  for (const s of snapshots) {
+    if (!s.sourcetype) continue;
+    const key = s.sourcetype.toLowerCase();
+    if (!sourcetypeMap.has(key)) sourcetypeMap.set(key, []);
+    sourcetypeMap.get(key)!.push(s);
+  }
+
+  const duplicates = Array.from(sourcetypeMap.entries())
+    .filter(([, rows]) => rows.length > 1)
+    .map(([sourcetype, rows]) => ({ sourcetype, indexes: rows.map(r => r.indexName), count: rows.length }));
+
+  if (duplicates.length === 0) return null;
+
+  return (
+    <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #f59e0b30' }}>
+      <div style={{ fontSize: '0.7rem', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', fontWeight: 600 }}>
+        Duplicate Collection Detected — {duplicates.length} sourcetypes in multiple indexes
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem' }}>
+        {duplicates.map((d) => (
+          <div key={d.sourcetype} style={{ padding: '0.875rem', background: '#0a1628', borderRadius: 8, border: '1px solid #f59e0b20' }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#f8fafc', marginBottom: '0.4rem' }}>{d.sourcetype}</div>
+            <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '0.4rem' }}>Found in {d.count} indexes:</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+              {d.indexes.map(idx => (
+                <span key={idx} style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: 3, background: '#1e293b', color: '#94a3b8' }}>{idx}</span>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
