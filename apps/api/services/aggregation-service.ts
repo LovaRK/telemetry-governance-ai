@@ -120,6 +120,34 @@ export async function runAggregation(
 
     // Update cache metadata
     await updateCacheMetadata(client, 'index_metrics', inserted);
+
+    // Search audit (non-critical — log errors, don't fail the pipeline)
+    try {
+      const savedSearches = await splunk.getSavedSearches();
+      if (savedSearches.length > 0) {
+        await client.query(`DELETE FROM search_audit WHERE snapshot_date = $1`, [today]);
+        const archivedIndexes = new Set(
+          decisions.filter(d => d.action === 'ARCHIVE' || d.action === 'ELIMINATE').map(d => d.index)
+        );
+        for (const s of savedSearches) {
+          const isOrphan = s.isScheduled && !s.lastRun;
+          const confidence = isOrphan ? 30 : s.isAlert ? 80 : 60;
+          const reason = isOrphan ? 'Scheduled search with no recorded execution'
+            : s.isAlert ? 'Active alert'
+            : 'Saved search';
+          await client.query(
+            `INSERT INTO search_audit (snapshot_date, search_name, search_type, app, schedule, is_scheduled, is_alert, last_run, confidence_score, reason, status)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            [today, s.name, s.isAlert ? 'alert' : 'scheduled', s.app, s.schedule,
+             s.isScheduled, s.isAlert, s.lastRun, confidence, reason,
+             isOrphan ? 'orphan' : 'active']
+          );
+        }
+        console.log(`[Aggregation] Search audit: ${savedSearches.length} searches audited.`);
+      }
+    } catch (e) {
+      console.warn('[Aggregation] Search audit skipped (non-fatal):', e instanceof Error ? e.message : e);
+    }
   });
 
   return {

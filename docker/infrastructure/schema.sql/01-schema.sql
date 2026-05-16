@@ -202,3 +202,23 @@ CREATE TABLE IF NOT EXISTS agent_decisions (
 
 CREATE INDEX IF NOT EXISTS idx_agent_decisions_date ON agent_decisions(snapshot_date DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_decisions_index ON agent_decisions(index_name);
+
+-- ============================================
+-- Search Audit (saved searches + alerts from Splunk REST)
+-- ============================================
+CREATE TABLE IF NOT EXISTS search_audit (
+    id              SERIAL PRIMARY KEY,
+    snapshot_date   DATE NOT NULL,
+    search_name     VARCHAR(500) NOT NULL,
+    search_type     VARCHAR(50),
+    app             VARCHAR(200),
+    schedule        VARCHAR(200),
+    is_scheduled    BOOLEAN DEFAULT FALSE,
+    is_alert        BOOLEAN DEFAULT FALSE,
+    last_run        TIMESTAMPTZ,
+    confidence_score DECIMAL(5,2) DEFAULT 0,
+    reason          TEXT,
+    status          VARCHAR(30),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_search_audit_date ON search_audit(snapshot_date DESC);

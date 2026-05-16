@@ -137,14 +137,8 @@ export default function DetailPage() {
                   />
                 </Section>
 
-                {/* Search Audit */}
-                <Section title="Search Audit">
-                  <Table
-                    columns={['Search Name', 'Type', 'App', 'Confidence', 'Reason']}
-                    rows={data.audit.slice(0, 20)}
-                    rowKeys={['search_name', 'search_type', 'app', 'confidence_score', 'reason']}
-                  />
-                </Section>
+                {/* E10/E11: Search Audit */}
+                <SearchAudit rows={data.audit} />
               </>
             )}
           </>
@@ -579,6 +573,98 @@ function RetentionOverview({ snapshots }: { snapshots: SnapshotRow[] }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// E10/E11: Search Audit
+function SearchAudit({ rows }: { rows: any[] }) {
+  if (!rows || rows.length === 0) {
+    return (
+      <div style={{ marginBottom: '2rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
+        <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', fontWeight: 600 }}>
+          Saved Search &amp; Alert Audit
+        </div>
+        <div style={{ color: '#475569', fontSize: '0.875rem' }}>No data — populated on next Splunk refresh</div>
+      </div>
+    );
+  }
+
+  const orphans = rows.filter(r => r.status === 'orphan');
+  const lowConf = rows.filter(r => Number(r.confidence_score) < 50 && r.status !== 'orphan');
+  const active = rows.filter(r => r.status === 'active' && Number(r.confidence_score) >= 50);
+
+  return (
+    <div style={{ marginBottom: '2rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
+      <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', fontWeight: 600 }}>
+        Saved Search &amp; Alert Audit — {rows.length} total
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem', marginBottom: '1.5rem' }}>
+        <div style={{ padding: '0.875rem', background: '#0a1628', borderRadius: 8, border: '1px solid #ef444430' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#ef4444' }}>{orphans.length}</div>
+          <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.25rem' }}>Orphan Searches</div>
+        </div>
+        <div style={{ padding: '0.875rem', background: '#0a1628', borderRadius: 8, border: '1px solid #f59e0b30' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f59e0b' }}>{lowConf.length}</div>
+          <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.25rem' }}>Low-Confidence Searches</div>
+        </div>
+        <div style={{ padding: '0.875rem', background: '#0a1628', borderRadius: 8, border: '1px solid #22c55e30' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#22c55e' }}>{active.length}</div>
+          <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.25rem' }}>Active Alerts</div>
+        </div>
+      </div>
+      {orphans.length > 0 && (
+        <>
+          <div style={{ fontSize: '0.65rem', color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', fontWeight: 600 }}>Orphan Searches (no execution history)</div>
+          <div style={{ overflowX: 'auto', marginBottom: '1rem' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #1e293b' }}>
+                  {['Name', 'App', 'Type', 'Schedule'].map(h => (
+                    <th key={h} style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#64748b', fontWeight: 500 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {orphans.slice(0, 10).map((r, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #0f172a' }}>
+                    <td style={{ padding: '0.4rem 0.5rem', color: '#f8fafc', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.search_name}</td>
+                    <td style={{ padding: '0.4rem 0.5rem', color: '#94a3b8' }}>{r.app}</td>
+                    <td style={{ padding: '0.4rem 0.5rem', color: '#94a3b8' }}>{r.search_type || '—'}</td>
+                    <td style={{ padding: '0.4rem 0.5rem', color: '#64748b' }}>{r.schedule || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {lowConf.length > 0 && (
+        <>
+          <div style={{ fontSize: '0.65rem', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', fontWeight: 600 }}>Low-Confidence / Unresolved Searches</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #1e293b' }}>
+                  {['Name', 'App', 'Confidence', 'Reason'].map(h => (
+                    <th key={h} style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#64748b', fontWeight: 500 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {lowConf.slice(0, 10).map((r, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #0f172a' }}>
+                    <td style={{ padding: '0.4rem 0.5rem', color: '#f8fafc', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.search_name}</td>
+                    <td style={{ padding: '0.4rem 0.5rem', color: '#94a3b8' }}>{r.app}</td>
+                    <td style={{ padding: '0.4rem 0.5rem', color: '#f59e0b', fontWeight: 700 }}>{Number(r.confidence_score).toFixed(0)}%</td>
+                    <td style={{ padding: '0.4rem 0.5rem', color: '#64748b', fontSize: '0.72rem' }}>{r.reason || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

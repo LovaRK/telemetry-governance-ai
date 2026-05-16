@@ -242,6 +242,48 @@ export class SplunkClient {
     }, 'getBatchSourcetypeMetrics');
   }
 
+  /**
+   * Fetch all saved searches and alerts via Splunk REST.
+   * Returns lightweight objects with name, app, schedule, and last run info.
+   */
+  async getSavedSearches(): Promise<Array<{
+    name: string;
+    app: string;
+    isScheduled: boolean;
+    isAlert: boolean;
+    schedule: string;
+    lastRun: string | null;
+    disabled: boolean;
+  }>> {
+    return this.withRetry(async () => {
+      const res = await this.requestText(
+        `${this.getRestBaseUrl()}/servicesNS/-/-/saved/searches?output_mode=json&count=500&search=disabled%3D0`,
+        'GET',
+        { 'Authorization': this.getBearerHeader() }
+      );
+
+      if (!res.ok) {
+        if (res.status === 401) throw new Error('Splunk auth failed (401)');
+        if (res.status === 403) throw new Error('Splunk access denied (403)');
+        throw new Error(`Saved searches failed: HTTP ${res.status}`);
+      }
+
+      const data = JSON.parse(res.text);
+      return (data.entry || []).map((e: any) => {
+        const c = e.content || {};
+        return {
+          name: e.name || '',
+          app: e.acl?.app || 'unknown',
+          isScheduled: c['is_scheduled'] === '1' || c['is_scheduled'] === true,
+          isAlert: !!(c['alert_type'] && c['alert_type'] !== 'always'),
+          schedule: c['cron_schedule'] || '',
+          lastRun: c['next_scheduled_time'] || null,
+          disabled: c['disabled'] === '1' || c['disabled'] === true,
+        };
+      });
+    }, 'getSavedSearches');
+  }
+
   private async runSearchJob(spl: string): Promise<any[]> {
     const body = new URLSearchParams({
       search: spl.trim(),
