@@ -123,41 +123,38 @@ export default function DetailPage() {
                   }
                 </Section>
 
-                {/* E6: Field Usage — requires Splunk tstats field query */}
-                <Section title="Field Usage Analysis">
-                  {data.fields.length === 0
-                    ? <PipelineGate label="Populated by field-level Splunk tstats query — not yet implemented in pipeline." />
-                    : <Table
-                        columns={['Sourcetype', 'Fields Indexed', 'Fields Used', 'Optimization %']}
-                        rows={data.fields.slice(0, 20)}
-                        rowKeys={['sourcetype', 'fields_indexed', 'fields_used', 'optimization_pct']}
-                      />
-                  }
-                </Section>
+                {/* E6: Field Usage — requires Splunk tstats field query — hidden until implemented */}
+                {data.fields.length > 0 && (
+                  <Section title="Field Usage Analysis">
+                    <Table
+                      columns={['Sourcetype', 'Fields Indexed', 'Fields Used', 'Optimization %']}
+                      rows={data.fields.slice(0, 20)}
+                      rowKeys={['sourcetype', 'fields_indexed', 'fields_used', 'optimization_pct']}
+                    />
+                  </Section>
+                )}
 
-                {/* E7: MITRE Security Coverage — requires Splunk mapping */}
-                <Section title="Security Coverage (MITRE)">
-                  {data.security.length === 0
-                    ? <PipelineGate label="Populated by MITRE ATT&CK sourcetype mapping — not yet implemented in pipeline." />
-                    : <Table
-                        columns={['Sourcetype', 'Coverage %', 'Active Alerts', 'Detection Gaps']}
-                        rows={data.security.slice(0, 20)}
-                        rowKeys={['sourcetype', 'coverage_pct', 'active_alerts', 'detection_gaps']}
-                      />
-                  }
-                </Section>
+                {/* E7: MITRE Security Coverage — requires Splunk mapping — hidden until implemented */}
+                {data.security.length > 0 && (
+                  <Section title="Security Coverage (MITRE)">
+                    <Table
+                      columns={['Sourcetype', 'Coverage %', 'Active Alerts', 'Detection Gaps']}
+                      rows={data.security.slice(0, 20)}
+                      rowKeys={['sourcetype', 'coverage_pct', 'active_alerts', 'detection_gaps']}
+                    />
+                  </Section>
+                )}
 
-                {/* E4: Data Quality — requires Splunk parse-error query */}
-                <Section title="Data Quality Analysis">
-                  {data.quality.length === 0
-                    ? <PipelineGate label="Populated by Splunk parse-error and timestamp-skew query — not yet implemented in pipeline." />
-                    : <Table
-                        columns={['Sourcetype', 'Issue Count', 'Quality Score', 'Impact']}
-                        rows={data.quality.slice(0, 20)}
-                        rowKeys={['sourcetype', 'issue_count', 'quality_score', 'estimated_impact']}
-                      />
-                  }
-                </Section>
+                {/* E4: Data Quality — requires Splunk parse-error query — hidden until implemented */}
+                {data.quality.length > 0 && (
+                  <Section title="Data Quality Analysis">
+                    <Table
+                      columns={['Sourcetype', 'Issue Count', 'Quality Score', 'Impact']}
+                      rows={data.quality.slice(0, 20)}
+                      rowKeys={['sourcetype', 'issue_count', 'quality_score', 'estimated_impact']}
+                    />
+                  </Section>
+                )}
 
                 {/* E10/E11: Search Audit */}
                 <SearchAudit rows={data.audit} hasEverRefreshed={hasEverRefreshed} />
