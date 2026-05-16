@@ -84,6 +84,15 @@ export default function DetailPage() {
             {/* E2: Sourcetype Health Board */}
             {snapshots.length > 0 && <HealthBoard snapshots={snapshots} />}
 
+            {/* E7/E8: Security Detection Gaps */}
+            {snapshots.length > 0 && <SecurityGaps snapshots={snapshots} />}
+
+            {/* E4/E5: Data Quality Hotspots */}
+            {snapshots.length > 0 && <QualityHotspots snapshots={snapshots} />}
+
+            {/* E9: Operational Coverage */}
+            {snapshots.length > 0 && <OperationalCoverage snapshots={snapshots} />}
+
             {/* E16: Under-Utilized Sourcetypes */}
             {snapshots.length > 0 && <UnderUtilized snapshots={snapshots} />}
 
@@ -225,6 +234,223 @@ function HealthBoard({ snapshots }: { snapshots: SnapshotRow[] }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// E7/E8: Security Detection Gaps
+function SecurityGaps({ snapshots }: { snapshots: SnapshotRow[] }) {
+  const gaps = snapshots.filter((s) => s.detectionGap || s.detectionScore < 50);
+  const TIER_COLORS: Record<string, string> = {
+    Critical: '#ef4444', Important: '#f59e0b', 'Nice-to-Have': '#3b82f6', 'Low Value': '#64748b',
+  };
+
+  if (gaps.length === 0) {
+    return (
+      <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
+        <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', fontWeight: 600 }}>Security Detection Gaps</div>
+        <div style={{ color: '#22c55e', fontSize: '0.875rem' }}>✓ No security detection gaps identified</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #ef444430' }}>
+      <div style={{ fontSize: '0.7rem', color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', fontWeight: 600 }}>
+        Security Detection Gaps — {gaps.length} indexes at risk
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid #1e293b' }}>
+              {['Index', 'Tier', 'Detection Score', 'Detection Gap', 'Action', 'Recommendation'].map((h) => (
+                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {gaps.map((s) => {
+              const tierColor = TIER_COLORS[s.tier] || '#64748b';
+              return (
+                <tr key={s.indexName} style={{ borderBottom: '1px solid #0f172a' }}>
+                  <td style={{ padding: '0.5rem 0.75rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <span style={{ padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', background: `${tierColor}20`, color: tierColor, fontWeight: 600 }}>{s.tier}</span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <span style={{ color: s.detectionScore < 30 ? '#ef4444' : '#f59e0b', fontWeight: 700 }}>{s.detectionScore}%</span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    {s.detectionGap
+                      ? <span style={{ padding: '0.1rem 0.4rem', borderRadius: 3, fontSize: '0.7rem', background: '#ef444420', color: '#ef4444', fontWeight: 600 }}>Gap Detected</span>
+                      : <span style={{ color: '#f59e0b', fontSize: '0.7rem' }}>Low Coverage</span>}
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <span style={{ padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', fontWeight: 600,
+                      color: s.classification === 'KEEP' ? '#22c55e' : s.classification === 'ARCHIVE' ? '#3b82f6' : '#f59e0b',
+                      background: s.classification === 'KEEP' ? '#22c55e20' : s.classification === 'ARCHIVE' ? '#3b82f620' : '#f59e0b20',
+                    }}>{s.classification}</span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: '#64748b', fontSize: '0.72rem' }}>
+                    {s.recommendation ? s.recommendation.slice(0, 80) + (s.recommendation.length > 80 ? '…' : '') : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// E4/E5: Data Quality Hotspots
+function QualityHotspots({ snapshots }: { snapshots: SnapshotRow[] }) {
+  const hotspots = snapshots
+    .filter((s) => s.qualityScore < 60)
+    .sort((a, b) => a.qualityScore - b.qualityScore);
+
+  if (hotspots.length === 0) {
+    return (
+      <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
+        <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', fontWeight: 600 }}>Data Quality Hotspots</div>
+        <div style={{ color: '#22c55e', fontSize: '0.875rem' }}>✓ No quality issues detected</div>
+      </div>
+    );
+  }
+
+  // E5: Quality issue distribution (derive issue type from score bands)
+  const issueTypes = [
+    { label: 'Low Confidence', count: hotspots.filter(s => s.confidence < 0.6).length, color: '#f59e0b' },
+    { label: 'Low Quality Score', count: hotspots.filter(s => s.qualityScore < 40).length, color: '#ef4444' },
+    { label: 'Moderate Issues', count: hotspots.filter(s => s.qualityScore >= 40 && s.qualityScore < 60).length, color: '#f97316' },
+  ].filter(t => t.count > 0);
+
+  const total = issueTypes.reduce((s, t) => s + t.count, 0);
+  const TIER_COLORS: Record<string, string> = {
+    Critical: '#ef4444', Important: '#f59e0b', 'Nice-to-Have': '#3b82f6', 'Low Value': '#64748b',
+  };
+
+  return (
+    <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #f59e0b30' }}>
+      <div style={{ fontSize: '0.7rem', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', fontWeight: 600 }}>
+        Data Quality Hotspots — {hotspots.length} indexes below 60% quality
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
+        {/* E5: Issue type distribution */}
+        <div>
+          <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.75rem' }}>Issue Distribution</div>
+          {issueTypes.map((t) => (
+            <div key={t.label} style={{ marginBottom: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
+                <span style={{ color: '#94a3b8' }}>{t.label}</span>
+                <span style={{ color: t.color, fontWeight: 700 }}>{t.count}</span>
+              </div>
+              <div style={{ height: 6, background: '#1e293b', borderRadius: 3 }}>
+                <div style={{ height: 6, background: t.color, borderRadius: 3, width: `${(t.count / total) * 100}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* E4: Hotspot table */}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #1e293b' }}>
+                {['Index', 'Tier', 'Quality', 'Confidence', 'Impact'].map((h) => (
+                  <th key={h} style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#64748b', fontWeight: 500 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {hotspots.slice(0, 8).map((s) => {
+                const tierColor = TIER_COLORS[s.tier] || '#64748b';
+                const impact = (s.tier === 'Critical' || s.tier === 'Important') ? 'High' : s.qualityScore < 30 ? 'High' : 'Medium';
+                return (
+                  <tr key={s.indexName} style={{ borderBottom: '1px solid #0f172a' }}>
+                    <td style={{ padding: '0.4rem 0.5rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
+                    <td style={{ padding: '0.4rem 0.5rem' }}>
+                      <span style={{ padding: '0.1rem 0.3rem', borderRadius: 3, fontSize: '0.65rem', background: `${tierColor}20`, color: tierColor, fontWeight: 600 }}>{s.tier}</span>
+                    </td>
+                    <td style={{ padding: '0.4rem 0.5rem' }}>
+                      <span style={{ color: s.qualityScore < 30 ? '#ef4444' : '#f59e0b', fontWeight: 700 }}>{s.qualityScore}</span>
+                    </td>
+                    <td style={{ padding: '0.4rem 0.5rem', color: '#94a3b8' }}>{(s.confidence * 100).toFixed(0)}%</td>
+                    <td style={{ padding: '0.4rem 0.5rem' }}>
+                      <span style={{ color: impact === 'High' ? '#ef4444' : '#f59e0b', fontWeight: 600, fontSize: '0.7rem' }}>{impact}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// E9: Operational Coverage Gaps
+function OperationalCoverage({ snapshots }: { snapshots: SnapshotRow[] }) {
+  // Operational gaps: important/critical indexes with low utilization or flagged for elimination
+  const gaps = snapshots.filter((s) => {
+    if (s.tier === 'Critical' || s.tier === 'Important') {
+      return s.utilizationScore < 50 || s.classification === 'ARCHIVE' || s.classification === 'ELIMINATE';
+    }
+    return false;
+  });
+
+  if (gaps.length === 0) return null;
+
+  const TIER_COLORS: Record<string, string> = {
+    Critical: '#ef4444', Important: '#f59e0b', 'Nice-to-Have': '#3b82f6', 'Low Value': '#64748b',
+  };
+
+  return (
+    <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #f59e0b30' }}>
+      <div style={{ fontSize: '0.7rem', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', fontWeight: 600 }}>
+        Operational Coverage Gaps — {gaps.length} critical/important indexes under-utilized
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid #1e293b' }}>
+              {['Index', 'Tier', 'Utilization', 'Action', 'Risk', 'Gap Reason'].map((h) => (
+                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {gaps.map((s) => {
+              const tierColor = TIER_COLORS[s.tier] || '#64748b';
+              const gapReason = s.classification === 'ELIMINATE' ? 'Marked for elimination — verify still required'
+                : s.classification === 'ARCHIVE' ? 'Being archived — confirm operational needs'
+                : `Low utilization (${s.utilizationScore}%) for ${s.tier} asset`;
+              return (
+                <tr key={s.indexName} style={{ borderBottom: '1px solid #0f172a' }}>
+                  <td style={{ padding: '0.5rem 0.75rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <span style={{ padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', background: `${tierColor}20`, color: tierColor, fontWeight: 600 }}>{s.tier}</span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <span style={{ color: '#f59e0b', fontWeight: 700 }}>{s.utilizationScore}%</span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <span style={{ padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', fontWeight: 600,
+                      color: s.classification === 'ELIMINATE' ? '#ef4444' : '#3b82f6',
+                      background: s.classification === 'ELIMINATE' ? '#ef444420' : '#3b82f620',
+                    }}>{s.classification}</span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem' }}>
+                    <span style={{ color: s.riskScore > 50 ? '#ef4444' : '#f59e0b', fontWeight: 700 }}>{s.riskScore.toFixed(0)}</span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.75rem', color: '#64748b', fontSize: '0.72rem' }}>{gapReason}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
