@@ -361,7 +361,13 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             <div style={{ color: '#b45309', fontSize: '0.78rem' }}>Tier classifications, risk scores, agent actions, and recommendations are hidden until the LLM pipeline completes. Run a Splunk refresh to generate decisions.</div>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <SectionExplainer
+          summary="The LLM classifies each index into tiers (Critical, Important, Nice-to-Have, Low-Value) based on utilization, detection value, and data quality. Score averages show quality metrics. Agent Actions show the recommended changes."
+          dataInputs={['index_tier', 'utilization_score', 'detection_score', 'quality_score', 'classification']}
+          decisionLogic="Tier assignment: Critical=frequently used + high security value. Important=moderate usage or critical security. Nice-to-Have=low usage or value. Low-Value=low on both dimensions. Scores aggregated as averages across all indexes."
+        />
+      )}
       <div style={{ display: hasAgentDecisions ? 'grid' : 'none', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
         <div style={card()}>
           <div style={cardTitle}>Tier Distribution <span style={{ color: '#334155' }}>— {tierTotal} indexes</span></div>
@@ -509,6 +515,11 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
       </div>
 
       {/* Row 4 — Savings Staircase + Quick Wins */}
+      <SectionExplainer
+        summary="The Savings Staircase shows cumulative cost reduction potential as each action (ELIMINATE, ARCHIVE, OPTIMIZE) is applied. Quick Wins are high-impact, low-effort improvements the LLM flagged for immediate action."
+        dataInputs={['action', 'estimated_savings', 'is_quick_win', 'confidence']}
+        decisionLogic="Staircase ordered by savings impact, highest first. Cumulative bars show total annual savings if each stage is implemented. Quick wins scored on: ease of implementation + immediate impact + confidence."
+      />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
         <div style={card()}>
           <Tooltip content={TOOLTIPS.savingsStaircase}><div style={cardTitle}>Savings Staircase</div></Tooltip>

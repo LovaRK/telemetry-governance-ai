@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { SnapshotRow, ExecutiveKPIs } from '../../lib/types';
 import ReasoningDrawer, { ReasoningDrawerProps } from '../shared/ReasoningDrawer';
+import SectionExplainer from '../shared/SectionExplainer';
 
 function fmt$(v: number): string {
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
@@ -30,6 +31,11 @@ export default function AgentIntelligencePanel({ snapshots, kpis, hasAgentDecisi
   return (
     <>
     <ReasoningDrawer isOpen={!!drawer} onClose={() => setDrawer(null)} {...(drawer || { title: '' })} />
+    <SectionExplainer
+      summary="Agent Intelligence highlights the highest-risk indexes, security detection gaps, and immediate optimization opportunities. Click any row to see the LLM's reasoning for its risk assessment."
+      dataInputs={['risk_score', 'detection_gap', 'is_quick_win', 'is_s3_candidate', 'confidence']}
+      decisionLogic="Risk Score: weighted combination of detection gaps (0–100), low utilization (0–100), high cost-to-value ratio, and data staleness. Detection gaps indicate missing security coverage. S3/Archive candidates scored on cost savings potential."
+    />
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
 
       <div style={{ padding: '1.5rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
