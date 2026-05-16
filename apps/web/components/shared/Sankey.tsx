@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 
 interface SankeyNode {
   tier: string;
@@ -33,6 +33,7 @@ const ACTION_COLORS: Record<string, string> = {
 };
 
 export default function Sankey({ data, title = 'Tier → Action → Savings Flow', width = '100%', height = 450 }: Props) {
+  const [selectedFlow, setSelectedFlow] = useState<number | null>(null);
   const svgWidth = 900;
   const svgHeight = height || 450;
   const margin = { left: 60, right: 120, top: 30, bottom: 30 };
@@ -199,15 +200,19 @@ export default function Sankey({ data, title = 'Tier → Action → Savings Flow
           {data.map((item, idx) => {
             const y1 = getTierY(item.tier);
             const y2 = getActionY(item.action);
-            const opacity = Math.max(0.2, Math.min(0.6, item.count / maxCount));
+            const isSelected = selectedFlow === idx;
+            const opacity = isSelected ? 0.9 : Math.max(0.2, Math.min(0.6, item.count / maxCount));
+            const strokeWidth = isSelected ? 3 : 2;
             return (
               <path
                 key={`flow-${idx}`}
                 d={bezierPath(col1X + 40, y1, col2X - 40, y2)}
-                stroke="#64748b"
-                strokeWidth={2}
+                stroke={isSelected ? '#06b6d4' : '#64748b'}
+                strokeWidth={strokeWidth}
                 fill="none"
                 opacity={opacity}
+                style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+                onClick={() => setSelectedFlow(isSelected ? null : idx)}
               />
             );
           })}
@@ -278,6 +283,43 @@ export default function Sankey({ data, title = 'Tier → Action → Savings Flow
           </div>
         </div>
       </div>
+
+      {selectedFlow !== null && data[selectedFlow] && (
+        <div style={{ marginTop: '1rem', padding: '1rem', background: '#0f172a', borderRadius: 8, border: '1px solid #334155' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <h4 style={{ margin: 0, color: '#f8fafc', fontSize: '0.9375rem', fontWeight: 600 }}>
+              {data[selectedFlow].tier.replace('_', ' ')} → {data[selectedFlow].action}
+            </h4>
+            <button
+              onClick={() => setSelectedFlow(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#64748b',
+                cursor: 'pointer',
+                fontSize: '1.25rem',
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div>
+              <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>Indexes in transition</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#06b6d4' }}>{data[selectedFlow].count}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>Annual savings</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#22c55e' }}>
+                ${(data[selectedFlow].savings / 1000).toFixed(1)}k
+              </div>
+            </div>
+          </div>
+          <div style={{ marginTop: '0.75rem', fontSize: '0.8125rem', color: '#cbd5e1' }}>
+            {data[selectedFlow].count} {data[selectedFlow].count === 1 ? 'index' : 'indexes'} classified as {data[selectedFlow].tier.toLowerCase().replace('_', ' ')} will be {data[selectedFlow].action.toLowerCase()}, generating ${(data[selectedFlow].savings / 1000).toFixed(1)}k in annual savings.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

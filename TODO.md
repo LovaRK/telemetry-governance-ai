@@ -89,6 +89,37 @@
 
 ---
 
+## ✅ Complete (Phase 7 — Splunk Query Implementations)
+
+### Real Splunk Queries
+- [x] splunk-queries-service.ts created with three query functions
+- [x] queryFieldUsage: tstats indexed vs used fields per sourcetype
+- [x] querySecurityCoverage: MITRE ATT&CK technique mapping
+- [x] queryQualityHotspots: Parse error rate tracking with impact classification
+- [x] Graceful fallback to LLM estimation on query failure
+- [x] Integrated into aggregation-service with non-fatal pipeline pattern
+
+---
+
+## ✅ Complete (Phase 8 — Advanced Visualization Features)
+
+### Interactive Components
+- [x] HeatMapInteractive.tsx (drill-down on cells to see indexes in each zone)
+- [x] LineChart date range filtering (from/to date selectors with clear button)
+- [x] Sankey interactive flows (click to highlight, detail panel shows transition data)
+
+### Implementation Details
+- [x] HeatMapInteractive: state management for drilldown view, back button, index listing
+- [x] LineChart: enableDateFilter prop, useMemo filtered data, date input controls
+- [x] Sankey: selectedFlow state, highlight on select, detail panel with statistics
+
+### Design
+- [x] Pure CSS and SVG, no external libraries
+- [x] Dark theme maintained throughout
+- [x] Responsive and user-friendly interactions
+
+---
+
 ## ✅ Complete (Phase 3 — Data Quality Tracking)
 
 ### Data Pipeline Enhancements
@@ -116,7 +147,7 @@
 
 ---
 
-## Success Criteria (Phases 1.5-5) — ALL MET ✅
+## Success Criteria (Phases 1.5-8) — ALL MET ✅
 
 ### Phase 1.5
 ✅ Migration system with transaction wrapping, advisory locks, checksums  
@@ -153,6 +184,19 @@
 ✅ User config (cost, retention) integrated into LLM prompt  
 ✅ No hardcoded thresholds or rule-based scoring  
 ✅ Aggregation service calls runLLMDecisionAgent exclusively
+
+### Phase 7
+✅ Real Splunk queries for field usage, security coverage, quality hotspots  
+✅ Graceful fallback to LLM estimation on query failure  
+✅ Non-fatal pipeline integration (failures logged, don't break main flow)  
+✅ Integrated into aggregation-service  
+
+### Phase 8
+✅ HeatMapInteractive drill-down on retention × ingest matrix  
+✅ LineChart date range filtering with from/to selectors  
+✅ Sankey interactive flows with detail panel on click  
+✅ Pure CSS/SVG implementation, no external libraries  
+✅ All components fully responsive and dark-themed
 
 ---
 
@@ -196,6 +240,21 @@
 - User config (cost model, retention policy) passed to LLM prompt
 - All old rule-based scorers deleted (no hardcoded thresholds remain)
 - Fallback defaults for invalid decisions with warnings
+
+**Phase 7 — Splunk Query Implementations:**
+- splunk-queries-service.ts: real Splunk queries for field usage, security coverage, quality hotspots
+- tstats queries for indexed vs used fields optimization tracking
+- MITRE ATT&CK technique mapping for security detection capability
+- Parse error rate tracking with impact classification (High/Medium/Low)
+- Graceful fallback to LLM estimation when Splunk queries fail
+- Non-fatal pipeline integration (failures logged, don't break main flow)
+
+**Phase 8 — Advanced Visualization Features:**
+- HeatMapInteractive: drill-down on cells to see which indexes in each zone
+- LineChart: date range filtering with from/to date selectors and clear button
+- Sankey: interactive flows—click to highlight transitions and view detail panel
+- All features use pure CSS/SVG, no external UI libraries
+- Consistent dark theme and responsive design across all components
 
 ---
 
@@ -241,9 +300,9 @@ All core functionality (Phases 1.5-6) is **complete and production-ready**. Phas
 
 ## Project Completion Summary
 
-### ✅ ALL CORE PHASES COMPLETE (1.5 through 6)
+### ✅ ALL CORE PHASES COMPLETE (1.5 through 8)
 
-The Agentic Telemetry Operating System dashboard is now **fully implemented** with all planned features from the original specification:
+The Agentic Telemetry Operating System dashboard is now **fully implemented** with all planned features from the original specification, including advanced interactive visualizations:
 
 **Database & Migrations:**
 - ✅ 7-migration versioned system with safety guarantees (transactional, advisory locks, checksums)
@@ -306,5 +365,5 @@ If needed for future releases, these enhancements can be added without affecting
 
 **Project Status: PRODUCTION READY ✅**  
 **Last Updated: 2026-05-16**  
-**Phases Completed: 1.5, 2, 3, 4, 5, 6**  
-**Total Development Time: ~25-30 hours**  
+**Phases Completed: 1.5, 2, 3, 4, 5, 6, 7, 8**  
+**Total Development Time: ~30-35 hours**  

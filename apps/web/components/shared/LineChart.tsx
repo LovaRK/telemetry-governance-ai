@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 
 interface DataPoint {
   label: string;
@@ -16,6 +16,7 @@ interface LineChartProps {
   width?: string;
   showGrid?: boolean;
   showTooltip?: boolean;
+  enableDateFilter?: boolean;
 }
 
 export default function LineChart({
@@ -26,17 +27,94 @@ export default function LineChart({
   width = '100%',
   showGrid = true,
   showTooltip = true,
+  enableDateFilter = false,
 }: LineChartProps) {
-  if (!data || data.length < 2) {
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+
+  const filteredData = useMemo(() => {
+    if (!enableDateFilter || !startDate || !endDate) return data;
+
+    const start = new Date(startDate).getTime();
+    const end = new Date(endDate).getTime();
+
+    return data.filter(d => {
+      if (!d.timestamp) return true;
+      const time = new Date(d.timestamp).getTime();
+      return time >= start && time <= end;
+    });
+  }, [data, startDate, endDate, enableDateFilter]);
+
+  const displayData = enableDateFilter ? filteredData : data;
+
+  if (!displayData || displayData.length < 2) {
     return (
-      <div style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-        Insufficient data for chart
+      <div style={{ width }}>
+        {enableDateFilter && (
+          <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem' }}>From</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                style={{
+                  padding: '0.5rem',
+                  background: '#0f172a',
+                  border: '1px solid #334155',
+                  borderRadius: 4,
+                  color: '#f8fafc',
+                  fontSize: '0.875rem',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem' }}>To</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={e => setEndDate(e.target.value)}
+                style={{
+                  padding: '0.5rem',
+                  background: '#0f172a',
+                  border: '1px solid #334155',
+                  borderRadius: 4,
+                  color: '#f8fafc',
+                  fontSize: '0.875rem',
+                }}
+              />
+            </div>
+            {(startDate || endDate) && (
+              <button
+                onClick={() => {
+                  setStartDate('');
+                  setEndDate('');
+                }}
+                style={{
+                  padding: '0.5rem 1rem',
+                  background: '#334155',
+                  color: '#cbd5e1',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: '0.8125rem',
+                  fontWeight: 500,
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+        <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+          {displayData.length === 0 ? 'No data in selected date range' : 'Insufficient data for chart'}
+        </div>
       </div>
     );
   }
 
   // Calculate bounds
-  const values = data.map(d => d.value);
+  const values = displayData.map(d => d.value);
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
   const range = maxValue - minValue || 1;
@@ -46,8 +124,8 @@ export default function LineChart({
   const viewBoxHeight = height * 1.5;
 
   // Map data to SVG coordinates
-  const points = data.map((d, i) => {
-    const x = padding + (i / (data.length - 1)) * (viewBoxWidth - 2 * padding);
+  const points = displayData.map((d, i) => {
+    const x = padding + (i / (displayData.length - 1)) * (viewBoxWidth - 2 * padding);
     const y = viewBoxHeight - padding - ((d.value - minValue) / range) * (viewBoxHeight - 2 * padding);
     return { x, y, ...d };
   });
@@ -60,6 +138,62 @@ export default function LineChart({
       {title && (
         <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.75rem', fontWeight: 600 }}>
           {title}
+        </div>
+      )}
+      {enableDateFilter && (
+        <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem', fontWeight: 500 }}>From</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              style={{
+                padding: '0.5rem',
+                background: '#0f172a',
+                border: '1px solid #334155',
+                borderRadius: 4,
+                color: '#f8fafc',
+                fontSize: '0.875rem',
+              }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem', fontWeight: 500 }}>To</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={e => setEndDate(e.target.value)}
+              style={{
+                padding: '0.5rem',
+                background: '#0f172a',
+                border: '1px solid #334155',
+                borderRadius: 4,
+                color: '#f8fafc',
+                fontSize: '0.875rem',
+              }}
+            />
+          </div>
+          {(startDate || endDate) && (
+            <button
+              onClick={() => {
+                setStartDate('');
+                setEndDate('');
+              }}
+              style={{
+                padding: '0.5rem 1rem',
+                background: '#334155',
+                color: '#cbd5e1',
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontSize: '0.8125rem',
+                fontWeight: 500,
+              }}
+            >
+              Clear
+            </button>
+          )}
         </div>
       )}
       <svg

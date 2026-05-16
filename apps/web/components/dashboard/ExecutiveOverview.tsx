@@ -1,11 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ExecutiveSummary, SnapshotRow } from '../../lib/types';
 import Tooltip, { TOOLTIPS } from '../Tooltip';
 import ReasoningDrawer, { ReasoningDrawerProps } from '../shared/ReasoningDrawer';
 import SectionExplainer from '../shared/SectionExplainer';
 import Sparkline from '../shared/Sparkline';
+import LineChart from '../shared/LineChart';
+import HeatMapInteractive from '../shared/HeatMapInteractive';
+import Sankey from '../shared/Sankey';
 
 function fmt$(v: number): string {
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
@@ -153,6 +156,7 @@ const tierColor = (tier: string) =>
 export default function ExecutiveOverview({ summary, hasAgentDecisions = false }: Props) {
   const { kpis, quickWins, savingsStaircase, agentReasoning, snapshotDate, snapshots, history } = summary as any;
   const [drawer, setDrawer] = useState<DrawerData | null>(null);
+  const [activeTab, setActiveTab] = useState<'summary' | 'trends' | 'heatmap' | 'flows'>('summary');
   const openDrawer = (data: DrawerData) => setDrawer(data);
 
   const tierTotal = kpis.tierCounts.critical + kpis.tierCounts.important + kpis.tierCounts.niceToHave + kpis.tierCounts.lowValue;
@@ -241,6 +245,68 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
     ...card(extra), cursor: 'pointer', transition: 'border-color 0.15s',
   });
 
+  // Data for LineChart (7-day trends with timestamps)
+  const lineChartData = useMemo(() => {
+    if (!Array.isArray(history) || history.length === 0) return [];
+    return history.map((h: any) => ({
+      label: new Date(h.snapshotDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      value: h.roiScore || 0,
+      timestamp: h.snapshotDate,
+    })).reverse();
+  }, [history]);
+
+  // Data for HeatMapInteractive (retention × daily ingest bins)
+  const heatMapData = useMemo(() => {
+    const bins: Record<string, Record<string, { count: number; cost: number; indexes: string[] }>> = {};
+    const xBins = ['0-10GB', '10-50GB', '50-100GB', '100GB+'];
+    const yBins = ['0-30d', '30-90d', '90-180d', '180-365d', '365+d'];
+
+    xBins.forEach(x => {
+      bins[x] = {};
+      yBins.forEach(y => {
+        bins[x][y] = { count: 0, cost: 0, indexes: [] };
+      });
+    });
+
+    snapshots.forEach((s: SnapshotRow) => {
+      const getBin = (val: number, thresholds: number[]) => {
+        for (let i = thresholds.length - 1; i >= 0; i--) {
+          if (val >= thresholds[i]) return i;
+        }
+        return 0;
+      };
+
+      const xIdx = getBin(s.dailyAvgGb, [10, 50, 100]);
+      const yIdx = getBin(s.retentionDays, [30, 90, 180, 365]);
+      const xBin = xBins[xIdx];
+      const yBin = yBins[yIdx];
+
+      bins[xBin][yBin].count += 1;
+      bins[xBin][yBin].cost += s.costPerYear;
+      bins[xBin][yBin].indexes.push(s.indexName);
+    });
+
+    return xBins.flatMap(xBin =>
+      yBins.map(yBin => ({
+        xBin,
+        yBin,
+        ...bins[xBin][yBin],
+      }))
+    );
+  }, [snapshots]);
+
+  // Data for Sankey (tier → action → savings)
+  const sankeyData = useMemo(() => {
+    const flows: Record<string, any> = {};
+    snapshots.forEach((s: SnapshotRow) => {
+      const key = `${s.tier}→${s.action}`;
+      if (!flows[key]) flows[key] = { tier: s.tier, action: s.action, count: 0, savings: 0 };
+      flows[key].count += 1;
+      flows[key].savings += s.estimatedSavings || 0;
+    });
+    return Object.values(flows);
+  }, [snapshots]);
+
   return (
     <>
     <ReasoningDrawer
@@ -256,6 +322,36 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         decisionLogic="For each index the LLM weighs: How often is this data queried? Is it security-critical? Does it have detection gaps? How much does it cost per year? The output is a tier, action, and confidence score stored in PostgreSQL."
       />
 
+      {/* Visualization Tabs */}
+      <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid #1e293b', paddingBottom: '1rem' }}>
+        {[
+          { id: 'summary', label: 'Summary' },
+          { id: 'trends', label: '7-Day Trends' },
+          { id: 'heatmap', label: 'Retention Matrix' },
+          { id: 'flows', label: 'Tier → Action Flow' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            style={{
+              padding: '0.5rem 1rem',
+              background: activeTab === tab.id ? '#1e293b' : 'transparent',
+              border: activeTab === tab.id ? '1px solid #334155' : '1px solid transparent',
+              color: activeTab === tab.id ? '#f8fafc' : '#64748b',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              transition: 'all 0.15s',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'summary' && (
+        <>
       {/* D1 — Headline big numbers */}
       <div style={{ display: 'flex', gap: '2rem', alignItems: 'center', padding: '1rem 1.5rem', background: '#0a1628', borderRadius: 10, border: '1px solid #1e293b', flexWrap: 'wrap' }}>
         <div>
@@ -752,6 +848,49 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
           <div style={cardTitle}>🧠 Agent Reasoning</div>
           <p style={{ color: '#cbd5e1', fontSize: '0.875rem', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>{agentReasoning}</p>
         </div>
+      )}
+        </>
+      )}
+
+      {activeTab === 'trends' && lineChartData.length > 0 && (
+        <LineChart
+          data={lineChartData}
+          title="7-Day ROI Score Trend"
+          color="#3b82f6"
+          height={300}
+          showGrid={true}
+          enableDateFilter={true}
+        />
+      )}
+
+      {activeTab === 'heatmap' && heatMapData.length > 0 && (
+        <HeatMapInteractive
+          data={heatMapData}
+          title="Retention × Daily Ingest Risk Matrix"
+          width="100%"
+          height={450}
+          onCellClick={(cell) => {
+            openDrawer({
+              title: `${cell.xBin} Ingest × ${cell.yBin} Retention`,
+              metric: 'ingest_retention_zone',
+              value: `${cell.count} indexes`,
+              howCalculated: `Indexes binned by daily ingest (GB) and retention (days)`,
+              llmReasoning: `This zone contains ${cell.count} indexes with ${cell.xBin} daily ingest and ${cell.yBin} retention. High-retention + high-ingest zones (top-right) represent the most expensive configurations and should be reviewed for optimization.`,
+              evidence: [`${cell.count} indexes in this zone`, `$${(cell.cost / 1000).toFixed(1)}k annual cost`, `Indexes: ${cell.indexes.slice(0, 5).join(', ')}${cell.indexes.length > 5 ? ` +${cell.indexes.length - 5} more` : ''}`],
+              confidence: 85,
+              rawData: { count: cell.count, cost: cell.cost, indexCount: cell.indexes.length },
+            });
+          }}
+        />
+      )}
+
+      {activeTab === 'flows' && sankeyData.length > 0 && (
+        <Sankey
+          data={sankeyData}
+          title="Tier Classification → Action Assignment → Savings Impact"
+          width="100%"
+          height={500}
+        />
       )}
     </div>
     </>
