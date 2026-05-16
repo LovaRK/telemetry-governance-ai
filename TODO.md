@@ -199,9 +199,20 @@
 
 ---
 
+## 🔄 In Progress (Phase 7 — Splunk Query Implementations)
+
+### Query Infrastructure Complete
+- [x] splunk-queries-service.ts: Field usage (tstats), security coverage (MITRE), quality hotspots (parse errors)
+- [x] Real Splunk queries with LLM estimation fallback
+- [x] Integrated into aggregation-service with graceful degradation
+- [ ] Test with production Splunk data
+- [ ] Optimize query performance (caching, timeout tuning)
+
+---
+
 ## Next Steps (Optional Future Enhancements)
 
-All core functionality (Phases 1.5-6) is **complete and production-ready**.
+All core functionality (Phases 1.5-6) is **complete and production-ready**. Phase 7 adds real Splunk queries.
 
 **Optional enhancements for future releases:**
 

@@ -2,6 +2,7 @@ import { PoolClient } from 'pg';
 import { SplunkClient } from './splunk-client';
 import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/llm-decision-agent';
 import { loadUserConfig } from './config-service';
+import { queryDataQualityMetrics } from './splunk-queries-service';
 import { query, transaction } from '../../../core/database/connection';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -133,21 +134,21 @@ export async function runAggregation(
     await updateCacheMetadata(client, 'index_metrics', inserted);
 
     // Phase 3: Secondary table population (optional, non-critical)
-    // These require advanced Splunk queries and MITRE mappings
+    // These use real Splunk queries with LLM estimation fallback
     try {
-      await populateFieldUsage(client, decisions, today);
+      await populateFieldUsage(client, decisions, today, splunk);
     } catch (e) {
       console.warn('[Aggregation] Field usage population skipped:', e instanceof Error ? e.message : e);
     }
 
     try {
-      await populateSecurityCoverage(client, decisions, today);
+      await populateSecurityCoverage(client, decisions, today, splunk);
     } catch (e) {
       console.warn('[Aggregation] Security coverage population skipped:', e instanceof Error ? e.message : e);
     }
 
     try {
-      await populateQualityHotspots(client, decisions, today);
+      await populateQualityHotspots(client, decisions, today, splunk);
     } catch (e) {
       console.warn('[Aggregation] Quality hotspots population skipped:', e instanceof Error ? e.message : e);
     }
@@ -422,22 +423,40 @@ async function upsertAgentDecision(
 async function populateFieldUsage(
   client: PoolClient,
   decisions: LLMDecision[],
-  today: string
+  today: string,
+  splunk?: SplunkClient
 ): Promise<void> {
   // Phase 3a: Field Usage Optimization
-  // Requires Splunk tstats query: | tstats count as indexed by sourcetype, field
-  // For MVP, populate with estimated optimization based on quality score
+  // Queries Splunk tstats for indexed vs used fields per sourcetype
 
   await client.query(`DELETE FROM field_usage WHERE snapshot_date = $1`, [today]);
 
-  const fieldData = decisions
-    .filter(d => d.sourcetype)
-    .map(d => ({
-      sourcetype: d.sourcetype,
-      fieldsIndexed: Math.max(50, Math.round(100 - d.qualityScore)), // Estimated: lower quality = more unused
-      fieldsUsed: Math.max(10, Math.round(d.utilizationScore / 5)), // Estimated based on utilization
-      optimizationPct: Math.round(d.qualityScore), // Quality score serves as proxy for optimization %
-    }));
+  let fieldData: Array<{ sourcetype: string; fieldsIndexed: number; fieldsUsed: number; optimizationPct: number }> = [];
+
+  // Try real Splunk query first
+  if (splunk) {
+    try {
+      const metrics = await queryDataQualityMetrics(splunk, 30);
+      fieldData = metrics.fieldUsage;
+      console.log(`[Aggregation] Field usage: ${fieldData.length} sourcetypes from Splunk tstats query`);
+    } catch (err) {
+      console.warn(`[Aggregation] Field usage Splunk query failed, falling back to LLM estimation:`, err instanceof Error ? err.message : String(err));
+      // Fall through to estimation below
+    }
+  }
+
+  // Fallback: estimate based on LLM decisions
+  if (fieldData.length === 0) {
+    fieldData = decisions
+      .filter(d => d.sourcetype)
+      .map(d => ({
+        sourcetype: d.sourcetype || 'unknown',
+        fieldsIndexed: Math.max(50, Math.round(100 - d.qualityScore)),
+        fieldsUsed: Math.max(10, Math.round(d.utilizationScore / 5)),
+        optimizationPct: Math.round(d.qualityScore),
+      }));
+    console.log(`[Aggregation] Field usage: ${fieldData.length} sourcetypes indexed (LLM estimation fallback)`);
+  }
 
   for (const field of fieldData) {
     await client.query(
@@ -446,29 +465,50 @@ async function populateFieldUsage(
       [today, field.sourcetype, field.fieldsIndexed, field.fieldsUsed, field.optimizationPct]
     );
   }
-
-  console.log(`[Aggregation] Field usage: ${fieldData.length} sourcetypes indexed (estimate mode — full tstats query pending)`);
 }
 
 async function populateSecurityCoverage(
   client: PoolClient,
   decisions: LLMDecision[],
-  today: string
+  today: string,
+  splunk?: SplunkClient
 ): Promise<void> {
   // Phase 3b: Security Coverage (MITRE ATT&CK)
-  // Requires Splunk MITRE mapping + active alert lookup
-  // For MVP, estimate coverage based on detection score and detection gaps
+  // Maps sourcetype → MITRE techniques covered for threat detection capability
 
   await client.query(`DELETE FROM security_coverage WHERE snapshot_date = $1`, [today]);
 
-  const securityData = decisions
-    .filter(d => d.sourcetype)
-    .map(d => ({
-      sourcetype: d.sourcetype,
-      coveragePct: Math.round(d.detectionScore * 1.2), // Detection score scaled to coverage %
-      activeAlerts: d.detectionScore > 60 ? Math.floor(Math.random() * 5) + 2 : 0, // Estimated
-      detectionGaps: d.detectionGap ? 'Yes' : 'No',
-    }));
+  let securityData: Array<{ sourcetype: string; coveragePct: number; activeAlerts: number; detectionGaps: string }> = [];
+
+  // Try real Splunk query first
+  if (splunk) {
+    try {
+      const metrics = await queryDataQualityMetrics(splunk, 30);
+      securityData = metrics.securityCoverage.map(sc => ({
+        sourcetype: sc.sourcetype,
+        coveragePct: Math.round((sc.coverageCount / 5) * 100), // Coverage count out of ~5 major MITRE categories
+        activeAlerts: sc.coverageCount > 0 ? Math.floor(sc.coverageCount / 2) : 0,
+        detectionGaps: sc.coverageCount < 3 ? 'Yes' : 'No',
+      }));
+      console.log(`[Aggregation] Security coverage: ${securityData.length} sourcetypes from Splunk MITRE mapping`);
+    } catch (err) {
+      console.warn(`[Aggregation] Security coverage Splunk query failed, falling back to LLM estimation:`, err instanceof Error ? err.message : String(err));
+      // Fall through to estimation below
+    }
+  }
+
+  // Fallback: estimate based on LLM decisions
+  if (securityData.length === 0) {
+    securityData = decisions
+      .filter(d => d.sourcetype)
+      .map(d => ({
+        sourcetype: d.sourcetype || 'unknown',
+        coveragePct: Math.round(d.detectionScore * 1.2),
+        activeAlerts: d.detectionScore > 60 ? Math.floor(Math.random() * 5) + 2 : 0,
+        detectionGaps: d.detectionGap ? 'Yes' : 'No',
+      }));
+    console.log(`[Aggregation] Security coverage: ${securityData.length} sourcetypes (LLM estimation fallback)`);
+  }
 
   for (const sec of securityData) {
     await client.query(
@@ -477,29 +517,50 @@ async function populateSecurityCoverage(
       [today, sec.sourcetype, sec.coveragePct, sec.activeAlerts, sec.detectionGaps]
     );
   }
-
-  console.log(`[Aggregation] Security coverage: ${securityData.length} sourcetypes analysed (estimate mode — MITRE mapping pending)`);
 }
 
 async function populateQualityHotspots(
   client: PoolClient,
   decisions: LLMDecision[],
-  today: string
+  today: string,
+  splunk?: SplunkClient
 ): Promise<void> {
   // Phase 3c: Data Quality Hotspots
-  // Requires Splunk parse error rate query: | stats count(eval(isnotnull(error))) / count as error_pct by sourcetype
-  // For MVP, estimate based on quality score
+  // Queries Splunk for parse error rates per sourcetype
 
   await client.query(`DELETE FROM quality_hotspots WHERE snapshot_date = $1`, [today]);
 
-  const qualityData = decisions
-    .filter(d => d.sourcetype && d.qualityScore < 80)
-    .map(d => ({
-      sourcetype: d.sourcetype,
-      issueCount: Math.max(1, Math.round((100 - d.qualityScore) / 10)),
-      qualityScore: d.qualityScore,
-      estimatedImpact: d.qualityScore < 40 ? 'High' : d.qualityScore < 70 ? 'Medium' : 'Low',
-    }));
+  let qualityData: Array<{ sourcetype: string; issueCount: number; qualityScore: number; estimatedImpact: string }> = [];
+
+  // Try real Splunk query first
+  if (splunk) {
+    try {
+      const metrics = await queryDataQualityMetrics(splunk, 30);
+      qualityData = metrics.qualityHotspots.map(qh => ({
+        sourcetype: qh.sourcetype,
+        issueCount: Math.max(1, Math.round(qh.parseErrorRate / 2)),
+        qualityScore: Math.max(0, 100 - qh.parseErrorRate * 10),
+        estimatedImpact: qh.impactLevel,
+      }));
+      console.log(`[Aggregation] Quality hotspots: ${qualityData.length} sourcetypes from Splunk parse error query`);
+    } catch (err) {
+      console.warn(`[Aggregation] Quality hotspots Splunk query failed, falling back to LLM estimation:`, err instanceof Error ? err.message : String(err));
+      // Fall through to estimation below
+    }
+  }
+
+  // Fallback: estimate based on LLM decisions
+  if (qualityData.length === 0) {
+    qualityData = decisions
+      .filter(d => d.sourcetype && d.qualityScore < 80)
+      .map(d => ({
+        sourcetype: d.sourcetype || 'unknown',
+        issueCount: Math.max(1, Math.round((100 - d.qualityScore) / 10)),
+        qualityScore: d.qualityScore,
+        estimatedImpact: d.qualityScore < 40 ? 'High' : d.qualityScore < 70 ? 'Medium' : 'Low',
+      }));
+    console.log(`[Aggregation] Quality hotspots: ${qualityData.length} sourcetypes (LLM estimation fallback)`);
+  }
 
   for (const quality of qualityData) {
     await client.query(
@@ -508,8 +569,6 @@ async function populateQualityHotspots(
       [today, quality.sourcetype, quality.issueCount, quality.qualityScore, quality.estimatedImpact]
     );
   }
-
-  console.log(`[Aggregation] Quality hotspots: ${qualityData.length} sourcetypes with quality issues found (estimate mode — parse error query pending)`);
 }
 
 async function updateCacheMetadata(client: PoolClient, key: string, count: number): Promise<void> {
