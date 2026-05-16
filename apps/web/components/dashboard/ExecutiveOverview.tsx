@@ -1,8 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { ExecutiveSummary } from '../../lib/types';
 import Tooltip, { TOOLTIPS } from '../Tooltip';
+import ReasoningDrawer, { ReasoningDrawerProps } from '../shared/ReasoningDrawer';
+import SectionExplainer from '../shared/SectionExplainer';
+import Sparkline from '../shared/Sparkline';
 
 function fmt$(v: number): string {
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
@@ -19,6 +22,8 @@ function fmtGB(v: number): string {
 }
 
 interface Props { summary: ExecutiveSummary; hasAgentDecisions?: boolean; }
+
+type DrawerData = Omit<ReasoningDrawerProps, 'isOpen' | 'onClose'>;
 
 function Gauge({ value, max = 100, label, color }: { value: number; max?: number; label: string; color: string }) {
   const pct = Math.min(value / max, 1);
@@ -146,7 +151,9 @@ const tierColor = (tier: string) =>
   /nice/i.test(tier) ? '#3b82f6' : '#64748b';
 
 export default function ExecutiveOverview({ summary, hasAgentDecisions = false }: Props) {
-  const { kpis, quickWins, savingsStaircase, agentReasoning, snapshotDate, snapshots } = summary;
+  const { kpis, quickWins, savingsStaircase, agentReasoning, snapshotDate, snapshots, history } = summary as any;
+  const [drawer, setDrawer] = useState<DrawerData | null>(null);
+  const openDrawer = (data: DrawerData) => setDrawer(data);
 
   const tierTotal = kpis.tierCounts.critical + kpis.tierCounts.important + kpis.tierCounts.niceToHave + kpis.tierCounts.lowValue;
   const tierBars = [
@@ -224,8 +231,30 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
     fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '1rem', fontWeight: 600,
   };
 
+  // Sparkline history arrays
+  const historyRoi = Array.isArray(history) ? history.map((h: any) => h.roiScore) : [];
+  const historyGain = Array.isArray(history) ? history.map((h: any) => h.gainScopeScore) : [];
+  const historyGb = Array.isArray(history) ? history.map((h: any) => h.totalDailyGb) : [];
+  const historySpend = Array.isArray(history) ? history.map((h: any) => h.totalLicenseSpend) : [];
+
+  const clickableCard = (extra?: React.CSSProperties): React.CSSProperties => ({
+    ...card(extra), cursor: 'pointer', transition: 'border-color 0.15s',
+  });
+
   return (
+    <>
+    <ReasoningDrawer
+      isOpen={!!drawer}
+      onClose={() => setDrawer(null)}
+      {...(drawer || { title: '' })}
+    />
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+
+      <SectionExplainer
+        summary="The LLM agent analyses every Splunk index — its GB/day, event volume, retention days, last event timestamp — and classifies each into Critical / Important / Nice-to-Have / Low-Value tiers with an ROI and GainScope score. Click any gauge or card to see the full reasoning."
+        dataInputs={['dailyAvgGb', 'totalEvents', 'retentionDays', 'firstEvent', 'lastEvent', 'licenseGbPerDay']}
+        decisionLogic="For each index the LLM weighs: How often is this data queried? Is it security-critical? Does it have detection gaps? How much does it cost per year? The output is a tier, action, and confidence score stored in PostgreSQL."
+      />
 
       {/* D1 — Headline big numbers */}
       <div style={{ display: 'flex', gap: '2rem', alignItems: 'center', padding: '1rem 1.5rem', background: '#0a1628', borderRadius: 10, border: '1px solid #1e293b', flexWrap: 'wrap' }}>
@@ -271,29 +300,50 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         </div>
       ) : null}
       <div style={{ display: hasAgentDecisions ? 'grid' : 'none', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr', gap: '1rem' }}>
-        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <Tooltip content={TOOLTIPS.roiScore}><div style={cardTitle}>ROI Score</div></Tooltip>
+        <div
+          onClick={() => openDrawer({ title: 'ROI Score', value: kpis.roiScore.toFixed(0), howCalculated: 'ROI Score = weighted average of (tier value × confidence) across all indexes. Critical=1.0, Important=0.75, Nice-to-Have=0.4, Low-Value=0.1. Normalized to 0–100.', llmReasoning: agentReasoning, evidence: [`${kpis.tierCounts.critical} Critical indexes`, `${kpis.tierCounts.important} Important indexes`, `${kpis.tierCounts.lowValue} Low-Value indexes`], confidence: kpis.roiScore, rawData: { roiScore: kpis.roiScore, tierCounts: kpis.tierCounts } })}
+          style={{ ...clickableCard(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+        >
+          <Tooltip content={TOOLTIPS.roiScore}><div style={cardTitle}>ROI Score ↗</div></Tooltip>
           <Gauge value={kpis.roiScore} label="" color="#22c55e" />
+          {historyRoi.length > 1 && <div style={{ position: 'absolute', bottom: 8, right: 8 }}><Sparkline data={historyRoi} color="#22c55e" /></div>}
         </div>
-        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <Tooltip content={TOOLTIPS.gainScopeScore}><div style={cardTitle}>GainScope</div></Tooltip>
+        <div
+          onClick={() => openDrawer({ title: 'GainScope Score', value: kpis.gainScopeScore.toFixed(0), howCalculated: 'GainScope = opportunity captured vs total potential. Measures how much savings have been actioned vs estimated total recoverable spend.', llmReasoning: agentReasoning, evidence: [`${fmt$(kpis.storageSavingsPotential)} savings potential identified`, `${fmt$(kpis.licenseSpendLowValue)} in low-value spend`], confidence: kpis.gainScopeScore, rawData: { gainScopeScore: kpis.gainScopeScore, storageSavingsPotential: kpis.storageSavingsPotential } })}
+          style={{ ...clickableCard(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+        >
+          <Tooltip content={TOOLTIPS.gainScopeScore}><div style={cardTitle}>GainScope ↗</div></Tooltip>
           <Gauge value={kpis.gainScopeScore} label="" color="#3b82f6" />
+          {historyGain.length > 1 && <div style={{ position: 'absolute', bottom: 8, right: 8 }}><Sparkline data={historyGain} color="#3b82f6" /></div>}
         </div>
-        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={cardTitle}>Low-Value Spend</div>
+        <div
+          onClick={() => openDrawer({ title: 'Low-Value License Spend', value: fmt$(kpis.licenseSpendLowValue), howCalculated: 'Sum of annual license cost for all indexes classified as Nice-to-Have or Low-Value by the LLM. These are indexes with low query frequency, low detection value, and could be archived or eliminated.', llmReasoning: agentReasoning, evidence: snapshots.filter((s: any) => /low|nice/i.test(s.tier)).slice(0, 5).map((s: any) => `${s.indexName}: ${fmt$(s.costPerYear)}/yr — ${s.tier}`), rawData: { licenseSpendLowValue: kpis.licenseSpendLowValue, totalLicenseSpend: kpis.totalLicenseSpend } })}
+          style={{ ...clickableCard(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div style={cardTitle}>Low-Value Spend ↗</div>
           <SpendGauge amount={kpis.licenseSpendLowValue} total={kpis.totalLicenseSpend} label="" color="#ef4444" />
         </div>
-        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={cardTitle}>Savings Potential</div>
+        <div
+          onClick={() => openDrawer({ title: 'Storage Savings Potential', value: fmt$(kpis.storageSavingsPotential), howCalculated: 'Sum of estimated annual savings from all ARCHIVE and ELIMINATE decisions. LLM calculates savings as: (current cost/year) × (estimated reduction %) for each index where action ≠ KEEP.', llmReasoning: agentReasoning, evidence: snapshots.filter((s: any) => /archive|eliminate/i.test(s.action)).slice(0, 5).map((s: any) => `${s.indexName}: ${fmt$(s.estimatedSavings)} savings — ${s.action}`), rawData: { storageSavingsPotential: kpis.storageSavingsPotential, archiveCount: snapshots.filter((s: any) => /archive/i.test(s.action)).length, eliminateCount: snapshots.filter((s: any) => /eliminate/i.test(s.action)).length } })}
+          style={{ ...clickableCard(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div style={cardTitle}>Savings Potential ↗</div>
           <SpendGauge amount={kpis.storageSavingsPotential} total={kpis.totalLicenseSpend} label="" color="#22c55e" />
         </div>
-        <div style={card({ borderLeft: '4px solid #8b5cf6' })}>
-          <div style={cardTitle}>Daily Ingest</div>
+        <div
+          onClick={() => openDrawer({ title: 'Daily Ingest Volume', value: fmtGB(kpis.totalDailyGb), howCalculated: 'Sum of dailyAvgGb across all Splunk indexes from the last 30 days. Fetched via Splunk REST API: /services/data/indexes.', evidence: top6ByVol.map((s: any) => `${s.indexName}: ${fmtGB(s.dailyAvgGb)}/day`), rawData: { totalDailyGb: kpis.totalDailyGb, totalSourcetypes: kpis.totalSourcetypes } })}
+          style={{ ...clickableCard({ borderLeft: '4px solid #8b5cf6' }), position: 'relative' }}
+        >
+          <div style={cardTitle}>Daily Ingest ↗</div>
           <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc' }}>{fmtGB(kpis.totalDailyGb)}</div>
           <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>{kpis.totalSourcetypes} sourcetypes</div>
+          {historyGb.length > 1 && <div style={{ position: 'absolute', bottom: 8, right: 8 }}><Sparkline data={historyGb} color="#8b5cf6" /></div>}
         </div>
-        <div style={card({ borderLeft: '4px solid #f59e0b' })}>
-          <div style={cardTitle}>Coverage Gaps</div>
+        <div
+          onClick={() => openDrawer({ title: 'Coverage Gaps', howCalculated: 'Security gaps: indexes with detectionGap=true from LLM analysis — no active alert or MITRE coverage. Operational gaps: sourcetypes not mapped to any operational use-case. Confidence: average LLM confidence across all decisions.', evidence: [`${kpis.securityGaps} security detection gaps`, `${kpis.operationalGaps} operational coverage gaps`, `${(kpis.avgConfidence * 100).toFixed(0)}% average LLM confidence`], rawData: { securityGaps: kpis.securityGaps, operationalGaps: kpis.operationalGaps, avgConfidence: kpis.avgConfidence } })}
+          style={{ ...clickableCard({ borderLeft: '4px solid #f59e0b' }) }}
+        >
+          <div style={cardTitle}>Coverage Gaps ↗</div>
           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'space-around' }}>
             <MiniGauge value={kpis.securityGaps} max={Math.max(kpis.securityGaps * 2, 20)} label="Security" color="#ef4444" />
             <MiniGauge value={kpis.operationalGaps} max={Math.max(kpis.operationalGaps * 2, 20)} label="Ops" color="#f59e0b" />
@@ -480,11 +530,16 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             )
             : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {staircase.map((step, i) => {
+                {staircase.map((step: any, i: number) => {
                   const widthPct = Math.max(4, (step.cumulative / maxStairSavings) * 100);
                   const color = ACTION_COLORS[step.action] || '#3b82f6';
+                  const affected = snapshots.filter((s: any) => s.action === step.action || s.classification === step.action);
                   return (
-                    <div key={i}>
+                    <div
+                      key={i}
+                      onClick={() => openDrawer({ title: step.label, value: step.savings > 0 ? `−${fmt$(step.savings)}` : fmt$(step.cumulative), action: step.action, howCalculated: `This stage represents savings from ${step.count || affected.length} indexes with action: ${step.action}. Cumulative spend after this stage: ${fmt$(step.cumulative)}.`, evidence: affected.slice(0, 5).map((s: any) => `${s.indexName}: ${fmt$(s.estimatedSavings || 0)} savings — ${s.action}`), llmReasoning: agentReasoning, rawData: { stage: step.label, action: step.action, savings: step.savings, cumulative: step.cumulative, count: step.count } })}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.2rem' }}>
                         <span style={{ color: '#94a3b8' }}>{step.label}</span>
                         <span style={{ color: step.savings > 0 ? '#22c55e' : '#f8fafc', fontWeight: 600 }}>
@@ -524,7 +579,11 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
                 </thead>
                 <tbody>
                   {wins.map((qw, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #0f172a' }}>
+                    <tr
+                      key={i}
+                      onClick={() => openDrawer({ title: qw.indexName, value: qw.savings > 0 ? fmt$(qw.savings) : 'Quick Win', action: qw.action, tier: qw.tier, llmReasoning: qw.reasoning, howCalculated: `This index was flagged as a Quick Win by the LLM: high savings potential with low implementation risk. Action recommended: ${qw.action}.`, evidence: [qw.reasoning].filter(Boolean) })}
+                      style={{ borderBottom: '1px solid #0f172a', cursor: 'pointer' }}
+                    >
                       <td style={{ padding: '0.5rem 0.5rem', color: '#475569', fontWeight: 700 }}>{i + 1}</td>
                       <td style={{ padding: '0.5rem 0.5rem' }}>
                         <div style={{ fontWeight: 600, color: '#f8fafc', marginBottom: '0.2rem' }}>{qw.indexName}</div>
@@ -575,12 +634,17 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
                     <text x={MX + 4} y={H - MY - 4} fill="#ef4444" fontSize={8} opacity={0.7}>LU/LD</text>
                     <text x={W - MX - 4} y={H - MY - 4} textAnchor="end" fill="#f59e0b" fontSize={8} opacity={0.7}>HU/LD</text>
                     {/* Bubbles */}
-                    {scatterData.map((s, i) => {
+                    {scatterData.map((s: any, i: number) => {
                       const bR = Math.min(Math.max(Math.sqrt(s.dailyAvgGb / maxGb) * 16 + 3, 4), 18);
                       const col = tierColor(s.tier);
                       return (
-                        <circle key={i} cx={mapX(s.utilizationScore)} cy={mapY(s.detectionScore)}
-                          r={bR} fill={col} fillOpacity={0.65} stroke={col} strokeWidth={1} strokeOpacity={0.9}>
+                        <circle
+                          key={i}
+                          cx={mapX(s.utilizationScore)} cy={mapY(s.detectionScore)}
+                          r={bR} fill={col} fillOpacity={0.65} stroke={col} strokeWidth={1} strokeOpacity={0.9}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => openDrawer({ title: s.indexName, value: fmtGB(s.dailyAvgGb) + '/day', tier: s.tier, action: s.action, confidence: s.compositeScore, llmReasoning: s.reasoning, howCalculated: `Utilization Score: ${s.utilizationScore.toFixed(0)}/100 — how frequently this index is queried vs its volume.\nDetection Score: ${s.detectionScore.toFixed(0)}/100 — presence of active security alerts and MITRE coverage.\nBubble size represents daily GB ingested (${fmtGB(s.dailyAvgGb)}/day).`, evidence: [s.recommendation || s.reasoning].filter(Boolean), rawData: { utilizationScore: s.utilizationScore, detectionScore: s.detectionScore, qualityScore: s.qualityScore, riskScore: s.riskScore, dailyAvgGb: s.dailyAvgGb, costPerYear: s.costPerYear } })}
+                        >
                           <title>{s.indexName}: Util={s.utilizationScore.toFixed(0)}, Det={s.detectionScore.toFixed(0)}, {fmtGB(s.dailyAvgGb)}/day</title>
                         </circle>
                       );
@@ -679,6 +743,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         </div>
       )}
     </div>
+    </>
   );
 }
 

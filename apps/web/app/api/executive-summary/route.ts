@@ -93,7 +93,23 @@ export async function GET() {
       };
     });
 
+    // 7-day history for sparklines
+    const historyResult = await query(`
+      SELECT snapshot_date, roi_score, gainscope_score, total_daily_gb, total_license_spend
+      FROM executive_kpis
+      ORDER BY snapshot_date DESC
+      LIMIT 7
+    `);
+    const history = historyResult.rows.reverse().map((r) => ({
+      date: r.snapshot_date,
+      roiScore: parseFloat(r.roi_score),
+      gainScopeScore: parseFloat(r.gainscope_score),
+      totalDailyGb: parseFloat(r.total_daily_gb),
+      totalLicenseSpend: parseFloat(r.total_license_spend),
+    }));
+
     return NextResponse.json({
+      history,
       kpis: {
         roiScore: parseFloat(k.roi_score),
         gainScopeScore: parseFloat(k.gainscope_score),

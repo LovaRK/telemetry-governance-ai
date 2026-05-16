@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import TopAppBar from '../../components/layout/TopAppBar';
 import { ExecutiveKPIs, SnapshotRow } from '../../lib/types';
+import DecisionTimeline from '../../components/DecisionTimeline';
+import SectionExplainer from '../../components/shared/SectionExplainer';
 
 export default function DetailPage() {
   const [data, setData] = useState<any>(null);
@@ -158,6 +160,52 @@ export default function DetailPage() {
 
                 {/* E10/E11: Search Audit */}
                 <SearchAudit rows={data.audit} hasEverRefreshed={hasEverRefreshed} />
+
+                {/* LLM Decision Timeline — shows pipeline reasoning stages */}
+                {hasAgentDecisions && data.agentReasoning && (
+                  <Section title="LLM Decision Pipeline">
+                    <SectionExplainer
+                      summary="The Decision Timeline shows the multi-stage LLM reasoning process. Each stage represents a pass the agent made over the telemetry data — click a stage to see the reasoning, evidence, and confidence for that step."
+                      dataInputs={['agent_decisions', 'telemetry_snapshots', 'executive_kpis']}
+                      decisionLogic="Gemma LLM processes batches of 5 indexes at a time, assigns tier/action/confidence, and stores structured JSON decisions in PostgreSQL."
+                    />
+                    <DecisionTimeline
+                      pipelineTrace={{
+                        trace_id: data.snapshotId || 'latest',
+                        overall_confidence: (data.kpis?.avgConfidence ?? 0.7),
+                        decision_traces: [
+                          {
+                            stage: 'data-ingestion',
+                            stage_order: 1,
+                            reasoning: 'Fetched raw index metrics from Splunk REST API. Metrics include dailyAvgGb, totalEvents, retentionDays, firstEvent, lastEvent for all indexes.',
+                            evidence: [`${data.snapshots?.length ?? 0} indexes fetched`, 'Sourcetype drilldown for high-volume indexes'],
+                            confidence: 1.0,
+                            timestamp: data.snapshotDate,
+                            duration_ms: 0,
+                          },
+                          {
+                            stage: 'llm-decision',
+                            stage_order: 2,
+                            reasoning: data.agentReasoning || 'LLM agent processed telemetry inputs and assigned tier classifications, actions, confidence scores, and evidence.',
+                            evidence: [`${data.snapshots?.length ?? 0} indexes classified`, `Model: gemma4:e4b (Ollama)`],
+                            confidence: data.kpis?.avgConfidence ?? 0.7,
+                            timestamp: data.snapshotDate,
+                            duration_ms: 0,
+                          },
+                          {
+                            stage: 'persistence',
+                            stage_order: 3,
+                            reasoning: 'All decisions persisted to PostgreSQL: telemetry_snapshots, executive_kpis, agent_decisions, search_audit tables updated.',
+                            evidence: ['telemetry_snapshots updated', 'executive_kpis updated', 'search_audit updated'],
+                            confidence: 1.0,
+                            timestamp: data.snapshotDate,
+                            duration_ms: 0,
+                          },
+                        ],
+                      }}
+                    />
+                  </Section>
+                )}
               </>
             )}
           </>

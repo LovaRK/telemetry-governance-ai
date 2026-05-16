@@ -81,6 +81,14 @@ export interface QuickWin {
   reasoning: string;
 }
 
+export interface HistoryPoint {
+  date: string;
+  roiScore: number;
+  gainScopeScore: number;
+  totalDailyGb: number;
+  totalLicenseSpend: number;
+}
+
 export interface ExecutiveSummary {
   kpis: ExecutiveKPIs;
   quickWins: QuickWin[];
@@ -88,6 +96,7 @@ export interface ExecutiveSummary {
   agentReasoning: string;
   snapshotDate: string;
   snapshots: SnapshotRow[];
+  history?: HistoryPoint[];
 }
 
 export interface CacheStatus {
