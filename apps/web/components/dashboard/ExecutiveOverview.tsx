@@ -55,6 +55,28 @@ function ScoreBar({ label, value, color }: { label: string; value: number; color
   );
 }
 
+function MiniGauge({ value, max, label, color }: { value: number; max: number; label: string; color: string }) {
+  const pct = Math.min(value / max, 1);
+  const angle = pct * 180;
+  const r = 34, cx = 44, cy = 44;
+  const polarToXY = (deg: number) => {
+    const rad = ((deg - 180) * Math.PI) / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  };
+  const end = polarToXY(angle);
+  const largeArc = angle > 90 ? 1 : 0;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <svg width={88} height={54} viewBox="0 0 88 54">
+        <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" stroke="#1e293b" strokeWidth={9} strokeLinecap="round" />
+        {pct > 0 && <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y}`} fill="none" stroke={color} strokeWidth={9} strokeLinecap="round" />}
+        <text x={cx} y={cy - 2} textAnchor="middle" fill="#f8fafc" fontSize={14} fontWeight={700}>{value}</text>
+      </svg>
+      <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: -6, textAlign: 'center' }}>{label}</div>
+    </div>
+  );
+}
+
 function DonutChart({ segments, size = 140, strokeWidth = 22 }: {
   segments: { label: string; value: number; color: string }[];
   size?: number; strokeWidth?: number;
@@ -126,6 +148,23 @@ export default function ExecutiveOverview({ summary }: Props) {
   const maxStairSavings = staircase.reduce((m, s) => Math.max(m, s.cumulative), 0) || 1;
   const staircaseHasDelta = staircase.some((s) => s.savings > 0);
 
+  // D7: Score profile by tier
+  const tierGroups = [
+    { label: 'Critical', match: /critical/i },
+    { label: 'Important', match: /important/i },
+    { label: 'Nice-to-Have', match: /nice/i },
+    { label: 'Low Value', match: /low.value/i },
+  ].map(({ label, match }) => {
+    const inTier = snapshots.filter(s => match.test(s.tier));
+    const avg = (vals: number[]) => vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+    return {
+      label, count: inTier.length, color: tierColor(label),
+      util: avg(inTier.map(s => s.utilizationScore)),
+      detect: avg(inTier.map(s => s.detectionScore)),
+      quality: avg(inTier.map(s => s.qualityScore)),
+    };
+  });
+
   // D4/D5: Utilized vs Under-Utilized
   const isHighValue = (tier: string) => /critical|important/i.test(tier);
   const utilizedGb = snapshots.reduce((s, v) => s + (isHighValue(v.tier) ? v.dailyAvgGb : 0), 0);
@@ -192,15 +231,10 @@ export default function ExecutiveOverview({ summary }: Props) {
         </div>
         <div style={card({ borderLeft: '4px solid #f59e0b' })}>
           <div style={cardTitle}>Coverage Gaps</div>
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end' }}>
-            <div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ef4444' }}>{kpis.securityGaps}</div>
-              <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Security</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f59e0b' }}>{kpis.operationalGaps}</div>
-              <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Operational</div>
-            </div>
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'space-around' }}>
+            <MiniGauge value={kpis.securityGaps} max={Math.max(kpis.securityGaps * 2, 20)} label="Security" color="#ef4444" />
+            <MiniGauge value={kpis.operationalGaps} max={Math.max(kpis.operationalGaps * 2, 20)} label="Ops" color="#f59e0b" />
+            <MiniGauge value={Math.round(kpis.avgConfidence * 100)} max={100} label="Confidence" color="#22c55e" />
           </div>
         </div>
       </div>
@@ -256,6 +290,35 @@ export default function ExecutiveOverview({ summary }: Props) {
                 );
               })
           }
+        </div>
+      </div>
+
+      {/* Row 2.5 — D7: Score Profile by Tier */}
+      <div style={card()}>
+        <div style={cardTitle}>Score Profile by Tier</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '1.25rem' }}>
+          {tierGroups.map(tg => (
+            <div key={tg.label} style={{ borderTop: `3px solid ${tg.color}`, paddingTop: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: tg.color }}>{tg.label}</span>
+                <span style={{ fontSize: '0.7rem', color: '#475569' }}>{tg.count} index{tg.count !== 1 ? 'es' : ''}</span>
+              </div>
+              {tg.count === 0
+                ? <div style={{ color: '#334155', fontSize: '0.75rem', fontStyle: 'italic' }}>No indexes</div>
+                : ([['Utilization', tg.util], ['Detection', tg.detect], ['Quality', tg.quality]] as [string, number][]).map(([lbl, val]) => (
+                  <div key={lbl} style={{ marginBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b', marginBottom: '0.15rem' }}>
+                      <span>{lbl}</span>
+                      <span style={{ color: val >= 70 ? '#22c55e' : val >= 40 ? '#f59e0b' : '#ef4444', fontWeight: 600 }}>{val.toFixed(0)}</span>
+                    </div>
+                    <div style={{ height: 5, background: '#1e293b', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.min(val, 100)}%`, background: tg.color, borderRadius: 3, opacity: 0.75 }} />
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+          ))}
         </div>
       </div>
 

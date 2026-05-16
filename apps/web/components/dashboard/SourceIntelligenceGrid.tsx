@@ -3,33 +3,28 @@
 import React, { useState } from 'react';
 import { SnapshotRow } from '../../lib/types';
 
-interface Props {
-  snapshots: SnapshotRow[];
-}
+interface Props { snapshots: SnapshotRow[]; }
+
+const PAGE_SIZE = 15;
 
 const TIER_COLORS: Record<string, string> = {
-  'Critical': '#ef4444',
-  'Important': '#f59e0b',
-  'Nice-to-Have': '#3b82f6',
-  'Low Value': '#64748b',
+  'Critical': '#ef4444', 'Important': '#f59e0b', 'Nice-to-Have': '#3b82f6', 'Low Value': '#64748b',
 };
-
 const ACTION_COLORS: Record<string, string> = {
-  KEEP: '#22c55e',
-  OPTIMIZE: '#f59e0b',
-  ARCHIVE: '#3b82f6',
-  ELIMINATE: '#ef4444',
-  INVESTIGATE: '#8b5cf6',
+  KEEP: '#22c55e', OPTIMIZE: '#f59e0b', ARCHIVE: '#3b82f6', ELIMINATE: '#ef4444', INVESTIGATE: '#8b5cf6',
 };
 
-function ScorePip({ value, label }: { value: number; label: string }) {
+function fmt$(v: number): string {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}k`;
+  if (v >= 1) return `$${v.toFixed(0)}`;
+  if (v > 0) return `$${v.toFixed(2)}`;
+  return '$0';
+}
+
+function ScorePip({ value }: { value: number }) {
   const color = value >= 70 ? '#22c55e' : value >= 40 ? '#f59e0b' : '#ef4444';
-  return (
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: '0.875rem', fontWeight: 700, color }}>{value.toFixed(0)}</div>
-      <div style={{ fontSize: '0.6rem', color: '#64748b' }}>{label}</div>
-    </div>
-  );
+  return <span style={{ fontWeight: 700, color }}>{value.toFixed(0)}</span>;
 }
 
 export default function SourceIntelligenceGrid({ snapshots }: Props) {
@@ -38,6 +33,7 @@ export default function SourceIntelligenceGrid({ snapshots }: Props) {
   const [filterTier, setFilterTier] = useState('');
   const [filterAction, setFilterAction] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
 
   type SortableKey = keyof SnapshotRow;
 
@@ -51,15 +47,20 @@ export default function SourceIntelligenceGrid({ snapshots }: Props) {
       return sortDesc ? String(bVal ?? '').localeCompare(String(aVal ?? '')) : String(aVal ?? '').localeCompare(String(bVal ?? ''));
     });
 
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+  const paginated = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
   const toggle = (key: string) => {
     if (sortKey === key) setSortDesc(!sortDesc);
     else { setSortKey(key); setSortDesc(true); }
+    setPage(0);
   };
 
   const sortIcon = (key: string) => sortKey === key ? (sortDesc ? ' ▼' : ' ▲') : '';
-
   const tiers = Array.from(new Set(snapshots.map((s) => s.tier).filter(Boolean)));
   const actions = ['KEEP', 'OPTIMIZE', 'ARCHIVE', 'ELIMINATE', 'INVESTIGATE'];
+
+  const COLS = 14; // total column count for expanded row colSpan
 
   return (
     <div style={{ padding: '1.5rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
@@ -68,11 +69,11 @@ export default function SourceIntelligenceGrid({ snapshots }: Props) {
           Telemetry Intelligence — {sorted.length} indexes
         </h3>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <select value={filterTier} onChange={(e) => setFilterTier(e.target.value)} style={selectStyle}>
+          <select value={filterTier} onChange={(e) => { setFilterTier(e.target.value); setPage(0); }} style={selectStyle}>
             <option value="">All Tiers</option>
             {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
-          <select value={filterAction} onChange={(e) => setFilterAction(e.target.value)} style={selectStyle}>
+          <select value={filterAction} onChange={(e) => { setFilterAction(e.target.value); setPage(0); }} style={selectStyle}>
             <option value="">All Actions</option>
             {actions.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
@@ -95,16 +96,18 @@ export default function SourceIntelligenceGrid({ snapshots }: Props) {
                 { key: 'qualityScore', label: 'Quality' },
                 { key: 'estimatedSavings', label: 'Savings' },
                 { key: 'confidence', label: 'Conf' },
+                { key: 'detectionGap', label: 'Det. Gap' },
               ].map((h) => (
                 <th key={h.key} onClick={() => toggle(h.key)} style={thStyle}>
                   {h.label}{sortIcon(h.key)}
                 </th>
               ))}
+              <th style={{ ...thStyle, cursor: 'default' }}>Recommendation</th>
               <th style={{ ...thStyle, cursor: 'default' }}>Flags</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map((s) => {
+            {paginated.map((s) => {
               const rowKey = `${s.indexName}-${s.sourcetype || ''}`;
               const isExpanded = expanded === rowKey;
               const tierColor = TIER_COLORS[s.tier] || '#64748b';
@@ -127,16 +130,27 @@ export default function SourceIntelligenceGrid({ snapshots }: Props) {
                         {s.classification}
                       </span>
                     </td>
-                    <td style={{ padding: '0.625rem 0.75rem', color: '#94a3b8' }}>{s.dailyAvgGb.toFixed(2)}</td>
-                    <td style={{ padding: '0.625rem 0.75rem', color: '#94a3b8' }}>${s.costPerYear.toLocaleString()}</td>
-                    <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.compositeScore} label="" /></td>
-                    <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.utilizationScore} label="" /></td>
-                    <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.detectionScore} label="" /></td>
-                    <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.qualityScore} label="" /></td>
+                    <td style={{ padding: '0.625rem 0.75rem', color: '#94a3b8' }}>{s.dailyAvgGb.toFixed(3)}</td>
+                    <td style={{ padding: '0.625rem 0.75rem', color: '#94a3b8' }}>{fmt$(s.costPerYear)}</td>
+                    <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.compositeScore} /></td>
+                    <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.utilizationScore} /></td>
+                    <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.detectionScore} /></td>
+                    <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.qualityScore} /></td>
                     <td style={{ padding: '0.625rem 0.75rem', color: s.estimatedSavings > 0 ? '#22c55e' : '#475569', fontWeight: 600 }}>
-                      {s.estimatedSavings > 0 ? `$${(s.estimatedSavings / 1000).toFixed(0)}k` : '—'}
+                      {s.estimatedSavings > 0 ? fmt$(s.estimatedSavings) : '—'}
                     </td>
                     <td style={{ padding: '0.625rem 0.75rem', color: '#94a3b8' }}>{(s.confidence * 100).toFixed(0)}%</td>
+                    <td style={{ padding: '0.625rem 0.75rem' }}>
+                      {s.detectionGap
+                        ? <span style={{ padding: '0.1rem 0.4rem', borderRadius: 3, fontSize: '0.7rem', background: '#ef444420', color: '#ef4444', fontWeight: 600 }}>Yes</span>
+                        : <span style={{ color: '#334155', fontSize: '0.7rem' }}>—</span>
+                      }
+                    </td>
+                    <td style={{ padding: '0.625rem 0.75rem', color: '#64748b', maxWidth: 200 }}>
+                      <span title={s.recommendation || ''} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.75rem' }}>
+                        {s.recommendation ? s.recommendation.slice(0, 60) + (s.recommendation.length > 60 ? '…' : '') : '—'}
+                      </span>
+                    </td>
                     <td style={{ padding: '0.625rem 0.75rem' }}>
                       <div style={{ display: 'flex', gap: '0.25rem' }}>
                         {s.isQuickWin && <span title="Quick Win" style={flagStyle('#22c55e')}>⚡</span>}
@@ -147,20 +161,14 @@ export default function SourceIntelligenceGrid({ snapshots }: Props) {
                   </tr>
                   {isExpanded && (
                     <tr style={{ background: '#0a1628' }}>
-                      <td colSpan={13} style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #1e293b' }}>
+                      <td colSpan={COLS} style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #1e293b' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                           <div>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
-                              🧠 Agent Reasoning
-                            </div>
-                            <div style={{ color: '#cbd5e1', fontSize: '0.8rem', lineHeight: 1.6 }}>
-                              {s.reasoning || s.recommendation || 'No reasoning provided'}
-                            </div>
+                            <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>🧠 Agent Reasoning</div>
+                            <div style={{ color: '#cbd5e1', fontSize: '0.8rem', lineHeight: 1.6 }}>{s.reasoning || s.recommendation || 'No reasoning provided'}</div>
                           </div>
                           <div>
-                            <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
-                              Metrics
-                            </div>
+                            <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>Metrics</div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.75rem' }}>
                               <div style={{ color: '#94a3b8' }}>Retention: <span style={{ color: '#f8fafc' }}>{s.retentionDays}d</span></div>
                               <div style={{ color: '#94a3b8' }}>Events: <span style={{ color: '#f8fafc' }}>{s.totalEvents.toLocaleString()}</span></div>
@@ -179,33 +187,35 @@ export default function SourceIntelligenceGrid({ snapshots }: Props) {
           </tbody>
         </table>
       </div>
+
+      {/* F2: Pagination */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', fontSize: '0.75rem', color: '#64748b' }}>
+          <span>{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}</span>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} style={pageBtn(page === 0)}>← Prev</button>
+            <span style={{ padding: '0.375rem 0.5rem', color: '#94a3b8' }}>Page {page + 1} / {totalPages}</span>
+            <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} style={pageBtn(page >= totalPages - 1)}>Next →</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 const selectStyle: React.CSSProperties = {
-  padding: '0.375rem 0.625rem',
-  background: '#1e293b',
-  border: '1px solid #334155',
-  color: '#f8fafc',
-  borderRadius: 6,
-  fontSize: '0.75rem',
+  padding: '0.375rem 0.625rem', background: '#1e293b', border: '1px solid #334155',
+  color: '#f8fafc', borderRadius: 6, fontSize: '0.75rem',
 };
-
 const thStyle: React.CSSProperties = {
-  padding: '0.625rem 0.75rem',
-  textAlign: 'left',
-  color: '#64748b',
-  cursor: 'pointer',
-  userSelect: 'none',
-  fontWeight: 500,
-  fontSize: '0.75rem',
-  whiteSpace: 'nowrap',
+  padding: '0.625rem 0.75rem', textAlign: 'left', color: '#64748b',
+  cursor: 'pointer', userSelect: 'none', fontWeight: 500, fontSize: '0.75rem', whiteSpace: 'nowrap',
 };
-
 const flagStyle = (color: string): React.CSSProperties => ({
-  fontSize: '0.75rem',
-  padding: '0.1rem 0.25rem',
-  borderRadius: 3,
-  background: `${color}20`,
+  fontSize: '0.75rem', padding: '0.1rem 0.25rem', borderRadius: 3, background: `${color}20`,
+});
+const pageBtn = (disabled: boolean): React.CSSProperties => ({
+  padding: '0.375rem 0.75rem', background: disabled ? '#0f172a' : '#1e293b',
+  border: '1px solid #1e293b', color: disabled ? '#334155' : '#94a3b8',
+  borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer', fontSize: '0.75rem',
 });

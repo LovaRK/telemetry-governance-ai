@@ -208,9 +208,12 @@ export default function Home() {
                       letterSpacing: '0.04em',
                     }}
                   >
-                    {tab === 'overview' ? 'Executive Overview' : 'Telemetry Intelligence'}
+                    {tab === 'overview' ? 'Executive Overview' : 'Telemetry Detail'}
                   </button>
                 ))}
+                <a href="/detail" style={{ padding: '0.5rem 1.25rem', background: 'transparent', color: '#334155', border: '1px solid #1e293b', borderRadius: 8, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  Enhanced Viz ↗
+                </a>
               </div>
               <div style={{ fontSize: '0.7rem', color: '#334155' }}>
                 {summary.snapshots.length} indexes · {summary.snapshotDate ? new Date(summary.snapshotDate).toLocaleDateString() : ''}
