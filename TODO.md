@@ -25,8 +25,12 @@
 - [x] README.md with quick-start instructions
 - [x] TypeScript compilation — zero implicit any errors
 
+- [x] `SectionExplainer` on Tier Distribution (explains tier classification logic)
+- [x] `SectionExplainer` on Savings Staircase (explains cumulative savings + quick-win scoring)
+- [x] `SectionExplainer` on Agent Intelligence Panel (explains risk and detection gap scoring)
+
 ## 🔄 In Progress
-- [ ] `SectionExplainer` on additional sections (Tier Distribution, Savings Staircase header, AgentIntelligencePanel)
+- [ ] Detail page table row expansion for reasoning drill-down (optional polish)
 
 ## 🔲 Backlog — Pipeline (requires new Splunk queries)
 - [ ] Field usage analysis (Splunk tstats field-level query → field_usage table)
