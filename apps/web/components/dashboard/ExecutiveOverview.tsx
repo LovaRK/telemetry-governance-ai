@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ExecutiveSummary } from '../../lib/types';
+import { ExecutiveSummary, SnapshotRow } from '../../lib/types';
 import Tooltip, { TOOLTIPS } from '../Tooltip';
 import ReasoningDrawer, { ReasoningDrawerProps } from '../shared/ReasoningDrawer';
 import SectionExplainer from '../shared/SectionExplainer';
@@ -164,21 +164,21 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
   ];
 
   const actionCounts: Record<string, number> = {};
-  snapshots.forEach((s) => { actionCounts[s.classification] = (actionCounts[s.classification] || 0) + 1; });
+  snapshots.forEach((s: SnapshotRow) => { actionCounts[s.classification] = (actionCounts[s.classification] || 0) + 1; });
 
   const staircase = savingsStaircase.length > 0 ? savingsStaircase : (() => {
     const byAction: Record<string, { savings: number; count: number }> = {};
-    snapshots.forEach((s) => {
+    snapshots.forEach((s: SnapshotRow) => {
       if (!byAction[s.classification]) byAction[s.classification] = { savings: 0, count: 0 };
       byAction[s.classification].savings += s.estimatedSavings || 0;
       byAction[s.classification].count += 1;
     });
     let cumulative = 0;
     return Object.entries(byAction).filter(([, v]) => v.savings > 0).sort((a, b) => b[1].savings - a[1].savings)
-      .map(([action, v]) => { cumulative += v.savings; return { label: action, savings: v.savings, cumulative, action, count: v.count }; });
+      .map(([action, v]: [string, { savings: number; count: number }]) => { cumulative += v.savings; return { label: action, savings: v.savings, cumulative, action, count: v.count }; });
   })();
-  const maxStairSavings = staircase.reduce((m, s) => Math.max(m, s.cumulative), 0) || 1;
-  const staircaseHasDelta = staircase.some((s) => s.savings > 0);
+  const maxStairSavings = staircase.reduce((m: number, s: any) => Math.max(m, s.cumulative), 0) || 1;
+  const staircaseHasDelta = staircase.some((s: any) => s.savings > 0);
 
   // D7: Score profile by tier
   const tierGroups = [
@@ -186,30 +186,30 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
     { label: 'Important', match: /important/i },
     { label: 'Nice-to-Have', match: /nice/i },
     { label: 'Low Value', match: /low.value/i },
-  ].map(({ label, match }) => {
-    const inTier = snapshots.filter(s => match.test(s.tier));
+  ].map(({ label, match }: { label: string; match: RegExp }) => {
+    const inTier = snapshots.filter((s: SnapshotRow) => match.test(s.tier));
     const avg = (vals: number[]) => vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
     return {
       label, count: inTier.length, color: tierColor(label),
-      util: avg(inTier.map(s => s.utilizationScore)),
-      detect: avg(inTier.map(s => s.detectionScore)),
-      quality: avg(inTier.map(s => s.qualityScore)),
+      util: avg(inTier.map((s: SnapshotRow) => s.utilizationScore)),
+      detect: avg(inTier.map((s: SnapshotRow) => s.detectionScore)),
+      quality: avg(inTier.map((s: SnapshotRow) => s.qualityScore)),
     };
   });
 
   // D4/D5: Utilized vs Under-Utilized
   const isHighValue = (tier: string) => /critical|important/i.test(tier);
-  const utilizedGb = snapshots.reduce((s, v) => s + (isHighValue(v.tier) ? v.dailyAvgGb : 0), 0);
-  const underUtilizedGb = snapshots.reduce((s, v) => s + (!isHighValue(v.tier) ? v.dailyAvgGb : 0), 0);
-  const utilizedCount = snapshots.filter(s => isHighValue(s.tier)).length;
-  const underUtilizedCount = snapshots.filter(s => !isHighValue(s.tier)).length;
+  const utilizedGb = snapshots.reduce((s: number, v: SnapshotRow) => s + (isHighValue(v.tier) ? v.dailyAvgGb : 0), 0);
+  const underUtilizedGb = snapshots.reduce((s: number, v: SnapshotRow) => s + (!isHighValue(v.tier) ? v.dailyAvgGb : 0), 0);
+  const utilizedCount = snapshots.filter((s: SnapshotRow) => isHighValue(s.tier)).length;
+  const underUtilizedCount = snapshots.filter((s: SnapshotRow) => !isHighValue(s.tier)).length;
 
   // D9: Annual spend by tier
   const spendByTier = [
-    { label: 'Critical', value: snapshots.filter(s => /critical/i.test(s.tier)).reduce((s, v) => s + v.costPerYear, 0), color: TIER_COLORS.critical },
-    { label: 'Important', value: snapshots.filter(s => /important/i.test(s.tier)).reduce((s, v) => s + v.costPerYear, 0), color: TIER_COLORS.important },
-    { label: 'Nice-to-Have', value: snapshots.filter(s => /nice/i.test(s.tier)).reduce((s, v) => s + v.costPerYear, 0), color: TIER_COLORS.niceToHave },
-    { label: 'Low Value', value: snapshots.filter(s => /low.value/i.test(s.tier)).reduce((s, v) => s + v.costPerYear, 0), color: TIER_COLORS.lowValue },
+    { label: 'Critical', value: snapshots.filter((s: SnapshotRow) => /critical/i.test(s.tier)).reduce((s: number, v: SnapshotRow) => s + v.costPerYear, 0), color: TIER_COLORS.critical },
+    { label: 'Important', value: snapshots.filter((s: SnapshotRow) => /important/i.test(s.tier)).reduce((s: number, v: SnapshotRow) => s + v.costPerYear, 0), color: TIER_COLORS.important },
+    { label: 'Nice-to-Have', value: snapshots.filter((s: SnapshotRow) => /nice/i.test(s.tier)).reduce((s: number, v: SnapshotRow) => s + v.costPerYear, 0), color: TIER_COLORS.niceToHave },
+    { label: 'Low Value', value: snapshots.filter((s: SnapshotRow) => /low.value/i.test(s.tier)).reduce((s: number, v: SnapshotRow) => s + v.costPerYear, 0), color: TIER_COLORS.lowValue },
   ];
   const maxTierSpend = Math.max(...spendByTier.map(t => t.value), 1);
 
@@ -218,11 +218,11 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
   const maxVol = Math.max(...top6ByVol.map(s => s.dailyAvgGb), 0.001);
 
   // D12: Archive/S3 candidates
-  const archiveCandidates = snapshots.filter(s => s.isS3Candidate || /archive|s3/i.test(s.action));
+  const archiveCandidates = snapshots.filter((s: SnapshotRow) => s.isS3Candidate || /archive|s3/i.test(s.action));
 
   // D11: Scatter data
   const scatterData = snapshots;
-  const maxGb = Math.max(...scatterData.map(s => s.dailyAvgGb), 0.001);
+  const maxGb = Math.max(...scatterData.map((s: SnapshotRow) => s.dailyAvgGb), 0.001);
 
   const card = (extra?: React.CSSProperties): React.CSSProperties => ({
     padding: '1.5rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b', ...extra,
@@ -518,7 +518,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             ? (
               <div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', marginBottom: '0.75rem' }}>
-                  {staircase.map((step, i) => (
+                  {staircase.map((step: any, i: number) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '0.375rem 0.5rem', background: '#1e293b', borderRadius: 4 }}>
                       <span style={{ color: '#94a3b8' }}>{step.label}</span>
                       <span style={{ color: '#f8fafc', fontWeight: 600 }}>{fmt$(step.cumulative)}</span>
@@ -564,8 +564,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
           <div style={cardTitle}>Quick Wins</div>
           {(() => {
             const wins = quickWins.length > 0
-              ? quickWins.slice(0, 5).map(qw => ({ indexName: qw.indexName, action: qw.action, savings: qw.savings, tier: qw.tier, reasoning: qw.reasoning }))
-              : snapshots.filter(s => s.isQuickWin).slice(0, 5).map(s => ({ indexName: s.indexName, action: s.action, savings: s.estimatedSavings, tier: s.tier, reasoning: s.reasoning }));
+              ? quickWins.slice(0, 5).map((qw: any) => ({ indexName: qw.indexName, action: qw.action, savings: qw.savings, tier: qw.tier, reasoning: qw.reasoning }))
+              : snapshots.filter((s: SnapshotRow) => s.isQuickWin).slice(0, 5).map((s: SnapshotRow) => ({ indexName: s.indexName, action: s.action, savings: s.estimatedSavings, tier: s.tier, reasoning: s.reasoning }));
             if (wins.length === 0) return <div style={{ color: '#475569', fontSize: '0.875rem' }}>No quick wins identified</div>;
             return (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
@@ -578,7 +578,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
                   </tr>
                 </thead>
                 <tbody>
-                  {wins.map((qw, i) => (
+                  {wins.map((qw: any, i: number) => (
                     <tr
                       key={i}
                       onClick={() => openDrawer({ title: qw.indexName, value: qw.savings > 0 ? fmt$(qw.savings) : 'Quick Win', action: qw.action, tier: qw.tier, llmReasoning: qw.reasoning, howCalculated: `This index was flagged as a Quick Win by the LLM: high savings potential with low implementation risk. Action recommended: ${qw.action}.`, evidence: [qw.reasoning].filter(Boolean) })}
@@ -704,7 +704,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
                 </tr>
               </thead>
               <tbody>
-                {archiveCandidates.slice(0, 10).map((s, i) => {
+                {archiveCandidates.slice(0, 10).map((s: SnapshotRow, i: number) => {
                   const col = tierColor(s.tier);
                   const actColor = ACTION_COLORS[s.action] || '#3b82f6';
                   return (

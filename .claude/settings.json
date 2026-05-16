@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(docker exec *)",
-      "Bash(docker run *)"
+      "Bash(docker run *)",
+      "Read(//Users/ramakrishna/.claude/plans/**)"
     ]
   }
 }
