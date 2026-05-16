@@ -12,15 +12,21 @@
 - [x] Executive Overview — gauges, donut charts, scatter plot, savings staircase, quick wins
 - [x] Detail page — KPI row, health board, retention table, security gaps, search audit tables
 - [x] field_usage, security_coverage, quality_hotspots tables + API routes (return empty until populated)
+- [x] Bootstrap script (`scripts/bootstrap.sh`) — one command to start full stack
+- [x] Universal `ReasoningDrawer` — clickable LLM reasoning on every gauge/chart/table row/bubble
+  - ROI, GainScope, Low-Value Spend, Savings Potential, Daily Ingest, Coverage Gaps gauges
+  - Savings staircase bars with affected indexes list
+  - Quick wins table rows with reasoning
+  - Top risk indexes, detection gaps in AgentIntelligencePanel
+  - Scatter plot bubbles with utilization/detection/risk breakdown
+- [x] `DecisionTimeline` activation on detail page with synthetic pipeline trace
+- [x] `SectionExplainer` banners on Executive Overview + DecisionTimeline section
+- [x] Trend sparklines on KPI cards (7-day history for ROI, GainScope, Daily Ingest)
+- [x] README.md with quick-start instructions
+- [x] TypeScript compilation — zero implicit any errors
 
 ## 🔄 In Progress
-- [ ] Bootstrap script (`scripts/bootstrap.sh`) — one command to start full stack
-- [ ] Universal `ReasoningDrawer` — clickable LLM reasoning on every gauge/chart/table
-- [ ] `DecisionTimeline` activation on detail page (component exists, not wired)
-- [ ] `SectionExplainer` banners — "How was this calculated?" on every section
-- [ ] Trend sparklines on KPI cards (7-day history)
-- [ ] `WhyThisWasShown` activation on AgentIntelligencePanel
-- [ ] README.md with quick-start instructions
+- [ ] `SectionExplainer` on additional sections (Tier Distribution, Savings Staircase header, AgentIntelligencePanel)
 
 ## 🔲 Backlog — Pipeline (requires new Splunk queries)
 - [ ] Field usage analysis (Splunk tstats field-level query → field_usage table)
