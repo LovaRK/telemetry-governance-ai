@@ -77,6 +77,30 @@ function MiniGauge({ value, max, label, color }: { value: number; max: number; l
   );
 }
 
+function SpendGauge({ amount, total, label, color }: { amount: number; total: number; label: string; color: string }) {
+  const pct = total > 0 ? Math.min(amount / total, 1) : 0;
+  const angle = pct * 180;
+  const r = 60, cx = 80, cy = 80;
+  const polarToXY = (deg: number) => {
+    const rad = ((deg - 180) * Math.PI) / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  };
+  const end = polarToXY(angle);
+  const largeArc = angle > 90 ? 1 : 0;
+  const pctLabel = total > 0 ? `${(pct * 100).toFixed(0)}% of total` : 'no data';
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <svg width={160} height={95} viewBox="0 0 160 95">
+        <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" stroke="#1e293b" strokeWidth={14} strokeLinecap="round" />
+        {pct > 0 && <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y}`} fill="none" stroke={color} strokeWidth={14} strokeLinecap="round" />}
+        <text x={cx} y={cy - 6} textAnchor="middle" fill="#f8fafc" fontSize={17} fontWeight={700}>{fmt$(amount)}</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" fill="#64748b" fontSize={9}>{pctLabel}</text>
+      </svg>
+      <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: -4 }}>{label}</div>
+    </div>
+  );
+}
+
 function DonutChart({ segments, size = 140, strokeWidth = 22 }: {
   segments: { label: string; value: number; color: string }[];
   size?: number; strokeWidth?: number;
@@ -245,17 +269,13 @@ export default function ExecutiveOverview({ summary }: Props) {
           <div style={cardTitle}>GainScope</div>
           <Gauge value={kpis.gainScopeScore} label="" color="#3b82f6" />
         </div>
-        <div style={card({ borderLeft: '4px solid #ef4444' })}>
-          <div style={cardTitle}>Total License Spend</div>
-          <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc' }}>{fmt$(kpis.totalLicenseSpend)}</div>
-          <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>annual</div>
+        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={cardTitle}>Low-Value Spend</div>
+          <SpendGauge amount={kpis.licenseSpendLowValue} total={kpis.totalLicenseSpend} label="" color="#ef4444" />
         </div>
-        <div style={card({ borderLeft: '4px solid #22c55e' })}>
+        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
           <div style={cardTitle}>Savings Potential</div>
-          <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#22c55e' }}>{fmt$(kpis.storageSavingsPotential)}</div>
-          <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
-            {kpis.totalLicenseSpend > 0 ? ((kpis.storageSavingsPotential / kpis.totalLicenseSpend) * 100).toFixed(0) : 0}% of spend
-          </div>
+          <SpendGauge amount={kpis.storageSavingsPotential} total={kpis.totalLicenseSpend} label="" color="#22c55e" />
         </div>
         <div style={card({ borderLeft: '4px solid #8b5cf6' })}>
           <div style={cardTitle}>Daily Ingest</div>
@@ -468,14 +488,39 @@ export default function ExecutiveOverview({ summary }: Props) {
 
         <div style={card()}>
           <div style={cardTitle}>Quick Wins</div>
-          {quickWins.length === 0
-            ? snapshots.filter(s => s.isQuickWin).length === 0
-              ? <div style={{ color: '#475569', fontSize: '0.875rem' }}>No quick wins identified</div>
-              : snapshots.filter(s => s.isQuickWin).slice(0, 5).map(s => (
-                  <QuickWinRow key={s.indexName} indexName={s.indexName} action={s.action} savings={s.estimatedSavings} tier={s.tier} reasoning={s.reasoning} />
-                ))
-            : quickWins.slice(0, 5).map((qw, i) => <QuickWinRow key={i} {...qw} />)
-          }
+          {(() => {
+            const wins = quickWins.length > 0
+              ? quickWins.slice(0, 5).map(qw => ({ indexName: qw.indexName, action: qw.action, savings: qw.savings, tier: qw.tier, reasoning: qw.reasoning }))
+              : snapshots.filter(s => s.isQuickWin).slice(0, 5).map(s => ({ indexName: s.indexName, action: s.action, savings: s.estimatedSavings, tier: s.tier, reasoning: s.reasoning }));
+            if (wins.length === 0) return <div style={{ color: '#475569', fontSize: '0.875rem' }}>No quick wins identified</div>;
+            return (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #1e293b' }}>
+                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#475569', fontWeight: 500, width: 28 }}>#</th>
+                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#475569', fontWeight: 500 }}>Index</th>
+                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'right', color: '#475569', fontWeight: 500, whiteSpace: 'nowrap' }}>Est. Impact</th>
+                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#475569', fontWeight: 500 }}>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {wins.map((qw, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #0f172a' }}>
+                      <td style={{ padding: '0.5rem 0.5rem', color: '#475569', fontWeight: 700 }}>{i + 1}</td>
+                      <td style={{ padding: '0.5rem 0.5rem' }}>
+                        <div style={{ fontWeight: 600, color: '#f8fafc', marginBottom: '0.2rem' }}>{qw.indexName}</div>
+                        <span style={{ padding: '0.1rem 0.35rem', borderRadius: 3, fontSize: '0.62rem', background: `${ACTION_COLORS[qw.action] || '#3b82f6'}20`, color: ACTION_COLORS[qw.action] || '#3b82f6', fontWeight: 600 }}>{qw.action}</span>
+                      </td>
+                      <td style={{ padding: '0.5rem 0.5rem', color: '#22c55e', fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap' }}>{qw.savings > 0 ? fmt$(qw.savings) : '—'}</td>
+                      <td style={{ padding: '0.5rem 0.5rem', color: '#64748b', fontSize: '0.72rem', maxWidth: 160 }}>
+                        {qw.reasoning ? qw.reasoning.slice(0, 80) + (qw.reasoning.length > 80 ? '…' : '') : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            );
+          })()}
         </div>
       </div>
 
