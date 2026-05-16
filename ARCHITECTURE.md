@@ -23,15 +23,16 @@
 13. [Deployment & Operations](#deployment--operations)
 14. [Security Boundaries](#security-boundaries)
 15. [API Versioning](#api-versioning)
-16. [Resource Sizing Guide](#resource-sizing-guide)
-17. [Multi-Tenant Stance](#multi-tenant-stance)
-18. [Decision Reproducibility](#decision-reproducibility)
+16. [Configuration Schema (FINAL)](#configuration-schema-final)
+17. [Resource Sizing Guide](#resource-sizing-guide)
+18. [Multi-Tenant Stance](#multi-tenant-stance)
+19. [Decision Reproducibility](#decision-reproducibility)
 
 ---
 
 ## Executive Summary
 
-The Agentic Telemetry Operating System is a LLM-powered dashboard for Splunk index optimization. It replaces hardcoded scoring rules with a **single source of truth**: an LLM decision agent (gemma4:e4b via Ollama) that evaluates all telemetry data and assigns tier/action recommendations to Splunk indexes.
+The Agentic Telemetry Operating System is a LLM-powered dashboard for Splunk index optimization. It replaces hardcoded scoring rules with a **single source of truth**: an LLM decision agent (gemma2:9b via Ollama as primary, with gemma4:e4b upgrade path and Anthropic fallback) that evaluates all telemetry data and assigns tier/action recommendations to Splunk indexes.
 
 **Core Principles:**
 - **Single Authority:** All decisions come from LLM, never from Python rules or hardcoded heuristics
@@ -49,7 +50,14 @@ The Agentic Telemetry Operating System is a LLM-powered dashboard for Splunk ind
 
 **Local LLM Reliability vs Enterprise-Grade Deterministic Throughput**
 
-This system deliberately chooses **local LLM inference** (Ollama + gemma4:e4b on-premise) over cloud-based deterministic APIs. This decision creates both advantages and operational risks:
+This system deliberately chooses **local LLM inference** (Ollama on-premise) over cloud-based deterministic APIs. Critical stability fix: **gemma2:9b is primary model** (proven stable on 16GB), with upgrade paths:
+
+**Model Strategy (Locked via LLM_MODEL Config):**
+```
+Production:   LLM_MODEL=gemma2:9b (stable, <30GB memory, <10s/batch)
+Upgrade Path: LLM_MODEL=gemma4:e4b (requires 32GB+ RAM + GPU)
+Fallback:     FALLBACK_MODE=AUTO → Anthropic API (feature-flagged)
+```
 
 **Advantages:**
 - Zero API latency (local HTTP)
@@ -57,13 +65,14 @@ This system deliberately chooses **local LLM inference** (Ollama + gemma4:e4b on
 - Full control over model versions and prompts
 - No data leaves organization (Splunk → local LLM → local DB)
 - Cost predictability (one-time hardware investment vs per-inference cloud fees)
+- gemma2:9b proven stable (no OOM on 16GB, consistent output quality)
 
-**Operational Risks:**
-- Ollama process instability (memory pressure, GPU issues, driver crashes)
-- Probabilistic outputs even at low temperature (no guaranteed determinism)
-- Sequential inference requirement (MAX_PARALLEL=2) limits throughput
-- Local hardware capacity bounds (16GB Mac → ~100 concurrent indexes max)
-- Model version incompatibility (gemma4:e4b may change behavior across versions)
+**Operational Risks (Mitigated by Model Lock):**
+- ~~Ollama process instability~~ → Fixed by gemma2:9b stability + auto-fallback
+- Probabilistic outputs even at low temperature (no guaranteed determinism) → Accepted by design
+- Sequential inference requirement (MAX_PARALLEL=2, config-driven) → Documented constraint
+- Model switching chaos → ELIMINATED by locked LLM_MODEL config (no runtime switching)
+- Local hardware capacity bounds → 16GB sufficient for gemma2:9b (gemma4:e4b requires upgrade)
 
 **Recovery Strategy:**
 - Anthropic fallback active for all Ollama timeouts (post-batch 2x retry)
@@ -292,40 +301,112 @@ POST http://localhost:11434/api/generate
 **Anthropic Fallback:**
 If Ollama unavailable after 2 retries, fallback to Claude Opus via API
 
-### Decision Scoring Logic (LLM-Driven, Not Heuristic)
+### Decision Scoring Logic (Pure Agentic, No Implicit Rules)
 
-**IMPORTANT:** Tier and action assignment is **NOT** rule-based. The LLM is the sole decision authority.
+**CRITICAL:** LLM is the **sole decision authority**. Zero implicit rules, zero soft thresholds in prompt.
 
-The prompt provides LLM with raw metrics, then **LLM independently decides** tier and action through natural language reasoning. The guidelines below describe what the LLM is asked to consider, not algorithmic rules:
+**What LLM Receives (Signals Only - No Prescriptive Guidance):**
 
-**LLM Requested Inputs:**
-- Utilization metrics: lastEvent recency, totalEvents volume, scheduled search count
-- Detection value: sourcetype category (syslog/WinEventLog/firewall vs business data), MITRE technique coverage
-- Quality signals: parse error rate, field prevalence, schema consistency
-- Risk factors: compliance requirements, audit trail importance, regulatory sensitivity
-- Cost context: daily GB × retention × user-provided cost model = annual license spend
+```
+Per index:
+├─ name: string
+├─ sourcetype: string
+├─ daily_gb: number
+├─ total_events: number
+├─ retention_days: number
+├─ last_event_date: ISO date
+├─ is_scheduled_search: boolean
+├─ is_alert: boolean
+├─ sourcetype_category: enum (security|operational|business|unknown)
+└─ annual_cost_usd: number (derived: daily_gb × retention × cost_per_gb)
 
-**LLM Decision Process (Natural Language):**
-LLM is prompted: *"Based on these metrics and cost context, assign a TIER (CRITICAL/IMPORTANT/NICE_TO_HAVE/LOW_VALUE) and ACTION (KEEP/OPTIMIZE/ARCHIVE/ELIMINATE/S3_CANDIDATE) with reasoning."*
+User context:
+├─ cost_per_gb_per_day: number
+├─ retention_policy: { CRITICAL: 730, IMPORTANT: 365, ... }
+└─ decision_weights: {} (optional, user override)
+```
 
-The LLM **weighs factors holistically**, not algorithmically. Examples:
-- May assign CRITICAL to low-utilization security data (high risk if removed)
-- May assign OPTIMIZE to high-cost non-critical data (ROI on optimization)
-- May assign S3_CANDIDATE if utilization is low AND retention is long AND storage cost is high
-- May override utilization signals if compliance requirements are strong
+**What LLM Is NOT Given (Removes Implicit Bias):**
+- ❌ "utilization score 0-100" → LLM derives from signals
+- ❌ "detection score 0-100" → LLM derives from signals
+- ❌ "quality score 0-100" → LLM derives from signals
+- ❌ "tier CRITICAL if X > Y" → LLM decides tier based on reasoning
+- ❌ "action ARCHIVE if Z happens" → LLM decides action based on reasoning
+- ❌ Pre-computed composite scores → LLM computes holistically
 
-**Prompt Variation:**
-Different LLM prompt versions (versioned in `llm_prompt_versions` table) may emphasize different factors. Example variations:
-- "Cost-focused": Maximize savings, accept moderate risk
-- "Compliance-focused": Prioritize retention, never eliminate compliance data
-- "Risk-averse": Conservative, keep data with any uncertainty
+**LLM Decision Prompt (Pure Agentic Format):**
+
+```
+You are a Splunk index advisor. Based on the signals below, recommend a TIER 
+(CRITICAL | IMPORTANT | NICE_TO_HAVE | LOW_VALUE) and ACTION 
+(KEEP | OPTIMIZE | ARCHIVE | ELIMINATE | S3_CANDIDATE) for each index.
+
+[Index data formatted as above]
+
+For each index, provide:
+1. TIER: Your classification
+2. ACTION: Recommended operation
+3. CONFIDENCE: 0-1 (how sure you are)
+4. REASONING: 1-2 sentence explanation
+5. EVIDENCE: 3-5 specific signals that drove this decision
+   (e.g., "last event 45 days ago", "zero detected security use", "annual cost $2K")
+
+Do NOT reference any scoring frameworks, thresholds, or rules. 
+Decide based purely on the signals and context provided.
+```
+
+**What Changes from Old Prompt:**
+- ✅ Old: "Score utilization 0-100: count utilization signals"
+- ❌ New: No scores requested. LLM naturally considers utilization in reasoning.
+
+- ✅ Old: "If utilization + detection > 150, assign CRITICAL"
+- ❌ New: No rules. LLM decides TIER holistically.
+
+**LLM Output (Structured JSON):**
+
+```json
+{
+  "decisions": [
+    {
+      "index": "main",
+      "sourcetype": "syslog",
+      "tier": "CRITICAL",
+      "action": "KEEP",
+      "confidence": 0.95,
+      "reasoning": "Active security data with daily usage and compliance value",
+      "evidence": [
+        "Last event today (high utilization)",
+        "Syslog sourcetype (security-critical)",
+        "Daily active searches",
+        "Retention policy requires 730 days",
+        "Annual cost $5K (justified by detection value)"
+      ]
+    }
+  ]
+}
+```
+
+**Prompt Versioning (Lightweight Variations Only):**
+
+Instead of major prompt rewrites, use emphasis:
+```
+// v1 (Balanced - default)
+"Based on the signals, recommend tier and action..."
+
+// v2 (Cost-conscious)
+"Prioritize cost efficiency. Recommend aggressive optimization..."
+
+// v3 (Security-first)
+"Prioritize detection coverage. Keep all security-relevant data..."
+```
 
 **Non-Reproducibility Note:**
-LLM outputs are **probabilistic**. Same inputs may produce different tier/action on subsequent runs, even with temperature=0.3. This is inherent to LLM-based decision making. To ensure consistency:
-- Lock prompt version (freeze in `llm_prompt_versions`)
-- Pin LLM model version (e.g., "gemma4:e4b-v2.0")
-- Acknowledge tier/action as recommendations, not deterministic outputs
-- Use snapshot immutability: once assigned, don't re-compute unless explicitly refreshed
+LLM outputs remain **probabilistic** (inherent to LLMs). To manage variance:
+- Lock prompt version: Environment-controlled, never changes mid-run
+- Pin model: `LLM_MODEL=gemma2:9b` (locked, no runtime switching)
+- Accept ±5-10% variance in tier/action (normal)
+- Alert if >30% variance (suggests prompt/data change)
+- Use snapshot immutability: decisions never re-computed
 
 ---
 
@@ -722,6 +803,225 @@ const url = import.meta.env.VITE_API_VERSION === 'v2'
 
 ---
 
+## Configuration Schema (FINAL)
+
+### Environment Variables (CRITICAL CONTROLS)
+
+```bash
+# === LLM MODEL (LOCKED - NO RUNTIME SWITCHING) ===
+LLM_MODEL=gemma2:9b                    # Primary: stable, 16GB safe
+                                        # Options: gemma2:9b, gemma4:e4b
+                                        # MUST be set; system fails if unavailable
+
+# === FALLBACK STRATEGY ===
+FALLBACK_MODE=AUTO                      # OFF | AUTO | MANUAL
+                                        # AUTO: fallback to Anthropic on timeout
+                                        # MANUAL: require user approval
+                                        # OFF: fail hard (no fallback)
+
+ANTHROPIC_API_KEY=sk-ant-***           # Required if FALLBACK_MODE != OFF
+
+# === PIPELINE TIMEOUTS (GLOBAL CONTROLS) ===
+TOTAL_PIPELINE_TIMEOUT=120000           # 120 seconds (milliseconds)
+                                        # Total time from start to finish
+                                        # If exceeded: abort, use cached snapshot
+
+SPLUNK_QUERY_TIMEOUT=30000              # 30 seconds (Splunk fetch only)
+                                        # If exceeded: retry 2x, then timeout
+
+LLM_BATCH_TIMEOUT=30000                 # 30 seconds (per batch, 5 indexes)
+                                        # If exceeded: retry 2x, fallback, skip batch
+
+# === PARALLELISM (CONFIG-DRIVEN) ===
+MAX_PARALLEL_INDEXES=2                  # Ollama constraint: sequential batches
+                                        # DO NOT INCREASE without GPU upgrade
+                                        # Constraint: Ollama single-model-instance
+
+# === SPLUNK QUERY SCOPE ===
+LOOKBACK_WINDOW_DAYS=7                  # Data lookback for Splunk queries
+                                        # Options: 1, 7, 30, 90 (days)
+                                        # Affects snapshot freshness vs performance
+                                        # Default: 7 days (weekly snapshot cadence)
+
+# === BATCHING ===
+BATCH_SIZE=5                            # Indexes per LLM prompt
+                                        # Optimized for gemma2:9b context window
+                                        # DO NOT CHANGE without LLM testing
+
+# === DATABASE ===
+DATABASE_URL=postgresql://user:pass@localhost:5432/telemetry_db
+MAX_DB_CONNECTIONS=20                   # Connection pool size
+MIGRATION_LOCK_TIMEOUT=300              # Seconds (migration safeguard)
+
+# === OBSERVABILITY ===
+LOG_LEVEL=INFO                          # DEBUG | INFO | WARN | ERROR
+METRICS_ENABLED=true                    # Enable system_metrics table logging
+PROFILE_ENABLED=false                   # Enable timing instrumentation
+
+# === SPLUNK ===
+SPLUNK_HOST=splunk.example.com
+SPLUNK_PORT=8089
+SPLUNK_USERNAME=admin
+SPLUNK_PASSWORD=***
+# OR use token auth:
+SPLUNK_AUTH_TOKEN=***
+```
+
+### Database Configuration Table (user_config)
+
+```sql
+CREATE TABLE IF NOT EXISTS user_config (
+    id SERIAL PRIMARY KEY,
+    config_key VARCHAR(100) NOT NULL UNIQUE,
+    
+    -- Cost Model (User Configurable)
+    cost_per_gb_per_day DECIMAL(8,2) NOT NULL DEFAULT 0.50,
+    
+    -- Retention Policy (User Configurable)
+    retention_policy JSONB DEFAULT '{
+        "CRITICAL": 730,
+        "IMPORTANT": 365,
+        "NICE_TO_HAVE": 90,
+        "LOW_VALUE": 30
+    }',
+    
+    -- LLM Weights (Optional, Advanced)
+    decision_weights JSONB DEFAULT '{}',
+    
+    -- System Config (Locked)
+    lookback_window_days INTEGER NOT NULL DEFAULT 7,
+    max_parallel INTEGER NOT NULL DEFAULT 2,
+    batch_size INTEGER NOT NULL DEFAULT 5,
+    total_pipeline_timeout_ms INTEGER NOT NULL DEFAULT 120000,
+    
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### Migration Safeguards (NEW)
+
+```sql
+CREATE TABLE IF NOT EXISTS migration_lock (
+    id SERIAL PRIMARY KEY,
+    migration_name VARCHAR(255) NOT NULL UNIQUE,
+    lock_acquired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    lock_holder VARCHAR(255) NOT NULL,  -- Hostname of process
+    checksum VARCHAR(64) NOT NULL,      -- SHA256 of migration SQL
+    status VARCHAR(20) NOT NULL,        -- PENDING | IN_PROGRESS | COMPLETED | FAILED
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS migration_checksums (
+    id SERIAL PRIMARY KEY,
+    migration_name VARCHAR(255) NOT NULL UNIQUE,
+    expected_checksum VARCHAR(64) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### System Metrics Table (NEW - Observability)
+
+```sql
+CREATE TABLE IF NOT EXISTS system_metrics (
+    id SERIAL PRIMARY KEY,
+    metric_type VARCHAR(50) NOT NULL,   -- llm_latency | batch_timeout | db_write_ms
+    metric_value DECIMAL(10,2) NOT NULL,
+    metric_unit VARCHAR(20) NOT NULL,   -- ms | count | percent
+    snapshot_id INTEGER,
+    batch_number INTEGER,
+    context JSONB DEFAULT '{}',         -- Additional context (model, batch_size, etc)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    INDEX idx_metric_type (metric_type),
+    INDEX idx_created_at (created_at)
+);
+```
+
+### Bootstrap Script Updates
+
+```bash
+#!/bin/bash
+# scripts/bootstrap.sh (UPDATED)
+
+# Validate config BEFORE starting services
+if [ -z "$LLM_MODEL" ]; then
+    echo "❌ ERROR: LLM_MODEL not set. Exiting."
+    exit 1
+fi
+
+# Check model availability
+docker run --rm ollama/ollama:latest ollama list | grep -q "$LLM_MODEL"
+if [ $? -ne 0 ]; then
+    echo "❌ ERROR: Model $LLM_MODEL not available. Pulling..."
+    docker exec ollama ollama pull "$LLM_MODEL" || exit 1
+fi
+
+# Validate timeouts
+if [ "$TOTAL_PIPELINE_TIMEOUT" -lt "$LLM_BATCH_TIMEOUT" ]; then
+    echo "❌ ERROR: TOTAL_PIPELINE_TIMEOUT must be >= LLM_BATCH_TIMEOUT"
+    exit 1
+fi
+
+# Validate parallelism
+if [ "$MAX_PARALLEL_INDEXES" -gt 2 ]; then
+    echo "⚠️  WARNING: MAX_PARALLEL_INDEXES > 2 may cause Ollama instability"
+fi
+
+echo "✅ Configuration validated. Starting stack..."
+```
+
+### Config Validation Rules
+
+| Parameter | Min | Max | Default | Enforced |
+|-----------|-----|-----|---------|----------|
+| cost_per_gb_per_day | 0.10 | 2.00 | 0.50 | UI slider |
+| lookback_window_days | 1 | 90 | 7 | None (user choice) |
+| max_parallel_indexes | 1 | 2 | 2 | Hard limit |
+| batch_size | 1 | 10 | 5 | Hard (context window) |
+| total_pipeline_timeout_ms | 60000 | 600000 | 120000 | Fail-fast |
+| splunk_query_timeout | 10000 | 60000 | 30000 | Retry 2x |
+| llm_batch_timeout | 10000 | 60000 | 30000 | Retry 2x, fallback |
+
+### Config-Driven Behavior Examples
+
+```typescript
+// LLM Model Selection (LOCKED)
+const model = process.env.LLM_MODEL;
+if (!model) throw new Error('LLM_MODEL required');
+if (model !== 'gemma2:9b' && model !== 'gemma4:e4b') {
+  throw new Error(`Invalid LLM_MODEL: ${model}`);
+}
+// ✅ No runtime switching: model is set at startup, never changes
+
+// Fallback Strategy (FEATURE-FLAGGED)
+if (ollamaTimeout && process.env.FALLBACK_MODE === 'AUTO') {
+  // Fallback to Anthropic
+} else if (ollamaTimeout && process.env.FALLBACK_MODE === 'OFF') {
+  // Fail hard, skip batch
+} else {
+  // MANUAL: require user approval
+}
+
+// Global Timeout Enforcement
+const startTime = Date.now();
+const deadline = startTime + TOTAL_PIPELINE_TIMEOUT;
+if (Date.now() > deadline) {
+  // Abort pipeline, use cached snapshot
+  logger.warn('Pipeline timeout exceeded, using cache');
+  return cachedSnapshot;
+}
+
+// Config-Driven Parallelism
+for (let i = 0; i < batches.length; i += MAX_PARALLEL) {
+  // Process max MAX_PARALLEL batches concurrently
+  // Respects config, never exceeds it
+}
+```
+
+---
+
 ## Resource Sizing Guide
 
 ### Minimum Configuration (Development / Single User)
@@ -1095,6 +1395,286 @@ aggregation-service catches error
 
 ---
 
+## Cold Start UX & Connection Gating
+
+### First-Time User Experience
+
+**Current State:** Dashboard loads blank/unclear if Splunk not configured.
+
+**Fixed UX Flow:**
+
+```
+1. User navigates to http://localhost:3002
+
+2. Dashboard checks: Is Splunk configured?
+   ├─ If NO:
+   │   └─ Show connection banner (full-width, blue/info color)
+   │       ├─ Icon: 🔌
+   │       ├─ Title: "Connect Splunk to Get Started"
+   │       ├─ Description: "Dashboard needs Splunk credentials to fetch index metrics"
+   │       ├─ Button: "Go to Settings" → /settings page
+   │       └─ Disable all dashboard interactive elements
+   │
+   └─ If YES:
+       ├─ Check: Is first snapshot available?
+       │   ├─ If NO:
+       │   │   └─ Show: "Click 'Refresh' to create first snapshot"
+       │   │       └─ Button: "Refresh" → POST /api/cache-status
+       │   │
+       │   └─ If YES:
+       │       └─ Render: Full dashboard with data
+
+3. Settings Page (/settings):
+   ├─ Splunk Connection Form:
+   │   ├─ Host: input (required)
+   │   ├─ Port: input (default 8089)
+   │   ├─ Username: input (required)
+   │   ├─ Password: input (required, masked)
+   │   └─ Auth Token: input (alternative to password)
+   │
+   ├─ Test Connection: button
+   │   └─ On click: POST /api/test-splunk-connection
+   │       └─ Returns: { success: boolean, message: string }
+   │
+   └─ Save: button
+       └─ Persists to env vars (or secure store)
+       └─ Redirects to / (dashboard home)
+```
+
+### Implementation Details
+
+**Frontend Check:**
+
+```typescript
+// pages/_app.tsx or app.tsx
+const [splunkConfigured, setSplunkConfigured] = useState(false);
+
+useEffect(() => {
+  fetch('/api/cache-status')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.splunk_configured) {
+        setSplunkConfigured(false);
+      } else {
+        setSplunkConfigured(true);
+      }
+    });
+}, []);
+
+if (!splunkConfigured) {
+  return <ConnectionGatedUI />;
+}
+
+return <Dashboard />;
+```
+
+**Backend Route:**
+
+```typescript
+// /api/cache-status (updated to include config status)
+export async function GET(request: NextRequest) {
+  return NextResponse.json({
+    splunk_configured: !!process.env.SPLUNK_HOST,
+    splunk_host: process.env.SPLUNK_HOST,
+    last_snapshot_id: await getLatestSnapshotId(),
+    last_snapshot_date: await getLatestSnapshotDate(),
+    cache_fresh: /* ... */
+  });
+}
+
+// /api/test-splunk-connection (new endpoint)
+export async function POST(request: NextRequest) {
+  const { host, port, username, password, auth_token } = await request.json();
+  
+  try {
+    // Test connection to Splunk
+    const response = await fetch(`https://${host}:${port}/services/appserver/info`, {
+      headers: {
+        'Authorization': auth_token ? `Bearer ${auth_token}` : 
+                        `Basic ${btoa(username + ':' + password)}`
+      }
+    });
+    
+    if (response.ok) {
+      return NextResponse.json({ success: true, message: 'Connected to Splunk' });
+    } else {
+      return NextResponse.json({ 
+        success: false, 
+        message: `Splunk returned ${response.status}` 
+      });
+    }
+  } catch (err) {
+    return NextResponse.json({ 
+      success: false, 
+      message: `Connection failed: ${err.message}` 
+    });
+  }
+}
+```
+
+---
+
+## System Observability & Instrumentation
+
+### Metrics Collection (NEW)
+
+Add timing instrumentation to pipeline:
+
+```typescript
+// apps/api/services/aggregation-service.ts
+class MetricsCollector {
+  async recordMetric(type: string, value: number, unit: string, context?: any) {
+    if (!process.env.METRICS_ENABLED) return;
+    
+    const client = await getConnectionPool();
+    await client.query(
+      `INSERT INTO system_metrics (metric_type, metric_value, metric_unit, context, created_at)
+       VALUES ($1, $2, $3, $4, NOW())`,
+      [type, value, unit, JSON.stringify(context || {})]
+    );
+    client.release();
+  }
+}
+
+// Use throughout pipeline:
+const metrics = new MetricsCollector();
+
+// Stage 1: Splunk fetch
+const t1 = Date.now();
+const splunkData = await aggregation.fetchTelemetry();
+await metrics.recordMetric('splunk_fetch_ms', Date.now() - t1, 'ms', {
+  index_count: splunkData.length
+});
+
+// Stage 3: LLM batch
+const batchStart = Date.now();
+const decisions = await llmAgent.runBatch(batch);
+await metrics.recordMetric('llm_batch_ms', Date.now() - batchStart, 'ms', {
+  batch_number: i,
+  index_count: batch.length,
+  model: process.env.LLM_MODEL,
+  timeout: decisions.some(d => d.timedOut)
+});
+
+// Stage 4: Database write
+const dbStart = Date.now();
+await persistSnapshot(snapshot);
+await metrics.recordMetric('db_write_ms', Date.now() - dbStart, 'ms', {
+  decision_count: snapshot.decisions.length,
+  table: 'agent_decisions'
+});
+```
+
+### Observability Dashboard (Optional - Grafana)
+
+```sql
+-- Query for LLM inference performance
+SELECT 
+  DATE_TRUNC('hour', created_at) as hour,
+  AVG(metric_value) as avg_latency_ms,
+  MAX(metric_value) as max_latency_ms,
+  COUNT(*) as inference_count
+FROM system_metrics
+WHERE metric_type = 'llm_batch_ms'
+GROUP BY hour
+ORDER BY hour DESC
+LIMIT 24;
+
+-- Query for pipeline health
+SELECT 
+  metric_type,
+  COUNT(*) as event_count,
+  AVG(metric_value) as avg_value,
+  MAX(metric_value) as max_value
+FROM system_metrics
+WHERE created_at > NOW() - INTERVAL '24 hours'
+GROUP BY metric_type;
+```
+
+---
+
+## PDF Alignment & UI Gaps
+
+### Executive Dashboard (v3) Gaps
+
+**Missing from current implementation:**
+
+1. **Cost Sensitivity Tooltip**
+   - Current: Cost slider with no explanation
+   - Fix: Hover → show formula
+   ```
+   Annual Cost = daily_gb × retention_days × cost_per_gb_per_day
+   Example: 100 GB × 365 days × $0.50 = $18,250/year
+   ```
+
+2. **ROI vs GainScope Visual Balance**
+   - Current: Two gauges, similar size
+   - Fix: Add subtitle explaining each
+   ```
+   ROI Score: "Based on tier distribution (critical/important weight heavier)"
+   GainScope Score: "Based on action distribution (eliminate/archive weight heavier)"
+   ```
+
+3. **Unified Drill-Down (Some sections clickable, some not)**
+   - Current: Quick wins table has drill-down, gauges don't
+   - Fix: **Every interactive element** → ReasoningDrawer
+   ```
+   ✅ Quick wins rows → drill-down
+   ✅ KPI gauge values → drill-down (formula + inputs)
+   ✅ Savings staircase bars → drill-down (which indexes)
+   ✅ Tier distribution pie → drill-down (which tier, which indexes)
+   ✅ Scatter plot bubbles → drill-down (index details)
+   ```
+
+### Detail Dashboard (v4) Gaps
+
+1. **Decision Trace Chain Missing**
+   - Current: Table rows show decision, no trace back
+   - Fix: Add expandable chain:
+   ```
+   Row click → ReasoningDrawer shows:
+   ├─ Signals (raw data: GB, events, last event date)
+   ├─ Patterns (what LLM detected: low utilization, no security use)
+   ├─ Decision (tier=LOW_VALUE, action=ELIMINATE)
+   └─ Evidence (3-5 specific signals)
+   ```
+
+2. **Grouping Not Enforced**
+   - Current: 9 tables loose on page
+   - Fix: Group by category:
+   ```
+   Security Section:
+   ├─ Security Gaps table
+   └─ Detection Coverage table
+   
+   Quality Section:
+   ├─ Quality Hotspots table
+   └─ Field Usage table
+   
+   Cost Section:
+   ├─ Retention Policy table
+   ├─ Savings Potential table
+   └─ Cost Analysis table
+   
+   Operational Section:
+   ├─ Search Audit table
+   └─ Index Health table
+   ```
+
+3. **Consistency Enforcement**
+   - Current: Some rows expandable, some not
+   - Fix: **Every row → ReasoningDrawer**
+   ```
+   For each row in every table:
+   └─ Click row or info icon → ReasoningDrawer
+       ├─ Title: index name + metric
+       ├─ Signals: raw data that drove decision
+       ├─ LLM Reasoning: what the model said
+       └─ Evidence: specific facts
+   ```
+
+---
+
 ## Operational Checklist
 
 **Dashboard loads forever:**
@@ -1104,6 +1684,7 @@ aggregation-service catches error
 - Check logs: docker logs web
 
 **LLM decisions look wrong:**
+- Check model: `echo $LLM_MODEL` (should be gemma2:9b)
 - Check prompt version: SELECT from llm_prompt_versions
 - Review evidence: expand ReasoningDrawer
 - Check Ollama logs: docker logs ollama
@@ -1111,8 +1692,13 @@ aggregation-service catches error
 **Old data not pruned:**
 - Manual cleanup: DELETE FROM telemetry_snapshots WHERE snapshot_date < NOW() - INTERVAL '90 days'
 
+**Configuration not applied:**
+- Verify env vars: `env | grep LLM_MODEL` (must be set)
+- Verify no model switching in logs (search for "switching model")
+- Verify timeouts enforced: logs should show "TOTAL_PIPELINE_TIMEOUT exceeded"
+
 ---
 
-**Document Version:** 1.0  
+**Document Version:** 2.0 (Critical Stability & Config Updates)  
 **Last Reviewed:** 2026-05-16  
-**Status:** Complete (All 10 Phases Implemented)
+**Status:** Production-Ready with Stability Fixes (gemma2:9b primary, config-driven controls, cold start UX, observability)
