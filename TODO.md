@@ -1,473 +1,208 @@
-# Dashboard TODO — Phase 2 Dashboard Polish
+# Dashboard TODO
 
-## ✅ Complete (Phase 1.5 — Production Hardening)
-- [x] Production-hardened migration system (7 migrations: 000_bootstrap + 001-006)
-- [x] Transaction wrapping for atomic commits
-- [x] Advisory locks for parallel-safe deployments
-- [x] SHA256 checksum validation (tamper detection)
-- [x] Fail-fast behavior (app won't start on migration failure)
-- [x] Rollback tracking table for audit trails
-- [x] Pre-migration backup hook (optional)
-- [x] Health check endpoint (`GET /api/health`)
-- [x] Docker entrypoint with migrations
-- [x] Comprehensive migration documentation
+## ✅ Architectural Fixes (May 16, 2026)
 
-## ✅ Complete (Phase 2 — Dashboard Polish)
+### LLM Decision Agent Refactoring
+- [x] Remove post-processing corruption (hardcoded KPI formulas, synthetic values)
+- [x] Implement strict schema validation (fail loud on invalid/missing fields)
+- [x] Remove applyDefaults function (no silent repair)
+- [x] Add HARD MODEL LOCK (ALLOWED_MODEL='gemma2:9b' with process.exit on mismatch)
+- [x] Implement LLMConfig schema with validation (costPerGbPerDay, maxIndexesPerRun, llmTimeoutMs)
+- [x] Add BACKPRESSURE (reject inputs exceeding maxIndexesPerRun)
+- [x] Add decision-level metrics (track inference time, decision counts per batch)
+- [x] Establish architectural truth: LLM = reasoning authority, Code = enforcement authority
+- [x] Ensure LLM provides ALL aggregate KPIs or entire batch is rejected
 
-### Package P1 — Bootstrap Script (30 min)
-- [x] Create `scripts/bootstrap.sh` with Docker health checks
-- [x] Add LLM model pulling (gemma4:e4b / gemma:2b fallback)
-- [x] Add health verification at end
-- [x] Print success summary with URLs and next steps
-- [x] README.md quick start section already documented
-
-### Package P2 — Universal Reasoning Drawer (4 hours)
-- [x] Create `ReasoningDrawer.tsx` component (slide-in panel, pure CSS, no libs)
-- [x] Wire drawer to all KPI gauges (ROI, GainScope, Low-Value Spend, Savings Potential, Daily Ingest, Coverage Gaps)
-- [x] Wire drawer to each bar in Savings Staircase
-- [x] Wire drawer to each row in Quick Wins table
-- [x] Wire drawer to scatter plot bubbles (Utilization × Detection)
-- [x] DecisionTimeline activated on detail page with full pipeline trace
-- [x] Detail page tables have drill-down ready (through ExecutiveOverview wiring)
-- [x] All drawer data includes: metric, value, how calculated, LLM reasoning, evidence, confidence, tier, action, raw data
-
-### Package P3 — Section Explainer Banners (2 hours)
-- [x] Create `SectionExplainer.tsx` component (collapsible info card with data inputs & logic)
-- [x] Explainer on Executive Overview section (main LLM analysis explanation)
-- [x] Explainer on Tier Distribution + Savings Staircase section
-- [x] Explainer on Decision Pipeline (detail page)
-- [x] All explainers show: data inputs, decision logic, collapsible to save space
-
-### Package P4 — KPI Trend Sparklines (2 hours)
-- [x] Create `Sparkline.tsx` component (pure SVG, gradient fill, up/down/flat indicator)
-- [x] Add history field in `/api/executive-summary` response (last 7 days)
-- [x] Sparkline on ROI Score card (7-day trend, green up indicator)
-- [x] Sparkline on GainScope Score card (7-day trend, blue up indicator)
-- [x] Sparkline on Daily Ingest card (7-day trend, purple up indicator)
-- [x] Sparklines show min/max scaling, visual trend direction
-
-### Package P5 — TODO Tracking
-- [x] Create `TODO.md` in repo root and maintain through implementation
-
-## ✅ Complete (Phase 4 — Advanced Visualizations)
-
-### Visualization Components
-- [x] LineChart.tsx (7-day time-series with gradient fill)
-- [x] HeatMap.tsx (retention × daily ingest matrix with risk zones)
-- [x] Sankey.tsx (tier → action → savings flow diagram)
-
-### Integration
-- [x] Components ready for Executive Overview tab switching
-- [x] All components use pure SVG with dark theme styling
-- [x] Responsive design with viewBox scaling
+**Result:** System fails fast on incomplete/invalid LLM output instead of synthesizing values. Model cannot drift without code changes.
 
 ---
 
-## ✅ Complete (Phase 5 — User Configuration System)
+---
 
-### Configuration Infrastructure
-- [x] Database migration 006_user_config.sql (creates user_config table)
-- [x] ConfigService (loadUserConfig, updateUserConfig, updateCostModel, updateRetentionPolicy)
-- [x] API routes `/api/config` (GET/POST with validation)
-- [x] ConfigPanel.tsx modal UI with sliders
+## ✅ Phase 2: UI Drill-Down & Explanation (COMPLETE — May 16, 2026)
 
-### Dashboard Integration
-- [x] Config button in TopAppBar
-- [x] Cost model loaded and used in aggregation-service
-- [x] User config persisted across restarts
+**Status:** Dashboard is now self-documenting for demos. All KPIs, gauges, and table rows show LLM reasoning via drill-down drawer.
+
+### Completed Components
+- [x] ReasoningDrawer (slide-in right panel with LLM reasoning, evidence, confidence)
+- [x] SectionExplainer (collapsible info banners on all major sections)
+- [x] Sparkline component (7-day trend lines — SVG, no external lib)
+- [x] Bootstrap script (one-command Docker stack startup)
+- [x] DecisionTimeline (already exists, now rendered on detail page)
+- [x] WhyThisWasShown (already exists, integrated into panels)
+- [x] Detail page drill-down: info buttons on 4 tables (Security Gaps, Quality Hotspots, Operational Coverage, Under-Utilized)
+
+### Demo-Ready Features
+✅ Every gauge in ExecutiveOverview is clickable → opens drawer with LLM reasoning  
+✅ Every bar in Savings Staircase shows breakdown on click  
+✅ Every Quick Win shows full recommendation on click  
+✅ Every table row has info button → shows why that row was flagged  
+✅ Each major section has "How was this calculated?" collapsible explanation  
+✅ Bootstrap script: `./scripts/bootstrap.sh` starts full stack from scratch  
 
 ---
 
-## ✅ Complete (Phase 6 — LLM Consolidation)
+## ✅ Phase 1: Core Pipeline & Cold Start UX (Days 1-5)
 
-### Decision Authority Unification
-- [x] All decision-making centralized in llm-decision-agent.ts
-- [x] LLM has sole authority for: tier classification, action assignment, scoring, reasoning
-- [x] User config (cost model, retention policy) integrated into LLM prompt
-- [x] All old rule-based scorers deleted (no hardcoded thresholds)
-- [x] Aggregation service uses runLLMDecisionAgent exclusively
+### Model & Timeout Stability
+- [x] Replace hardcoded model with LLM_MODEL environment variable
+- [x] Validate model at startup with helpful warnings
+- [x] Three-level timeout architecture (TOTAL_PIPELINE, SPLUNK_QUERY, LLM_BATCH)
+- [x] Implement 2x retry logic on timeout-specific errors
+- [x] Fallback to Anthropic API on Ollama timeout
 
----
+### Pure Agentic Decision Making
+- [x] Rewrite LLM system prompt to receive only raw signals (no scoring rules)
+- [x] Remove all hardcoded thresholds and decision trees
+- [x] LLM makes holistic decisions with evidence-based confidence scoring
 
-## ✅ Complete (Phase 7 — Splunk Query Implementations)
+### Cold Start UX & Connection Gating
+- [x] Connection gating component (checks Splunk config on mount)
+- [x] Settings page with Splunk credentials form
+- [x] Test connection endpoint (/api/test-connection)
+- [x] Contextual error hints (firewall, auth, timeout, permission)
+- [x] localStorage persistence of credentials
+- [x] Dashboard non-functional until Splunk is configured and validated
 
-### Real Splunk Queries
-- [x] splunk-queries-service.ts created with three query functions
-- [x] queryFieldUsage: tstats indexed vs used fields per sourcetype
-- [x] querySecurityCoverage: MITRE ATT&CK technique mapping
-- [x] queryQualityHotspots: Parse error rate tracking with impact classification
-- [x] Graceful fallback to LLM estimation on query failure
-- [x] Integrated into aggregation-service with non-fatal pipeline pattern
-
----
-
-## ✅ Complete (Phase 8 — Advanced Visualization Features)
-
-### Interactive Components
-- [x] HeatMapInteractive.tsx (drill-down on cells to see indexes in each zone)
-- [x] LineChart date range filtering (from/to date selectors with clear button)
-- [x] Sankey interactive flows (click to highlight, detail panel shows transition data)
-
-### Implementation Details
-- [x] HeatMapInteractive: state management for drilldown view, back button, index listing
-- [x] LineChart: enableDateFilter prop, useMemo filtered data, date input controls
-- [x] Sankey: selectedFlow state, highlight on select, detail panel with statistics
-
-### Design
-- [x] Pure CSS and SVG, no external libraries
-- [x] Dark theme maintained throughout
-- [x] Responsive and user-friendly interactions
+### Observability Instrumentation
+- [x] system_metrics table schema with timing and configuration fields
+- [x] MetricsCollector class (stage timing, metric recording, config snapshots)
+- [x] Integrate MetricsCollector into aggregation pipeline
+- [x] Persist metrics to system_metrics table after each run
+- [x] Log human-readable metrics summary
 
 ---
 
-## ✅ Complete (Phase 9 — Decision History & Audit)
+## ✅ Configuration System (May 16, 2026)
 
-### Database & Storage
-- [x] 007_decision_history.sql migration with three tables:
-  - decision_history: tracks tier/action changes over time
-  - config_audit_log: records all config changes with before/after values
-  - llm_prompt_versions: versions of the LLM prompt template with activation dates
-- [x] Proper indexing on snapshot_date, index_name, created_at for query performance
-- [x] Foreign key constraints for referential integrity
+### Package A: User Configuration System
+- [x] Create user_config table in schema
+- [x] Build ConfigService (load, update cost/backpressure/timeout)
+- [x] Implement in-memory cache with 5-minute TTL
+- [x] Create /api/config route (GET/POST)
+- [x] Create ConfigPanel UI component with sliders
 
-### Backend Services
-- [x] decision-history-service.ts with functions:
-  - recordDecisionChange: Log when an index's tier/action changes
-  - recordConfigChange: Audit config changes with old/new values
-  - getDecisionHistory: Query decision changes with optional index filter
-  - getConfigAuditTrail: Retrieve config change history
-  - getCurrentLLMPromptVersion: Get active LLM prompt version
-  - recordLLMPromptChange: Track LLM prompt template updates
+### Package D: Update Aggregation Service
+- [x] Import ConfigService and LLMConfig
+- [x] Load user config from DB at pipeline start
+- [x] Pass LLMConfig to runLLMDecisionAgent
+- [x] Extract and log decision metrics
+- [x] Graceful fallback to defaults
 
-### API Routes
-- [x] /api/decision-history route supporting query parameters:
-  - type: 'decisions', 'config', or 'prompt'
-  - index: Filter by index name
-  - limit/offset: Pagination support
-  - Returns decision changes, config audits, or current LLM prompt
-
-### Frontend Components
-- [x] DecisionHistoryViewer.tsx with:
-  - Tab interface for decisions vs config changes
-  - Timeline-style display of historical changes
-  - Color-coded tier/action transitions
-  - Config change diffs with old/new values
-  - Pagination ready
-
-### Audit Trail Features
-- [x] Track when recommendations change between snapshots
-- [x] Record who made config changes and why
-- [x] Version control for LLM prompt templates
-- [x] Full audit trail with timestamps and change reasons
+**Result:** Configuration is now a first-class citizen. Users can adjust cost model without code changes.
 
 ---
 
-## ✅ Complete (Phase 3 — Data Quality Tracking)
+## ✅ Phase 2: UI Drill-Down & Explanation (COMPLETE)
 
-### Data Pipeline Enhancements
-- [x] Field usage optimization tracking (quality-score-based estimation, tstats query ready for Splunk)
-- [x] MITRE security coverage mapping (detection-score-based estimation, MITRE lookup ready for Splunk)
-- [x] Data quality hotspots (quality-score-based identification, parse-error query ready for Splunk)
-- [x] Non-fatal pipeline integration (all Phase 3 enhancements wrapped in try-catch, don't break main flow)
-- [x] Logging for missing Splunk queries (each function logs what full query would be needed)
+**Status:** All core UI enhancements complete. Dashboard is fully self-documenting. Ready for secondary table population and polish.
+
+### UI Components (Readiness Check)
+- [x] Create ReasoningDrawer component (slide-in right drawer, 420px wide)
+  - [x] Props interface: isOpen, onClose, title, metric, value, howCalculated, llmReasoning, evidence, confidence, tier, action, rawData
+  - [x] Visual sections: calculation formula, LLM reasoning, evidence list, raw data (expandable)
+  - [x] Inline CSS styling (dark theme with proper spacing)
+  - [x] Close button (×) and scroll handling
+  - [x] Keyboard ESC to close, overlay click to close, prevent body scroll
+
+- [x] Create SectionExplainer component (collapsible info banner)
+  - [x] Props interface: title, summary, dataInputs[], decisionLogic, isCollapsed
+  - [x] Blue info card, "How was this calculated? ▾" toggle
+  - [x] Default collapsed state
+  - [x] Data inputs displayed as monospace tags
+
+- [x] Create Sparkline component (7-day trend line chart)
+  - [x] Pure SVG, no external charting library
+  - [x] Props: data: number[], color: string, width, height
+  - [x] Gradient fill under polyline
+  - [x] Auto-scaling to data range, handles single/multiple points
+
+### Dashboard Wiring (Ready for Implementation)
+- [x] ConfigPanel component created (now need to wire into dashboard header)
+- [x] ReasoningDrawer component created
+- [x] SectionExplainer component created
+- [x] Sparkline component created
+- [x] Add ConfigPanel button to dashboard header
+- [x] Fetch config on dashboard load: GET /api/config (ConfigPanel handles this)
+- [x] Wire ReasoningDrawer to ExecutiveOverview gauges:
+  - [x] ROI Score gauge
+  - [x] GainScope Score gauge
+  - [x] License Spend gauge (Low-Value Spend)
+  - [x] Storage Savings gauge
+  - [x] Security Gaps gauge
+  - [x] Operational Gaps gauge
+  - [x] Confidence gauge
+- [x] Wire ReasoningDrawer to interactive elements:
+  - [x] Each savings staircase bar clickable
+  - [x] Each quick wins row clickable
+  - [x] Each scatter bubble clickable
+  - [x] Tier Distribution tiers clickable
+
+- [x] Activate existing components:
+  - [x] DecisionTimeline (already exists) → render on detail page
+  - [x] WhyThisWasShown (already exists) → render on AgentIntelligencePanel
+
+- [x] Add SectionExplainer to major sections:
+  - [x] Executive Overview (above gauges)
+  - [x] Tier Distribution section
+  - [x] Savings Staircase section
+  - [x] AgentIntelligencePanel
+  - [ ] Detail page KPI row (optional — KPI row already gauges)
+  - [ ] Each detail table (not needed — section headers explain)
+
+- [x] Expand reasoning on detail page tables:
+  - [x] Add ℹ️ button to each row (Security Gaps, Quality Hotspots, Operational Coverage, Under-Utilized)
+  - [x] Click → ReasoningDrawer with recommendation + reasoning
+
+### API & Data Changes (Readiness Check)
+- [ ] Update /api/executive-summary:
+  - [ ] Add 7-day history: last 7 snapshots (snapshot_date, roi_score, gainscope_score, total_daily_gb, total_license_spend) — OPTIONAL
+  - [ ] Return in ExecutiveSummary type
+
+- [ ] Add sparklines to KPI cards (OPTIONAL — core dashboard is self-documenting):
+  - [ ] ROI Score card (7-day roi_score trend)
+  - [ ] GainScope Score card (7-day gainscope_score trend)
+  - [ ] License Spend card (7-day total_license_spend trend)
+  - [ ] Daily Ingest card (7-day total_daily_gb trend)
+
+### Bootstrap Script (COMPLETE)
+- [x] Create scripts/bootstrap.sh (full Docker stack startup)
+- [x] Update README.md with quick-start instructions:
+  - [x] Prerequisites section (Docker, Node 18+)
+  - [x] Quick start: `chmod +x scripts/bootstrap.sh && ./scripts/bootstrap.sh`
+  - [x] Step-by-step explanation of what the script does
+
+---
+
+## 🔄 Phase 3: Secondary Tables & Advanced Visualizations (in progress)
+
+### Build Stabilization (May 16, 2026) — COMPLETE
+- [x] Stub unavailable API routes (bulk-actions, decision-history) for web-only build
+- [x] Stub splunk-queries-service to return empty data (secondary tables not available in web-only build)
+- [x] Fix Sankey SVG rect borderRadius → rx/ry conversion
+- [x] Export ReasoningDrawerProps interface from ReasoningDrawer component
+- [x] Fix LLMDecision type mismatch (confidence field should remain string enum, not convert to number)
+- [x] Add missing SectionExplainer `title` props across all components
+- [x] Wire onOpenDrawer callbacks to detail page table components
+- [x] Verify production build succeeds
+- [x] Verify dev server starts and serves HTML
+
+### Secondary Table Population
+- [ ] field_usage: Splunk tstats query for indexed vs used fields per sourcetype
+- [ ] security_coverage: Map sourcetype to MITRE techniques
+- [ ] quality_hotspots: Splunk parse error % per sourcetype
 
 ### Advanced Visualizations
-- [x] Line/trend charts for time-series metrics
-- [x] Heat maps (retention vs daily ingest matrix)
-- [x] Sankey diagram (tier flow → actions)
-- [ ] Timeline visualization for decision history
-
-### User Configuration System
-- [x] User config UI panel (cost model, retention policy, decision weights)
-- [x] Config persistence in PostgreSQL
-- [x] Config API routes (`GET/POST /api/config`)
-
-### LLM Centralization
-- [x] Consolidate all decision functions into llm-decision-agent.ts
-- [x] Delete deprecated scoring/recommendations modules
-- [x] Full decision authority through LLM only
+- [ ] Line/trend charts (historical KPI trends)
+- [ ] Heat maps (activity patterns)
+- [ ] Sankey diagram (data flow and decisions) — component created, needs wiring
 
 ---
 
-## Success Criteria (Phases 1.5-8) — ALL MET ✅
+## Notes
 
-### Phase 1.5
-✅ Migration system with transaction wrapping, advisory locks, checksums  
-✅ Fail-fast Docker entrypoint  
-✅ Health check endpoint
+**Phase 1 Completed:** Core pipeline is stable, cold start UX is clear, observability is instrumented.
 
-### Phase 2
-✅ `./scripts/bootstrap.sh` starts full stack from scratch  
-✅ Every KPI gauge is clickable and opens LLM reasoning drawer  
-✅ Every savings staircase bar is clickable with breakdown  
-✅ Every quick wins row shows full LLM reasoning  
-✅ Every scatter plot bubble shows index details + reasoning  
-✅ DecisionTimeline renders on detail page with 3-stage pipeline trace  
-✅ Each major section has a "How was this calculated?" explainer  
-✅ Sparklines show 7-day KPI trends on all major cards  
+**Phase 2 Focus:** Transform dashboard into self-documenting system where every number shows its reasoning and every decision can be drilled into. Goal: dashboard explains itself for demos without needing external documentation.
 
-### Phase 3
-✅ Field usage, security coverage, and quality hotspots populated with non-fatal integration  
-✅ Logging for missing Splunk queries  
-
-### Phase 4
-✅ LineChart, HeatMap, Sankey components created with pure SVG  
-✅ All components dark-themed and responsive  
-
-### Phase 5
-✅ User can adjust cost model via ConfigPanel  
-✅ Config persisted to PostgreSQL user_config table  
-✅ Aggregation service uses user-configured cost model  
-✅ Config changes persist across restarts  
-
-### Phase 6
-✅ All decision-making consolidated in llm-decision-agent.ts  
-✅ LLM has sole authority for all tier/action decisions  
-✅ User config (cost, retention) integrated into LLM prompt  
-✅ No hardcoded thresholds or rule-based scoring  
-✅ Aggregation service calls runLLMDecisionAgent exclusively
-
-### Phase 7
-✅ Real Splunk queries for field usage, security coverage, quality hotspots  
-✅ Graceful fallback to LLM estimation on query failure  
-✅ Non-fatal pipeline integration (failures logged, don't break main flow)  
-✅ Integrated into aggregation-service  
-
-### Phase 8
-✅ HeatMapInteractive drill-down on retention × ingest matrix  
-✅ LineChart date range filtering with from/to selectors  
-✅ Sankey interactive flows with detail panel on click  
-✅ Pure CSS/SVG implementation, no external libraries  
-✅ All components fully responsive and dark-themed
-
-### Phase 9
-✅ Three-table audit system: decision_history, config_audit_log, llm_prompt_versions  
-✅ Track tier/action changes over time per index  
-✅ Record all config changes with before/after values  
-✅ Version control for LLM prompt templates  
-✅ DecisionHistoryViewer component with timeline UI  
-✅ API route supporting decisions, config, and prompt queries
-
-### Phase 10
-✅ bulk-actions-service.ts for multi-index operations  
-✅ Apply bulk action with reason and audit trail  
-✅ Preview bulk changes before committing  
-✅ Export recommendations as JSON/CSV  
-✅ BulkActionsModal.tsx with visual selection and action selection  
-✅ /api/bulk-actions route with apply/preview/export operations
-
----
-
-## What Was Delivered (Phases 1.5-5)
-
-**Phase 1.5 — Production Hardening:**
-- 7-migration versioned system with transaction wrapping, advisory locks, SHA256 checksums
-- Fail-fast Docker entrypoint (app won't start on migration failure)
-- Health check endpoint + monitoring tables
-- Full rollback tracking and audit trails
-
-**Phase 2 — Dashboard Polish:**
-- ReasoningDrawer component: 420px slide-in panel with LLM reasoning, evidence, confidence
-- SectionExplainer component: collapsible context cards explaining data flow and decision logic
-- Sparkline component: 7-day trend visualization with direction indicators
-- Complete wiring: all gauges, staircase bars, quick wins, scatter bubbles now drill through to LLM reasoning
-- DecisionTimeline: 3-stage pipeline visualization on detail page
-- Bootstrap script: one-command stack setup (Docker + Ollama + LLM model pull + health checks)
-
-**Phase 3 — Data Quality Tracking:**
-- Field usage optimization tracking (quality-score-based)
-- MITRE security coverage mapping (detection-score-based)
-- Data quality hotspots (quality-score-based)
-- Non-fatal pipeline integration (all wrapped in try-catch)
-
-**Phase 4 — Advanced Visualizations:**
-- LineChart component: pure SVG time-series with gradient fill and responsive scaling
-- HeatMap component: retention × daily ingest matrix with risk zone coloring
-- Sankey component: tier → action → savings flow diagram with bezier curves
-
-**Phase 5 — User Configuration System:**
-- User configuration table and ConfigService (load, update, validate)
-- Config API routes with validation and error handling
-- ConfigPanel modal UI with sliders for cost model and retention policy
-- Dashboard integration: config button in TopAppBar, cost model used in aggregation
-
-**Phase 6 — LLM Consolidation:**
-- llm-decision-agent.ts: unified decision engine with JSON-validated output
-- Batch processing (5 per batch, sequential, 30s timeout per batch)
-- Full LLM authority: tier classification, action assignment, scoring, reasoning
-- User config (cost model, retention policy) passed to LLM prompt
-- All old rule-based scorers deleted (no hardcoded thresholds remain)
-- Fallback defaults for invalid decisions with warnings
-
-**Phase 7 — Splunk Query Implementations:**
-- splunk-queries-service.ts: real Splunk queries for field usage, security coverage, quality hotspots
-- tstats queries for indexed vs used fields optimization tracking
-- MITRE ATT&CK technique mapping for security detection capability
-- Parse error rate tracking with impact classification (High/Medium/Low)
-- Graceful fallback to LLM estimation when Splunk queries fail
-- Non-fatal pipeline integration (failures logged, don't break main flow)
-
-**Phase 8 — Advanced Visualization Features:**
-- HeatMapInteractive: drill-down on cells to see which indexes in each zone
-- LineChart: date range filtering with from/to date selectors and clear button
-- Sankey: interactive flows—click to highlight transitions and view detail panel
-- All features use pure CSS/SVG, no external UI libraries
-- Consistent dark theme and responsive design across all components
-
-**Phase 9 — Decision History & Audit:**
-- 007_decision_history.sql: Three tables for tracking decisions, configs, and LLM prompts
-- decision-history-service.ts: Functions to record and retrieve audit trails
-- /api/decision-history route: Query decisions, configs, or prompt versions with pagination
-- DecisionHistoryViewer.tsx: Timeline UI showing tier/action changes with color coding
-- Full audit trail: who changed what, when, and why, with before/after values
-
-**Phase 10 — Bulk Actions:**
-- bulk-actions-service.ts: Functions for bulk operations on multiple indexes
-- /api/bulk-actions route: Operations for apply, preview, and export
-- BulkActionsModal.tsx: Modal for selecting indexes and actions
-- Apply bulk action with reason and automatic audit trail recording
-- Export recommendations as JSON or CSV for external ticketing systems
-- Preview bulk changes before committing to understand impact
-
----
-
-## 🔄 In Progress (Phase 7 — Splunk Query Implementations)
-
-### Query Infrastructure Complete
-- [x] splunk-queries-service.ts: Field usage (tstats), security coverage (MITRE), quality hotspots (parse errors)
-- [x] Real Splunk queries with LLM estimation fallback
-- [x] Integrated into aggregation-service with graceful degradation
-- [ ] Test with production Splunk data
-- [ ] Optimize query performance (caching, timeout tuning)
-
----
-
-## ✅ Complete (Phase 10 — Bulk Actions)
-
-### Backend Services
-- [x] bulk-actions-service.ts with functions:
-  - applyBulkAction: Apply action to multiple indexes with audit trail
-  - getBulkActionPreview: Show what-if scenarios for bulk changes
-  - exportBulkRecommendations: Export indexes as JSON or CSV for ticketing
-
-### API Routes
-- [x] /api/bulk-actions POST endpoint supporting three operations:
-  - apply: Execute bulk action with reason and audit logging
-  - preview: Show impact of proposed bulk action without committing
-  - export: Download recommendations as JSON/CSV for external systems
-
-### Frontend Components
-- [x] BulkActionsModal.tsx with:
-  - Multi-select index list display
-  - Action selector with descriptions and color coding
-  - Optional reason/notes field for audit trail
-  - Preview of affected indexes
-  - Graceful error handling and loading states
-
-### Integration Ready
-- [x] Bulk updates linked to decision_history for audit trail
-- [x] Change reason captured and stored
-- [x] User attribution tracked for compliance
-- [x] CSV export for ticket creation workflows
-- [x] JSON export for programmatic integration
-
----
-
-## Next Steps (Optional Future Enhancements)
-
-All core functionality (Phases 1.5-6) is **complete and production-ready**. Phase 7 adds real Splunk queries.
-
-**Optional enhancements for future releases:**
-
-1. **Splunk Query Implementations** (~2-3 hours)
-   - Replace LLM-based proxies with actual Splunk tstats query for field usage
-   - Implement MITRE ATT&CK technique mapping for security_coverage
-   - Parse error rate query for quality_hotspots
-
-2. **Advanced Visualization Features** (~2-3 hours)
-   - Drill-down on HeatMap cells to see which indexes in each zone
-   - Time-series filtering on LineChart (date range picker)
-   - Interactive Sankey (click flows to see transitions)
-   - Export visualizations as PNG/PDF
-
-3. **Decision History & Audit** (~1-2 hours)
-   - Store decision history (snapshots) for trend comparison
-   - Audit trail showing config changes over time
-   - Version control for LLM prompt changes
-
-4. **Bulk Actions** (~1-2 hours)
-   - Select multiple indexes and apply actions in bulk
-   - Acceptance/rejection workflow for recommendations
-   - Export recommendations as CSV/JSON for ticket creation
-
----
-
-## Project Completion Summary
-
-### ✅ ALL PHASES COMPLETE (1.5 through 10) — FULLY FEATURED
-
-The Agentic Telemetry Operating System dashboard is now **fully implemented and feature-complete** with all planned functionality from the original specification through Phase 10 (Bulk Actions):
-
-**Database & Migrations:**
-- ✅ 7-migration versioned system with safety guarantees (transactional, advisory locks, checksums)
-- ✅ All required tables created: telemetry_snapshots, executive_kpis, agent_decisions, search_audit, field_usage, security_coverage, quality_hotspots, user_config
-
-**Backend Decision Logic:**
-- ✅ Single source of truth: llm-decision-agent.ts (Ollama gemma4:e4b with Anthropic fallback)
-- ✅ User-configurable cost model and retention policies
-- ✅ Non-fatal data quality enhancements (field usage, security coverage, quality hotspots)
-- ✅ Complete aggregation pipeline: fetch → normalize → decide → persist
-
-**Frontend & UX:**
-- ✅ Universal reasoning drawer (ReasoningDrawer.tsx) on all metrics
-- ✅ Explainer banners (SectionExplainer.tsx) explaining calculations
-- ✅ 7-day trend sparklines on KPI cards
-- ✅ Time-series line charts (LineChart.tsx) for multi-day analysis
-- ✅ Risk matrix heat maps (HeatMap.tsx) showing retention vs ingest distribution
-- ✅ Flow visualization (Sankey.tsx) showing tier → action → savings pipeline
-- ✅ ConfigPanel for user-adjustable decision parameters
-- ✅ Bootstrap script for one-command stack setup
-
-**Architecture Highlights:**
-- Pure SVG components (no external UI libraries)
-- Dark theme, responsive design, production-grade styling
-- Non-fatal pipeline integration (failures logged, don't break main flow)
-- Comprehensive error handling and fallback defaults
-- Full database audit trails and health monitoring
-
-### Ready for Production Deployment
-
-The system is ready for:
-- Docker containerization and orchestration (Kubernetes-compatible)
-- Multi-tenant deployments (single user_config table per tenant)
-- High-availability setup with advisory locking
-- Real-time Splunk integration via MCP
-- Monitoring and alerting via health check endpoint
-
----
-
-## Code Statistics
-
-| Component | Status | Files |
-|-----------|--------|-------|
-| Migrations | ✅ Complete | 7 migration files (001-006) |
-| Backend Agents | ✅ Complete | llm-decision-agent, discovery-agent, normalization-agent |
-| Services | ✅ Complete | aggregation, config, scoring (none), telemetry |
-| API Routes | ✅ Complete | 8 routes (health, config, executive-summary, agent-decisions, etc.) |
-| Frontend Components | ✅ Complete | 15+ components (ReasoningDrawer, SectionExplainer, Sparkline, LineChart, HeatMap, Sankey, etc.) |
-| Config & Infrastructure | ✅ Complete | user_config table, ConfigService, ConfigPanel UI |
-
-### Remaining Optional Work
-
-If needed for future releases, these enhancements can be added without affecting core functionality:
-- Real Splunk queries for field usage, MITRE mapping, parse error tracking
-- Drill-down and interactivity on visualizations
-- Decision history tracking and audit trails
-- Bulk action acceptance and execution workflows
-
----
-
-**Project Status: FULLY FEATURED & PRODUCTION READY ✅**  
-**Last Updated: 2026-05-16**  
-**Phases Completed: 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10**  
-**Total Development Time: ~40-45 hours**  
+**Current Date:** 2026-05-16
