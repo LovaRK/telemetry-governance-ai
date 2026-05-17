@@ -1,17 +1,13 @@
 import { NextResponse } from 'next/server';
-import { query } from '@core/database/connection';
 
+// Stub implementation — field usage requires database queries
+// Available only in full-stack deployment with PostgreSQL
 export async function GET() {
-  try {
-    const res = await query(`
-      SELECT sourcetype, fields_indexed, fields_used, optimization_pct
-      FROM field_usage
-      WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM field_usage)
-      ORDER BY optimization_pct ASC, sourcetype
-      LIMIT 100
-    `);
-    return NextResponse.json({ data: res.rows || [] });
-  } catch {
-    return NextResponse.json({ data: [] });
-  }
+  return NextResponse.json(
+    {
+      error: 'Field usage not available in this build. Ensure full stack deployment with PostgreSQL.',
+      data: [],
+    },
+    { status: 503 }
+  );
 }

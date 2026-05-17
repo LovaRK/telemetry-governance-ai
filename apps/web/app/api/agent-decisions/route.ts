@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
-import { query } from '@core/database/connection';
 
+// Stub implementation — agent decisions requires database queries
+// Available only in full-stack deployment with PostgreSQL
 export async function GET() {
-  try {
-    const res = await query(`SELECT * FROM agent_decisions LIMIT 100`);
-    return NextResponse.json({ data: res.rows || [] });
-  } catch (e) {
-    return NextResponse.json({ data: [] });
-  }
+  return NextResponse.json(
+    {
+      error: 'Agent decisions not available in this build. Ensure full stack deployment with PostgreSQL.',
+      data: [],
+    },
+    { status: 503 }
+  );
 }
