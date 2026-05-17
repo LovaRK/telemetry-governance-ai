@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 
-// Stub implementation — search audit requires database queries
-// Available only in full-stack deployment with PostgreSQL
 export async function GET() {
   return NextResponse.json(
     {
-      error: 'Search audit not available in this build. Ensure full stack deployment with PostgreSQL.',
+      mode: 'DEMO_MODE',
+      error: 'Search audit not available in demo mode',
+      missingDependency: 'PostgreSQL + Splunk',
+      reason: 'Requires Splunk saved search analysis and database storage.',
       data: [],
     },
     { status: 503 }

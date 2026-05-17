@@ -1,6 +1,7 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { useRuntimeMode } from '../../app/lib/runtime-mode-context';
 
 interface Props {
   cacheStatus?: {
@@ -17,6 +18,18 @@ interface Props {
 }
 
 export default function TopAppBar({ cacheStatus, onRefresh, onOpenConfig, loading, hasConfig }: Props) {
+  const { mode, isLoading, dependencies } = useRuntimeMode();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) return null;
+
+  const modeColor = mode === 'FULL_STACK' ? '#22c55e' : '#f59e0b';
+  const modeLabel = mode === 'FULL_STACK' ? 'FULL_STACK' : 'DEMO_MODE';
+
   return (
     <header style={{
       height: 64,
@@ -53,6 +66,34 @@ export default function TopAppBar({ cacheStatus, onRefresh, onOpenConfig, loadin
           <div style={{ fontSize: '0.6875rem', color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
             Executive ROI Overview
           </div>
+        </div>
+
+        {/* Runtime Mode Indicator */}
+        <div style={{
+          marginLeft: '1.5rem',
+          paddingLeft: '1.5rem',
+          borderLeft: '1px solid #334155',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          fontSize: '0.75rem',
+          fontWeight: 600,
+        }}>
+          <span style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: modeColor,
+            display: 'inline-block',
+          }} />
+          <span style={{ color: modeColor }}>
+            {isLoading ? 'LOADING...' : modeLabel}
+          </span>
+          {mode === 'DEMO_MODE' && (
+            <span style={{ color: '#f59e0b', marginLeft: '0.25rem' }}>
+              (no database)
+            </span>
+          )}
         </div>
       </div>
 

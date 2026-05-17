@@ -5,7 +5,10 @@ import { NextResponse } from 'next/server';
 export async function GET() {
   return NextResponse.json(
     {
-      error: 'Security coverage not available in this build. Ensure full stack deployment with PostgreSQL.',
+      mode: 'DEMO_MODE',
+      error: 'Security coverage not available in demo mode',
+      missingDependency: 'PostgreSQL + Splunk',
+      reason: 'Requires full-stack deployment with Splunk queries.',
       data: [],
     },
     { status: 503 }

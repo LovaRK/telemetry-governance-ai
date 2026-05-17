@@ -5,7 +5,10 @@ import { NextResponse } from 'next/server';
 export async function GET() {
   return NextResponse.json(
     {
-      error: 'Executive summary not available in this build. Ensure full stack deployment with PostgreSQL.',
+      mode: 'DEMO_MODE',
+      error: 'Executive summary not available in demo mode',
+      missingDependency: 'PostgreSQL',
+      reason: 'Full-stack deployment required. Use ./scripts/bootstrap.sh to start with Docker.',
       kpis: null,
       snapshots: [],
       decisions: [],

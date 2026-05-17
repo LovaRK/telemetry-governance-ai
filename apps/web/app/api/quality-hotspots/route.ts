@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
 
-// Stub implementation — quality hotspots requires database queries
-// Available only in full-stack deployment with PostgreSQL
 export async function GET() {
   return NextResponse.json(
     {
-      error: 'Quality hotspots not available in this build. Ensure full stack deployment with PostgreSQL.',
+      mode: 'DEMO_MODE',
+      error: 'Quality hotspots not available in demo mode',
+      missingDependency: 'PostgreSQL + Splunk',
+      reason: 'Requires Splunk parse error queries and database storage.',
       data: [],
     },
     { status: 503 }
