@@ -1,1 +1,18 @@
-{}
+{
+  "/_not-found": "app/_not-found.js",
+  "/api/bulk-actions/route": "app/api/bulk-actions/route.js",
+  "/api/agent-decisions/route": "app/api/agent-decisions/route.js",
+  "/api/cache-status/route": "app/api/cache-status/route.js",
+  "/api/cache/route": "app/api/cache/route.js",
+  "/api/config/route": "app/api/config/route.js",
+  "/api/executive-summary/route": "app/api/executive-summary/route.js",
+  "/api/decision-history/route": "app/api/decision-history/route.js",
+  "/api/quality-hotspots/route": "app/api/quality-hotspots/route.js",
+  "/api/health/route": "app/api/health/route.js",
+  "/api/security-coverage/route": "app/api/security-coverage/route.js",
+  "/api/field-usage/route": "app/api/field-usage/route.js",
+  "/api/search-audit/route": "app/api/search-audit/route.js",
+  "/api/telemetry/route": "app/api/telemetry/route.js",
+  "/detail/page": "app/detail/page.js",
+  "/page": "app/page.js"
+}

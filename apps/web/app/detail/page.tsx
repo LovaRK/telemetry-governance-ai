@@ -5,6 +5,9 @@ import TopAppBar from '../../components/layout/TopAppBar';
 import { ExecutiveKPIs, SnapshotRow } from '../../lib/types';
 import DecisionTimeline from '../../components/DecisionTimeline';
 import SectionExplainer from '../../components/shared/SectionExplainer';
+import ReasoningDrawer, { ReasoningDrawerProps } from '../../components/shared/ReasoningDrawer';
+
+type DrawerData = Omit<ReasoningDrawerProps, 'isOpen' | 'onClose'>;
 
 export default function DetailPage() {
   const [data, setData] = useState<any>(null);
@@ -14,6 +17,7 @@ export default function DetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [hasEverRefreshed, setHasEverRefreshed] = useState(false);
   const [hasAgentDecisions, setHasAgentDecisions] = useState(false);
+  const [drawer, setDrawer] = useState<DrawerData | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -65,6 +69,11 @@ export default function DetailPage() {
 
   return (
     <main style={{ minHeight: '100vh', background: '#050a14' }}>
+      <ReasoningDrawer
+        isOpen={!!drawer}
+        onClose={() => setDrawer(null)}
+        {...(drawer || { title: '' })}
+      />
       <TopAppBar cacheStatus={null} />
 
       <div style={{ padding: '1.25rem', maxWidth: 1400, margin: '0 auto' }}>
@@ -95,16 +104,16 @@ export default function DetailPage() {
             {snapshots.length > 0 && <DuplicateCollection snapshots={snapshots} />}
 
             {/* E7/E8: Security Detection Gaps */}
-            {snapshots.length > 0 && <SecurityGaps snapshots={snapshots} />}
+            {snapshots.length > 0 && <SecurityGaps snapshots={snapshots} onOpenDrawer={(data) => setDrawer(data)} />}
 
             {/* E4/E5: Data Quality Hotspots */}
-            {snapshots.length > 0 && <QualityHotspots snapshots={snapshots} />}
+            {snapshots.length > 0 && <QualityHotspots snapshots={snapshots} onOpenDrawer={(data) => setDrawer(data)} />}
 
             {/* E9: Operational Coverage */}
-            {snapshots.length > 0 && <OperationalCoverage snapshots={snapshots} />}
+            {snapshots.length > 0 && <OperationalCoverage snapshots={snapshots} onOpenDrawer={(data) => setDrawer(data)} />}
 
             {/* E16: Under-Utilized Sourcetypes */}
-            {snapshots.length > 0 && <UnderUtilized snapshots={snapshots} />}
+            {snapshots.length > 0 && <UnderUtilized snapshots={snapshots} onOpenDrawer={(data) => setDrawer(data)} />}
 
             {/* E12/E13: Retention Overview */}
             {snapshots.length > 0 && <RetentionOverview snapshots={snapshots} />}
@@ -165,6 +174,7 @@ export default function DetailPage() {
                 {hasAgentDecisions && data.agentReasoning && (
                   <Section title="LLM Decision Pipeline">
                     <SectionExplainer
+                      title="How was this section calculated?"
                       summary="The Decision Timeline shows the multi-stage LLM reasoning process. Each stage represents a pass the agent made over the telemetry data — click a stage to see the reasoning, evidence, and confidence for that step."
                       dataInputs={['agent_decisions', 'telemetry_snapshots', 'executive_kpis']}
                       decisionLogic="Gemma LLM processes batches of 5 indexes at a time, assigns tier/action/confidence, and stores structured JSON decisions in PostgreSQL."
@@ -340,7 +350,7 @@ function DuplicateCollection({ snapshots }: { snapshots: SnapshotRow[] }) {
 }
 
 // E7/E8: Security Detection Gaps
-function SecurityGaps({ snapshots }: { snapshots: SnapshotRow[] }) {
+function SecurityGaps({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer: (data: DrawerData) => void }) {
   const gaps = snapshots.filter((s) => s.detectionGap || s.detectionScore < 50);
   const TIER_COLORS: Record<string, string> = {
     Critical: '#ef4444', Important: '#f59e0b', 'Nice-to-Have': '#3b82f6', 'Low Value': '#64748b',
@@ -364,8 +374,8 @@ function SecurityGaps({ snapshots }: { snapshots: SnapshotRow[] }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #1e293b' }}>
-              {['Index', 'Tier', 'Detection Score', 'Detection Gap', 'Action', 'Recommendation'].map((h) => (
-                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem' }}>{h}</th>
+              {['Index', 'Tier', 'Detection Score', 'Detection Gap', 'Action', 'Recommendation', ''].map((h) => (
+                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem', width: h === '' ? 40 : 'auto' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -395,6 +405,29 @@ function SecurityGaps({ snapshots }: { snapshots: SnapshotRow[] }) {
                   <td style={{ padding: '0.5rem 0.75rem', color: '#64748b', fontSize: '0.72rem' }}>
                     {s.recommendation ? s.recommendation.slice(0, 80) + (s.recommendation.length > 80 ? '…' : '') : '—'}
                   </td>
+                  <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                    <button
+                      onClick={() => onOpenDrawer({
+                        title: `${s.indexName} — Detection Gap`,
+                        value: `Score: ${s.detectionScore}%`,
+                        tier: s.tier,
+                        action: s.classification,
+                        confidence: s.confidence * 100,
+                        howCalculated: 'Detection Score measures the breadth of security alerts and MITRE ATT&CK coverage mapped to this index. Low scores indicate missing security observability.',
+                        llmReasoning: s.reasoning || 'This index has insufficient security coverage. Consider adding alerts or mapping MITRE techniques.',
+                        evidence: [
+                          `Detection Score: ${s.detectionScore}%`,
+                          s.detectionGap ? 'Gap Detected: No active security alerts found' : 'Low MITRE coverage detected',
+                          `Tier: ${s.tier}`,
+                          `Confidence: ${(s.confidence * 100).toFixed(0)}%`,
+                        ],
+                        rawData: { detectionScore: s.detectionScore, utilizationScore: s.utilizationScore, riskScore: s.riskScore, qualityScore: s.qualityScore }
+                      })}
+                      style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                    >
+                      ℹ️
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -406,7 +439,7 @@ function SecurityGaps({ snapshots }: { snapshots: SnapshotRow[] }) {
 }
 
 // E4/E5: Data Quality Hotspots
-function QualityHotspots({ snapshots }: { snapshots: SnapshotRow[] }) {
+function QualityHotspots({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer: (data: DrawerData) => void }) {
   const hotspots = snapshots
     .filter((s) => s.qualityScore < 60)
     .sort((a, b) => a.qualityScore - b.qualityScore);
@@ -458,8 +491,8 @@ function QualityHotspots({ snapshots }: { snapshots: SnapshotRow[] }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #1e293b' }}>
-                {['Index', 'Tier', 'Quality', 'Confidence', 'Impact'].map((h) => (
-                  <th key={h} style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#64748b', fontWeight: 500 }}>{h}</th>
+                {['Index', 'Tier', 'Quality', 'Confidence', 'Impact', ''].map((h) => (
+                  <th key={h} style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#64748b', fontWeight: 500, width: h === '' ? 40 : 'auto' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -480,6 +513,29 @@ function QualityHotspots({ snapshots }: { snapshots: SnapshotRow[] }) {
                     <td style={{ padding: '0.4rem 0.5rem' }}>
                       <span style={{ color: impact === 'High' ? '#ef4444' : '#f59e0b', fontWeight: 600, fontSize: '0.7rem' }}>{impact}</span>
                     </td>
+                    <td style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>
+                      <button
+                        onClick={() => onOpenDrawer({
+                          title: `${s.indexName} — Data Quality`,
+                          value: `Score: ${s.qualityScore}%`,
+                          tier: s.tier,
+                          action: s.classification,
+                          confidence: s.confidence * 100,
+                          howCalculated: 'Quality Score measures data consistency, parsing accuracy, and schema stability. Low scores indicate potential data quality issues.',
+                          llmReasoning: s.reasoning || 'This index has data quality concerns. Consider investigating parsing errors or schema inconsistencies.',
+                          evidence: [
+                            `Quality Score: ${s.qualityScore}%`,
+                            `Confidence: ${(s.confidence * 100).toFixed(0)}%`,
+                            `Tier: ${s.tier}`,
+                            impact === 'High' ? 'High impact due to ' + (s.tier === 'Critical' ? 'Critical tier' : 'Low quality score') : 'Moderate impact'
+                          ],
+                          rawData: { qualityScore: s.qualityScore, utilizationScore: s.utilizationScore, detectionScore: s.detectionScore, confidence: s.confidence }
+                        })}
+                        style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                      >
+                        ℹ️
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -492,7 +548,7 @@ function QualityHotspots({ snapshots }: { snapshots: SnapshotRow[] }) {
 }
 
 // E9: Operational Coverage Gaps
-function OperationalCoverage({ snapshots }: { snapshots: SnapshotRow[] }) {
+function OperationalCoverage({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer: (data: DrawerData) => void }) {
   // Operational gaps: important/critical indexes with low utilization or flagged for elimination
   const gaps = snapshots.filter((s) => {
     if (s.tier === 'Critical' || s.tier === 'Important') {
@@ -516,8 +572,8 @@ function OperationalCoverage({ snapshots }: { snapshots: SnapshotRow[] }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #1e293b' }}>
-              {['Index', 'Tier', 'Utilization', 'Action', 'Risk', 'Gap Reason'].map((h) => (
-                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem' }}>{h}</th>
+              {['Index', 'Tier', 'Utilization', 'Action', 'Risk', 'Gap Reason', ''].map((h) => (
+                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem', width: h === '' ? 40 : 'auto' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -546,6 +602,30 @@ function OperationalCoverage({ snapshots }: { snapshots: SnapshotRow[] }) {
                     <span style={{ color: s.riskScore > 50 ? '#ef4444' : '#f59e0b', fontWeight: 700 }}>{s.riskScore.toFixed(0)}</span>
                   </td>
                   <td style={{ padding: '0.5rem 0.75rem', color: '#64748b', fontSize: '0.72rem' }}>{gapReason}</td>
+                  <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                    <button
+                      onClick={() => onOpenDrawer({
+                        title: `${s.indexName} — Coverage Gap`,
+                        value: `Risk: ${s.riskScore.toFixed(0)}`,
+                        tier: s.tier,
+                        action: s.classification,
+                        confidence: s.confidence * 100,
+                        howCalculated: 'Operational gap: Critical/Important index with low utilization or marked for archival. Indicates missing operational use case or potential risk.',
+                        llmReasoning: s.reasoning || 'This asset has operational coverage concerns. Verify business requirements and operational needs.',
+                        evidence: [
+                          `Utilization: ${s.utilizationScore}%`,
+                          `Tier: ${s.tier}`,
+                          `Action: ${s.classification}`,
+                          `Risk Score: ${s.riskScore.toFixed(0)}`,
+                          gapReason
+                        ],
+                        rawData: { utilizationScore: s.utilizationScore, riskScore: s.riskScore, tier: s.tier, classification: s.classification }
+                      })}
+                      style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                    >
+                      ℹ️
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -557,7 +637,7 @@ function OperationalCoverage({ snapshots }: { snapshots: SnapshotRow[] }) {
 }
 
 // E16: Under-Utilized Sourcetypes
-function UnderUtilized({ snapshots }: { snapshots: SnapshotRow[] }) {
+function UnderUtilized({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer: (data: DrawerData) => void }) {
   const underUtil = snapshots
     .filter((s) => s.utilizationScore < 40)
     .sort((a, b) => a.utilizationScore - b.utilizationScore);
@@ -577,8 +657,8 @@ function UnderUtilized({ snapshots }: { snapshots: SnapshotRow[] }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #1e293b' }}>
-              {['Index', 'Tier', 'Utilization', 'GB/Day', 'Cost/Yr', 'Action', 'Suggested Use Case'].map((h) => (
-                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem' }}>{h}</th>
+              {['Index', 'Tier', 'Utilization', 'GB/Day', 'Cost/Yr', 'Action', 'Suggested Use Case', ''].map((h) => (
+                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem', width: h === '' ? 40 : 'auto' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -608,6 +688,30 @@ function UnderUtilized({ snapshots }: { snapshots: SnapshotRow[] }) {
                     }}>{s.classification}</span>
                   </td>
                   <td style={{ padding: '0.5rem 0.75rem', color: '#64748b', fontSize: '0.72rem' }}>{useCase}</td>
+                  <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
+                    <button
+                      onClick={() => onOpenDrawer({
+                        title: `${s.indexName} — Utilization`,
+                        value: `${s.utilizationScore}%`,
+                        tier: s.tier,
+                        action: s.classification,
+                        confidence: s.confidence * 100,
+                        howCalculated: 'Utilization Score measures how frequently this index is queried. Low utilization suggests the data may be redundant or archived.',
+                        llmReasoning: s.reasoning || 'Low query activity detected. Consider archiving or eliminating.',
+                        evidence: [
+                          `Utilization: ${s.utilizationScore}%`,
+                          `Daily Ingest: ${s.dailyAvgGb.toFixed(3)} GB`,
+                          `Annual Cost: $${s.costPerYear.toFixed(2)}`,
+                          `Tier: ${s.tier}`,
+                          useCase
+                        ],
+                        rawData: { utilizationScore: s.utilizationScore, dailyAvgGb: s.dailyAvgGb, costPerYear: s.costPerYear, retentionDays: s.retentionDays }
+                      })}
+                      style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                    >
+                      ℹ️
+                    </button>
+                  </td>
                 </tr>
               );
             })}

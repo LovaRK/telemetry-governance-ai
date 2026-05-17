@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 
-interface ReasoningDrawerProps {
+export interface ReasoningDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;

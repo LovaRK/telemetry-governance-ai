@@ -2,7 +2,7 @@ import { PoolClient } from 'pg';
 import { SplunkClient } from './splunk-client';
 import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/llm-decision-agent';
 import { loadUserConfig } from './config-service';
-import { queryDataQualityMetrics } from './splunk-queries-service';
+import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics } from './splunk-queries-service';
 import { query, transaction } from '../../../core/database/connection';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -197,7 +197,6 @@ export async function runAggregation(
 function sanitizeDecision(d: LLMDecision): LLMDecision {
   return {
     ...d,
-    confidence: Number(d.confidence) || 0.5,
     confidenceScore: Number(d.confidenceScore) || 0.5,
     riskScore: Number(d.riskScore) || 0,
     utilizationScore: Number(d.utilizationScore) || 0,
@@ -436,8 +435,8 @@ async function populateFieldUsage(
   // Try real Splunk query first
   if (splunk) {
     try {
-      const metrics = await queryDataQualityMetrics(splunk, 30);
-      fieldData = metrics.fieldUsage;
+      const metrics = await queryFieldUsage(splunk, 30);
+      fieldData = metrics;
       console.log(`[Aggregation] Field usage: ${fieldData.length} sourcetypes from Splunk tstats query`);
     } catch (err) {
       console.warn(`[Aggregation] Field usage Splunk query failed, falling back to LLM estimation:`, err instanceof Error ? err.message : String(err));
@@ -483,8 +482,8 @@ async function populateSecurityCoverage(
   // Try real Splunk query first
   if (splunk) {
     try {
-      const metrics = await queryDataQualityMetrics(splunk, 30);
-      securityData = metrics.securityCoverage.map(sc => ({
+      const metrics = await querySecurityCoverage(splunk, 30);
+      securityData = metrics.map(sc => ({
         sourcetype: sc.sourcetype,
         coveragePct: Math.round((sc.coverageCount / 5) * 100), // Coverage count out of ~5 major MITRE categories
         activeAlerts: sc.coverageCount > 0 ? Math.floor(sc.coverageCount / 2) : 0,
@@ -536,7 +535,7 @@ async function populateQualityHotspots(
   if (splunk) {
     try {
       const metrics = await queryDataQualityMetrics(splunk, 30);
-      qualityData = metrics.qualityHotspots.map(qh => ({
+      qualityData = metrics.map(qh => ({
         sourcetype: qh.sourcetype,
         issueCount: Math.max(1, Math.round(qh.parseErrorRate / 2)),
         qualityScore: Math.max(0, 100 - qh.parseErrorRate * 10),

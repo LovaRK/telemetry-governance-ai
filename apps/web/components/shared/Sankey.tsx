@@ -228,7 +228,8 @@ export default function Sankey({ data, title = 'Tier → Action → Savings Flow
               fill="rgba(34, 197, 94, 0.1)"
               stroke="#22c55e"
               strokeWidth={2}
-              borderRadius={4}
+              rx={4}
+              ry={4}
             />
             <text
               x={col3X}
@@ -272,7 +273,7 @@ export default function Sankey({ data, title = 'Tier → Action → Savings Flow
         </div>
         <div style={{ padding: '0.75rem', background: '#0f172a', borderRadius: 6 }}>
           <div style={{ color: '#64748b', marginBottom: '0.25rem' }}>For Review</div>
-          <div style={{ fontSize: '1.25rem', fontWeight: 700', color: '#f59e0b' }}>
+          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f59e0b' }}>
             {data.filter(d => d.action !== 'KEEP').reduce((sum, d) => sum + d.count, 0)}
           </div>
         </div>

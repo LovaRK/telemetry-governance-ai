@@ -317,6 +317,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
       <SectionExplainer
+        title="How was this section calculated?"
         summary="The LLM agent analyses every Splunk index — its GB/day, event volume, retention days, last event timestamp — and classifies each into Critical / Important / Nice-to-Have / Low-Value tiers with an ROI and GainScope score. Click any gauge or card to see the full reasoning."
         dataInputs={['dailyAvgGb', 'totalEvents', 'retentionDays', 'firstEvent', 'lastEvent', 'licenseGbPerDay']}
         decisionLogic="For each index the LLM weighs: How often is this data queried? Is it security-critical? Does it have detection gaps? How much does it cost per year? The output is a tier, action, and confidence score stored in PostgreSQL."
@@ -459,6 +460,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         </div>
       ) : (
         <SectionExplainer
+          title="How was this section calculated?"
           summary="The LLM classifies each index into tiers (Critical, Important, Nice-to-Have, Low-Value) based on utilization, detection value, and data quality. Score averages show quality metrics. Agent Actions show the recommended changes."
           dataInputs={['index_tier', 'utilization_score', 'detection_score', 'quality_score', 'classification']}
           decisionLogic="Tier assignment: Critical=frequently used + high security value. Important=moderate usage or critical security. Nice-to-Have=low usage or value. Low-Value=low on both dimensions. Scores aggregated as averages across all indexes."
@@ -612,6 +614,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
 
       {/* Row 4 — Savings Staircase + Quick Wins */}
       <SectionExplainer
+        title="How was this section calculated?"
         summary="The Savings Staircase shows cumulative cost reduction potential as each action (ELIMINATE, ARCHIVE, OPTIMIZE) is applied. Quick Wins are high-impact, low-effort improvements the LLM flagged for immediate action."
         dataInputs={['action', 'estimated_savings', 'is_quick_win', 'confidence']}
         decisionLogic="Staircase ordered by savings impact, highest first. Cumulative bars show total annual savings if each stage is implemented. Quick wins scored on: ease of implementation + immediate impact + confidence."

@@ -32,6 +32,7 @@ export default function AgentIntelligencePanel({ snapshots, kpis, hasAgentDecisi
     <>
     <ReasoningDrawer isOpen={!!drawer} onClose={() => setDrawer(null)} {...(drawer || { title: '' })} />
     <SectionExplainer
+      title="How was this section calculated?"
       summary="Agent Intelligence highlights the highest-risk indexes, security detection gaps, and immediate optimization opportunities. Click any row to see the LLM's reasoning for its risk assessment."
       dataInputs={['risk_score', 'detection_gap', 'is_quick_win', 'is_s3_candidate', 'confidence']}
       decisionLogic="Risk Score: weighted combination of detection gaps (0–100), low utilization (0–100), high cost-to-value ratio, and data staleness. Detection gaps indicate missing security coverage. S3/Archive candidates scored on cost savings potential."
