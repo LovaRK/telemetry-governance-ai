@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useUser } from '../lib/user-context';
+import { TrustInspectionModal } from '../app/components/TrustInspectionModal';
 
 interface DeterministicSignals {
   daily_avg_gb_change_pct: number;
@@ -59,6 +60,7 @@ export function DecisionReviewQueue() {
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [inspectionIndexName, setInspectionIndexName] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPendingDecisions();
@@ -379,6 +381,22 @@ export function DecisionReviewQueue() {
                 {/* Action Buttons */}
                 <div style={{ display: 'flex', gap: '12px', marginTop: '20px', borderTop: '1px solid #e0e0e0', paddingTop: '16px' }}>
                   <button
+                    onClick={() => setInspectionIndexName(decision.indexName)}
+                    style={{
+                      flex: 1,
+                      padding: '10px',
+                      backgroundColor: '#1976d2',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '500'
+                    }}
+                  >
+                    🔍 Inspect Trust
+                  </button>
+                  <button
                     onClick={() => handleApprove(decision.id, decision.factId)}
                     disabled={processingId === decision.id}
                     style={{
@@ -421,6 +439,13 @@ export function DecisionReviewQueue() {
           </div>
         ))}
       </div>
+
+      {/* Trust Inspection Modal */}
+      <TrustInspectionModal
+        indexName={inspectionIndexName || ''}
+        isOpen={inspectionIndexName !== null}
+        onClose={() => setInspectionIndexName(null)}
+      />
     </div>
   );
 }
