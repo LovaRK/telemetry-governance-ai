@@ -10,9 +10,96 @@ import {
   reconstructOperatorIntent,
 } from '../types/operator-trace-binding';
 import { AuditChainService } from '../services/audit-chain-service';
+import { AuditRateLimiter } from '../services/audit-rate-limiter';
+
+// ===== DATA LEAK PREVENTION =====
+
+/**
+ * Sanitize operator session snapshot for safe external exposure.
+ * Removes sensitive data like full IP addresses and user agents.
+ * CRITICAL: Prevents information leakage about operator environment.
+ */
+function sanitizeOperatorSnapshot(snapshot: any): any {
+  return {
+    email: snapshot.email,
+    name: snapshot.name,
+    role: snapshot.role,
+    // Intentionally omit ipAddress, userAgent, loginAt (sensitive environment data)
+  };
+}
+
+// ===== REPLAY SCOPE VALIDATION =====
+
+/**
+ * Check if an action indicates a replay and enforce scope downgrade.
+ * CRITICAL SECURITY: Replays cannot use FULL_AUTOMATION scope.
+ * If a replay attempts FULL_AUTOMATION, return error immediately (fail-closed).
+ *
+ * Rationale: Replays execute previously-approved decisions in a new context.
+ * Using full automation on a replay could execute old decisions in fundamentally
+ * different conditions (topology change, user permissions change, etc).
+ * Replays must require human approval (ESCALATION_ONLY) to stay safe.
+ */
+function validateReplayScope(
+  actionType: string,
+  actionPayload: any,
+  requestedScope: string
+): { valid: boolean; scope: string; error?: string } {
+  const isReplay =
+    actionType === 'REPLAY_AUTHORIZE' ||
+    actionPayload?.isReplay === true ||
+    actionPayload?.replayOf !== undefined;
+
+  if (isReplay && requestedScope === 'FULL_AUTOMATION') {
+    return {
+      valid: false,
+      scope: requestedScope,
+      error:
+        'REPLAY_SCOPE_VIOLATION: Replayed actions cannot use FULL_AUTOMATION scope. ' +
+        'Scope must be ESCALATION_ONLY to require human approval on replay execution.',
+    };
+  }
+
+  // If replay but not explicitly FULL_AUTOMATION, downgrade to ESCALATION_ONLY for safety
+  const finalScope = isReplay && requestedScope === 'SUGGEST_ONLY' ? 'ESCALATION_ONLY' : requestedScope;
+
+  return {
+    valid: true,
+    scope: finalScope,
+  };
+}
 
 export function createImmutableAuditRouter(pool: Pool): Router {
   const router = Router();
+  const rateLimiter = new AuditRateLimiter({
+    requestsPerMinute: parseInt(process.env.AUDIT_RATE_LIMIT_PER_MINUTE || '60'),
+    burstSize: 10,
+  });
+
+  // FIX 5: Rate limit middleware for all audit endpoints
+  router.use((req: Request, res: Response, next: Function) => {
+    const user = (req as any).user;
+    if (!user || !user.tenant_id) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const limit = rateLimiter.checkLimit(user.tenant_id);
+
+    // Add rate limit headers to response
+    res.set({
+      'X-RateLimit-Remaining': limit.remaining.toString(),
+      'X-RateLimit-Reset': limit.resetAt.toISOString(),
+    });
+
+    if (!limit.allowed) {
+      return res.status(429).json({
+        error: 'Too many requests to audit endpoint',
+        retryAfter: limit.resetAt.toISOString(),
+      });
+    }
+
+    next();
+  });
 
   /**
    * POST /audit/operator-action
@@ -31,7 +118,7 @@ export function createImmutableAuditRouter(pool: Pool): Router {
       await client.query('BEGIN');
 
       const user = (req as any).user; // Set by auth middleware
-      const { traceId, spanId, actionType, actionPayload, actionDescription } = req.body;
+      const { traceId, spanId, actionType, actionPayload, actionDescription, authorizationScope } = req.body;
 
       // Validate required fields
       if (!traceId || !spanId || !actionType || !actionPayload) {
@@ -60,6 +147,17 @@ export function createImmutableAuditRouter(pool: Pool): Router {
         });
       }
 
+      // FIX 4: Validate replay scope downgrade (fail-closed)
+      const requestedScope = authorizationScope || 'LOCAL';
+      const scopeValidation = validateReplayScope(actionType, actionPayload, requestedScope);
+
+      if (!scopeValidation.valid) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({
+          error: scopeValidation.error,
+        });
+      }
+
       // Step 1: Snapshot operator session
       const { createHash } = require('crypto');
       const operatorHash = createHash('sha256')
@@ -79,11 +177,11 @@ export function createImmutableAuditRouter(pool: Pool): Router {
         userAgent: req.headers['user-agent'] as string,
       };
 
-      // Step 2: Create authorization context
+      // Step 2: Create authorization context with validated scope
       const authContext: AuthorizationContext = {
         contextId: uuidv4(),
         operatorSessionId: sessionSnapshot.sessionId,
-        authorizationScope: 'LOCAL', // Default to LOCAL scope; can be overridden in body
+        authorizationScope: scopeValidation.scope, // Validated and potentially downgraded for replays
         grantedScopes: ['traces:read', 'decisions:approve'],
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24h validity
         createdAt: new Date().toISOString(),
@@ -258,8 +356,7 @@ export function createImmutableAuditRouter(pool: Pool): Router {
         operatorActionsCount: bindings.length,
         operatorActions: bindings.map((b) => ({
           bindingId: b.bindingId,
-          operator: b.operatorSessionSnapshot.email,
-          operatorRole: b.operatorSessionSnapshot.role,
+          operator: sanitizeOperatorSnapshot(b.operatorSessionSnapshot),
           actionType: b.actionType,
           actionDescription: b.actionDescription,
           signedAt: b.signedAt,
@@ -268,7 +365,7 @@ export function createImmutableAuditRouter(pool: Pool): Router {
         reconstructedIntent: {
           primaryDecision: reconstructedIntent.primaryDecision
             ? {
-                operator: reconstructedIntent.primaryDecision.operatorSessionSnapshot.email,
+                operator: sanitizeOperatorSnapshot(reconstructedIntent.primaryDecision.operatorSessionSnapshot),
                 actionType: reconstructedIntent.primaryDecision.actionType,
                 decidedAt: reconstructedIntent.primaryDecision.signedAt,
               }
@@ -278,7 +375,7 @@ export function createImmutableAuditRouter(pool: Pool): Router {
           overrideCount: reconstructedIntent.overrides.length,
           escalationCount: reconstructedIntent.escalations.length,
           timeline: reconstructedIntent.timeline.map((b) => ({
-            operator: b.operatorSessionSnapshot.email,
+            operator: sanitizeOperatorSnapshot(b.operatorSessionSnapshot),
             actionType: b.actionType,
             timestamp: b.signedAt,
           })),

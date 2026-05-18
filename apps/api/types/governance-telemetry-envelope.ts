@@ -105,6 +105,9 @@ export interface GovernanceTelemetryEnvelopeV1 {
   // ===== Replay Safety =====
   replayAuthority?: ReplayAuthority; // Replay permissions and nonce
 
+  // ===== Cryptographic Integrity =====
+  envelopeSignature: string; // HMAC-SHA256(canonicalize(envelope), serviceSecret) — prevents mutation attacks
+
   // ===== Metadata =====
   emittedAt: string; // ISO8601 when envelope was created
   emittedBy: string; // Which service/function created this? (e.g., 'governance-causality-engine', 'replay-authority')
@@ -186,10 +189,60 @@ export function envelopeToDTO(env: GovernanceTelemetryEnvelopeV1): GovernanceTel
   };
 }
 
+// ===== HELPERS: ENVELOPE SIGNATURE =====
+
+/**
+ * Compute HMAC-SHA256 signature for envelope using canonical JSON serialization.
+ * CRITICAL: Uses canonicalize() for deterministic serialization (not JSON.stringify).
+ * This prevents object key reordering attacks from invalidating signatures.
+ */
+export function computeEnvelopeHMAC(
+  envelope: Partial<GovernanceTelemetryEnvelopeV1>,
+  serviceSecret: string
+): string {
+  const { createHmac } = require('crypto');
+  const canonicalize = require('canonicalize');
+
+  // Create a copy without the signature field for hashing
+  const { envelopeSignature, ...envelopeWithoutSignature } = envelope as any;
+
+  // Use canonical JSON serialization to ensure deterministic hash
+  const canonicalEnvelope = canonicalize(envelopeWithoutSignature);
+
+  if (!canonicalEnvelope) {
+    throw new Error('ENVELOPE_CANONICALIZATION_FAILED: Could not serialize envelope');
+  }
+
+  // Compute HMAC-SHA256
+  const hmac = createHmac('sha256', serviceSecret)
+    .update(canonicalEnvelope)
+    .digest('hex');
+
+  return hmac;
+}
+
+/**
+ * Verify envelope signature hasn't been tampered with.
+ * Recomputes HMAC and compares against stored signature.
+ */
+export function verifyEnvelopeSignature(
+  envelope: GovernanceTelemetryEnvelopeV1,
+  serviceSecret: string
+): boolean {
+  try {
+    const expectedSignature = computeEnvelopeHMAC(envelope, serviceSecret);
+    return envelope.envelopeSignature === expectedSignature;
+  } catch (error) {
+    console.error('Envelope signature verification failed:', error);
+    return false;
+  }
+}
+
 // ===== HELPERS: ENVELOPE CONSTRUCTION =====
 
 /**
  * Create a new GovernanceTelemetryEnvelopeV1 with default values
+ * Automatically computes and includes HMAC signature
  */
 export function createGovernanceTelemetryEnvelope(
   traceId: string,
@@ -202,11 +255,12 @@ export function createGovernanceTelemetryEnvelope(
     observability: TrustDomainSnapshot;
   },
   topologyEpoch: TopologyEpoch,
-  coherenceTier: CoherenceTier
+  coherenceTier: CoherenceTier,
+  serviceSecret: string = process.env.ENVELOPE_SIGNING_SECRET || 'default-envelope-secret'
 ): GovernanceTelemetryEnvelopeV1 {
   const { randomBytes } = require('crypto');
 
-  return {
+  const envelope: GovernanceTelemetryEnvelopeV1 = {
     envelopeId: randomBytes(16).toString('hex'),
     schemaVersion: '1.0',
     traceId,
@@ -216,21 +270,38 @@ export function createGovernanceTelemetryEnvelope(
     topologyEpoch,
     emittedAt: new Date().toISOString(),
     emittedBy: 'governance-engine',
+    envelopeSignature: '', // Placeholder, will be computed below
   };
+
+  // Compute and set the signature
+  envelope.envelopeSignature = computeEnvelopeHMAC(envelope, serviceSecret);
+
+  return envelope;
 }
 
 /**
  * Verify an envelope hasn't been modified by checking:
+ * - envelopeSignature is valid (HMAC-SHA256 matches canonical serialization)
  * - schemaVersion is '1.0'
  * - All trust domain scores are in [0, 1]
  * - emittedAt is a valid ISO8601 timestamp
  * - If operatorTraceBinding exists, its signature is valid
  */
-export function verifyGovernanceTelemetryEnvelope(env: GovernanceTelemetryEnvelopeV1): {
+export function verifyGovernanceTelemetryEnvelope(
+  env: GovernanceTelemetryEnvelopeV1,
+  serviceSecret: string = process.env.ENVELOPE_SIGNING_SECRET || 'default-envelope-secret'
+): {
   valid: boolean;
   errors: string[];
 } {
   const errors: string[] = [];
+
+  // Check envelope signature FIRST (integrity)
+  if (!env.envelopeSignature) {
+    errors.push('Missing envelopeSignature: envelope integrity cannot be verified');
+  } else if (!verifyEnvelopeSignature(env, serviceSecret)) {
+    errors.push('Envelope signature verification failed: envelope may have been tampered with');
+  }
 
   // Check schema version
   if (env.schemaVersion !== '1.0') {
