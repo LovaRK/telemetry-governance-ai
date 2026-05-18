@@ -195,6 +195,21 @@
 - [x] Verify /api/agent-decisions returns real decisions ✅ (7 decisions returned)
 - [x] Test dashboard end-to-end ✅ (HTML renders, APIs responding)
 
+### Candidate Reason Tracking (May 17, 2026) — COMPLETE ✅
+- [x] Migration 011: Add candidate_reason TEXT[] field to agent_decisions table
+- [x] Update worker.ts writeDecisionToDb to accept and store candidateReason
+- [x] Update /api/agent-decisions to return candidateReason in decisions
+- [x] Update /api/executive-summary to include candidateReason in decisions
+- [x] Add AgentDecision type interface with candidateReason field
+- [x] Update SnapshotRow type to include candidateReason
+- [x] Enhance ReasoningDrawer component to display "Why This Was Selected" section
+- [x] Update ExecutiveOverview to pass candidateReason through to drawer
+
+**Filtering Heuristics Tracked:**
+- HIGH_VOLUME_LOW_USAGE: daily_avg_gb > 1 GB
+- LONG_RETENTION: retention_days > 365
+- STALE_INDEX: days since last event > 30
+
 ### Secondary Table Population (Status: PARTIAL — 3/4 tables populated)
 - [x] field_usage: 11 rows populated (indexed vs used fields per sourcetype)
 - [ ] security_coverage: 0 rows (Map sourcetype to MITRE techniques — no detection gaps found)
