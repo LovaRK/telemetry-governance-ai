@@ -1,5 +1,169 @@
 import { PoolClient } from 'pg';
 
+// ============================================================
+// PHASE 5.1: BIDIRECTIONAL CONFIDENCE CALIBRATION (NEW)
+// ============================================================
+
+export interface ConfidenceComponents {
+  baseConfidence: number;           // 0.0-1.0, from LLM model
+  driftPenalty: number;             // 0.0-1.0, from drift detection
+  temporalDecay: number;            // 0.0-1.0, from time elapsed
+  approvalState: 'APPROVED' | 'CONDITIONAL' | 'PROPOSED' | 'REJECTED';
+}
+
+export interface RecoveryMetrics {
+  recoveryScore: number;            // 0.0-1.0, accumulated from milestones
+  consecutiveStableDays: number;    // Days without drift events
+}
+
+export interface CalibratedConfidenceOutput {
+  effectiveConfidence: number;
+  confidenceBand: 'UNRELIABLE' | 'CAUTION' | 'RELIABLE' | 'TRUSTED';
+  recoveryScoreApplied: number;
+  rawBidirectionalScore: number;
+  governanceCap: number;
+  isCapped: boolean;
+  recoveryMilestones: string[];
+}
+
+// ============================================================
+// PHASE 5.1: BIDIRECTIONAL CONFIDENCE CALIBRATION (IMPLEMENTATION)
+// ============================================================
+// Formula: C_eff = base × drift × decay × approval_factor × recovery_factor
+// Capped by governance limits based on approval_state
+
+/**
+ * Calibrate confidence bidirectionally: allows both decay and recovery
+ * Recovery is gated by stability milestones and approval state
+ */
+export function calibrateConfidence(
+  components: ConfidenceComponents,
+  metrics: RecoveryMetrics
+): CalibratedConfidenceOutput {
+  // Step 1: Calculate recovery factor from stability (7d +0.10, 14d +0.20, 30d +0.40)
+  const recoveryFactor = calculateRecoveryFactor(metrics.consecutiveStableDays);
+
+  // Step 2: Compute raw bidirectional score
+  // C_raw = base × drift × decay × approval_factor × (1.0 + recovery_factor)
+  const approvalMultiplier = getApprovalMultiplier(components.approvalState);
+  const rawBidirectionalScore =
+    components.baseConfidence *
+    components.driftPenalty *
+    components.temporalDecay *
+    approvalMultiplier *
+    (1.0 + recoveryFactor);
+
+  // Step 3: Apply governance cap based on approval state
+  // Prevents unreviewed decisions from ever reaching high confidence
+  const governanceCap = getGovernanceCap(components.approvalState);
+  const effectiveConfidence = Math.min(
+    Math.max(rawBidirectionalScore, 0.0),
+    governanceCap
+  );
+
+  // Step 4: Map to operational trust band
+  const confidenceBand = getBandFromScore(effectiveConfidence);
+
+  // Step 5: Track which recovery milestones were applied
+  const recoveryMilestones = getAppliedMilestones(metrics.consecutiveStableDays);
+
+  return {
+    effectiveConfidence: Math.round(effectiveConfidence * 100) / 100,
+    confidenceBand,
+    recoveryScoreApplied: recoveryFactor,
+    rawBidirectionalScore: Math.round(rawBidirectionalScore * 100) / 100,
+    governanceCap,
+    isCapped: rawBidirectionalScore > governanceCap,
+    recoveryMilestones,
+  };
+}
+
+/**
+ * Calculate recovery factor from consecutive stable days
+ * Recovery is graduated: 7d +0.10, 14d +0.20, 30d +0.40
+ * Approval state can boost the 30d recovery to +0.60
+ */
+function calculateRecoveryFactor(consecutiveStableDays: number, isApproved: boolean = false): number {
+  if (consecutiveStableDays >= 30) {
+    return isApproved ? 0.60 : 0.40;
+  } else if (consecutiveStableDays >= 14) {
+    return 0.20;
+  } else if (consecutiveStableDays >= 7) {
+    return 0.10;
+  }
+  return 0.0; // No recovery yet
+}
+
+/**
+ * Get approval state multiplier for the raw score calculation
+ * APPROVED: full trust (1.0), REJECTED: no trust (0.0), others: partial (0.5)
+ */
+function getApprovalMultiplier(approvalState: string): number {
+  switch (approvalState) {
+    case 'APPROVED':
+      return 1.00;
+    case 'CONDITIONAL':
+      return 0.5;
+    case 'PROPOSED':
+      return 0.5;
+    case 'REJECTED':
+      return 0.0;
+    default:
+      return 0.5;
+  }
+}
+
+/**
+ * Get governance cap ceiling based on approval state
+ * Prevents unreviewed decisions from ever reaching high confidence
+ * APPROVED: 0.95 (can reach trusted), CONDITIONAL: 0.75 (capped at reliable),
+ * PROPOSED: 0.50 (capped at caution), REJECTED: 0.00 (always unreliable)
+ */
+function getGovernanceCap(approvalState: string): number {
+  switch (approvalState) {
+    case 'APPROVED':
+      return 0.95;
+    case 'CONDITIONAL':
+      return 0.75;
+    case 'PROPOSED':
+      return 0.50;
+    case 'REJECTED':
+      return 0.00;
+    default:
+      return 0.50;
+  }
+}
+
+/**
+ * Map numerical confidence to operational trust band
+ * UNRELIABLE: 0.00-0.29, CAUTION: 0.30-0.59, RELIABLE: 0.60-0.84, TRUSTED: 0.85+
+ */
+function getBandFromScore(score: number): 'UNRELIABLE' | 'CAUTION' | 'RELIABLE' | 'TRUSTED' {
+  if (score >= 0.85) {
+    return 'TRUSTED';
+  } else if (score >= 0.60) {
+    return 'RELIABLE';
+  } else if (score >= 0.30) {
+    return 'CAUTION';
+  }
+  return 'UNRELIABLE';
+}
+
+/**
+ * Track which recovery milestones have been reached
+ */
+function getAppliedMilestones(consecutiveStableDays: number): string[] {
+  const milestones: string[] = [];
+  if (consecutiveStableDays >= 7) milestones.push('STABLE_7_DAYS');
+  if (consecutiveStableDays >= 14) milestones.push('STABLE_14_DAYS');
+  if (consecutiveStableDays >= 30) milestones.push('STABLE_30_DAYS');
+  return milestones;
+}
+
+// ============================================================
+// PHASE 4: ASYMMETRIC RECOVERY (EXISTING)
+// ============================================================
+
 export interface DecisionStabilityRun {
   runId: string;
   decisionId: string;
