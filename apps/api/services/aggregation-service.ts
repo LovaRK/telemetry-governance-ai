@@ -9,6 +9,10 @@ import { computeMetadataFingerprint } from './fingerprint-service';
 import { getApplicableOverrides, resolveOverride, disableExpiredOverrides, flagOverduesForReview } from './override-governance-service';
 import { recordDecisionLineage, computeDeterministicSignals, persistQueueHealthMetrics } from './decision-lineage-service';
 import { evaluateSemanticDrift, getDriftedDecisions, DriftSeverity } from './drift-detection-service';
+import { getSeasonalityBaselineService } from './seasonality-baseline-service';
+import { getConfidenceRecoveryService } from './confidence-recovery-service';
+import { getRiskWeightedSamplingService } from './risk-weighted-sampling-service';
+import { enqueueReanalysisJob } from './reanalysis-budget-service';
 import { query, transaction } from '../../../core/database/connection';
 import { enqueueJob } from './job-service';
 import { v4 as uuidv4 } from 'uuid';
@@ -984,6 +988,11 @@ async function evaluateDriftForSnapshot(
   try {
     console.log(`[Drift Detection] Starting drift evaluation for snapshot ${snapshotId}...`);
 
+    // Initialize services for drift evaluation with seasonality and recovery
+    const seasonalityService = getSeasonalityBaselineService();
+    const confidenceRecoveryService = getConfidenceRecoveryService();
+    const riskSamplingService = getRiskWeightedSamplingService();
+
     // Fetch all current decisions
     const decisionsResult = await client.query(
       `SELECT id, snapshot_id, index_name, sourcetype, confidence_score
@@ -997,6 +1006,7 @@ async function evaluateDriftForSnapshot(
 
     let driftedCount = 0;
     let reanalyzedCount = 0;
+    const cleanSnapshots: Array<{ indexName: string; sourcetype: string | null }> = [];
 
     // For each decision, compare to previous snapshot
     for (const decision of currentDecisions) {
@@ -1012,6 +1022,7 @@ async function evaluateDriftForSnapshot(
 
         if (prevResult.rows.length === 0) {
           // No previous snapshot — new index, no drift
+          cleanSnapshots.push({ indexName: decision.index_name, sourcetype: decision.sourcetype || null });
           continue;
         }
 
@@ -1024,6 +1035,30 @@ async function evaluateDriftForSnapshot(
           continue;
         }
 
+        // ── Check seasonality before evaluating drift ──
+        // Distinguish legitimate operational spikes from semantic drift
+        const volumeObserved = currentInput.dailyAvgGb;
+        const utilizationObserved = currentInput.totalEvents > 0
+          ? Math.min(100, (currentInput.totalEvents / 1000000))
+          : 0;
+
+        const seasonalViolation = await seasonalityService.checkSeasonalViolation(
+          client,
+          decision.index_name,
+          volumeObserved,
+          utilizationObserved,
+          3.0 // 3-sigma threshold
+        );
+
+        // Update seasonal baseline for this time class (continuous learning)
+        await seasonalityService.updateSeasonalBaseline(
+          client,
+          decision.index_name,
+          seasonalityService.getTimeClass(new Date(snapshotDate)),
+          volumeObserved,
+          utilizationObserved
+        );
+
         // Evaluate drift
         const driftResult = await evaluateSemanticDrift(
           client,
@@ -1031,7 +1066,7 @@ async function evaluateDriftForSnapshot(
           {
             indexName: decision.index_name,
             totalEventsNow: currentInput.totalEvents,
-            utilizationPctNow: (currentInput.totalEvents > 0) ? Math.min(100, (currentInput.totalEvents / 1000000)) : 0,
+            utilizationPctNow: utilizationObserved,
             retentionDaysNow: currentInput.retentionDays,
             snapshotDateNow: new Date(snapshotDate),
           },
@@ -1045,41 +1080,101 @@ async function evaluateDriftForSnapshot(
         );
 
         if (driftResult.driftSeverity !== 'NONE') {
-          driftedCount++;
-          console.log(
-            `[Drift Detection] ${decision.index_name}: ${driftResult.driftSeverity} drift detected`,
-            {
-              vol_drift: driftResult.driftVector.vol_drift_pct,
-              util_delta: driftResult.driftVector.util_delta_pct,
-              penalty: driftResult.confidencePenalty,
-              invalidated: driftResult.wasInvalidated,
-            }
-          );
+          // Check if this is a seasonal variation vs. true drift
+          const isSeasonalSpike = seasonalViolation.violatesSeasonalEnvelope;
 
-          if (driftResult.reanalysisTriggered) {
-            reanalyzedCount++;
-            // Queue for reanalysis if severity >= METRIC
-            if (['METRIC', 'SEMANTIC', 'POLICY'].includes(driftResult.driftSeverity)) {
-              await enqueueJob({
-                jobType: 'drift_reanalysis',
-                snapshotId: decision.snapshot_id,
-                payload: {
-                  indexName: decision.index_name,
-                  sourcetype: decision.sourcetype,
-                  previousSnapshotDate: prevSnap.snapshot_date,
-                  driftSeverity: driftResult.driftSeverity,
-                  confidencePenalty: driftResult.confidencePenalty,
-                },
-              });
+          if (isSeasonalSpike) {
+            console.log(
+              `[Drift Detection] ${decision.index_name}: Seasonal spike detected, not drift`,
+              {
+                timeClass: seasonalityService.getTimeClass(new Date(snapshotDate)),
+                volumeSigma: seasonalViolation.volumeSigmaDistance,
+                utilizationSigma: seasonalViolation.utilizationSigmaDistance,
+              }
+            );
+            cleanSnapshots.push({ indexName: decision.index_name, sourcetype: decision.sourcetype || null });
+          } else {
+            driftedCount++;
+            console.log(
+              `[Drift Detection] ${decision.index_name}: ${driftResult.driftSeverity} drift detected`,
+              {
+                vol_drift: driftResult.driftVector.vol_drift_pct,
+                util_delta: driftResult.driftVector.util_delta_pct,
+                penalty: driftResult.confidencePenalty,
+                invalidated: driftResult.wasInvalidated,
+              }
+            );
+
+            if (driftResult.reanalysisTriggered) {
+              reanalyzedCount++;
+              // Queue for reanalysis if severity >= METRIC
+              if (['METRIC', 'SEMANTIC', 'POLICY'].includes(driftResult.driftSeverity)) {
+                await enqueueReanalysisJob(
+                  client,
+                  decision.index_name,
+                  'DRIFT_DETECTION',
+                  'CRITICAL',
+                  {
+                    sourcetype: decision.sourcetype,
+                    previousSnapshotDate: prevSnap.snapshot_date,
+                    driftSeverity: driftResult.driftSeverity,
+                    confidencePenalty: driftResult.confidencePenalty,
+                  }
+                );
+              }
             }
           }
+        } else {
+          cleanSnapshots.push({ indexName: decision.index_name, sourcetype: decision.sourcetype || null });
         }
       } catch (e) {
         console.warn(`[Drift Detection] Error evaluating drift for ${decision.index_name}:`, e instanceof Error ? e.message : e);
       }
     }
 
-    console.log(`[Drift Detection] Complete: ${driftedCount} drifted, ${reanalyzedCount} queued for reanalysis`);
+    // ── Apply confidence recovery to clean snapshots ──
+    // Indexes with no drift can begin recovering from previous penalties
+    for (const snap of cleanSnapshots) {
+      try {
+        await confidenceRecoveryService.recordCleanSnapshot(
+          client,
+          snap.indexName,
+          snap.sourcetype
+        );
+      } catch (e) {
+        console.warn(`[Confidence Recovery] Error recording clean snapshot for ${snap.indexName}:`,
+          e instanceof Error ? e.message : e);
+      }
+    }
+
+    // ── Risk-weighted sampling: select high-risk decisions for ground truth audit ──
+    // Target "stable hallucinations" (high confidence, deep reuse, high financial impact)
+    try {
+      const samplingCandidates = await riskSamplingService.selectSamplingCandidates(
+        client,
+        50, // max candidates to consider
+        0.7  // minimum effective confidence threshold
+      );
+
+      if (samplingCandidates.length > 0) {
+        const auditBatch = riskSamplingService.selectAuditBatch(samplingCandidates, 10);
+        console.log(`[Risk-Weighted Sampling] Selected ${auditBatch.samplingSize} indexes for ground truth audit`);
+        console.log(`[Risk-Weighted Sampling] Total risk covered: ${auditBatch.totalRiskCovered}`);
+        console.log(`[Risk-Weighted Sampling] Explanation:\n${auditBatch.explanation}`);
+
+        // Enqueue sampling batch as ground truth validation jobs
+        const samplingJobsEnqueued = await riskSamplingService.enqueueSamplingBatch(
+          client,
+          auditBatch,
+          snapshotId
+        );
+        console.log(`[Risk-Weighted Sampling] Enqueued ${samplingJobsEnqueued} sampling jobs`);
+      }
+    } catch (e) {
+      console.warn('[Risk-Weighted Sampling] Error during sampling:', e instanceof Error ? e.message : e);
+    }
+
+    console.log(`[Drift Detection] Complete: ${driftedCount} drifted, ${reanalyzedCount} queued for reanalysis, ${cleanSnapshots.length} clean snapshots recovered`);
     return { driftedCount, reanalyzedCount };
   } catch (e) {
     console.error('[Drift Detection] Error in drift evaluation:', e instanceof Error ? e.message : e);
