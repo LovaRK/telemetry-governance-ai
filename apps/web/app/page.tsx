@@ -348,22 +348,24 @@ export default function Home() {
 
   // Wrap dashboard with connection gating
   return (
-    <UserProvider>
-      <ConnectionGatedUI>
-        {loading ? (
-          <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: '#64748b' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>⟳</div>
-              <p>Loading dashboard...</p>
+    <>
+      <UserProvider>
+        <ConnectionGatedUI>
+          {loading ? (
+            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: '#64748b' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>⟳</div>
+                <p>Loading dashboard...</p>
+              </div>
             </div>
-          </div>
-        ) : !cacheStatus?.hasEverRefreshed ? (
-          // Connection screen falls back to inline form in mainContent
-          <>{mainContent}</>
-        ) : (
-          mainContent
-        )}
-      </ConnectionGatedUI>
+          ) : !cacheStatus?.hasEverRefreshed ? (
+            // Connection screen falls back to inline form in mainContent
+            <>{mainContent}</>
+          ) : (
+            mainContent
+          )}
+        </ConnectionGatedUI>
+      </UserProvider>
       {activeJobId && (
         <JobStatusToast
           jobId={activeJobId}
@@ -373,7 +375,7 @@ export default function Home() {
           }}
         />
       )}
-    </UserProvider>
+    </>
   );
 }
 
