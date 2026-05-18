@@ -284,6 +284,87 @@
 
 ---
 
+## 🎯 Week 1-4 Implementation Roadmap: Decision Governance & Observability
+
+### ✅ Week 1: Provenance & Confidence Lineage (COMPLETE — May 18, 2026)
+
+**Objective:** Full decision audit trail with immutable facts vs versioned reasoning
+
+- [x] Migration 013: decision_lineage + queue_health_metrics tables
+- [x] decision-lineage-service.ts:
+  - [x] computeDeterministicSignals (immutable Splunk facts)
+  - [x] recordDecisionLineage (audit trail persistence)
+  - [x] updateDecisionStatus (state machine tracking)
+  - [x] persistQueueHealthMetrics (observability)
+  - [x] getDecisionStatusSummary, getPendingReviewDecisions (API queries)
+- [x] Integration in aggregation-service.ts:
+  - [x] Record deterministic_signals for every decision
+  - [x] Record cognitive_signals (model, version, prompt_hash, confidence, reasoning)
+  - [x] Initialize decision_status = PROPOSED for review workflow
+  - [x] Persist queue_health_metrics (reuse_ratio, filtering_efficiency_pct, confidence distribution)
+
+**Result:** Every decision has: (1) Immutable input signals, (2) Versioned LLM reasoning, (3) Human review status
+
+---
+
+### 📋 Week 2: Decision Review Queue & Dashboard Alerts (PENDING)
+
+**Objective:** Human approval workflow + observability alarms
+
+- [ ] Add UI for decision review queue:
+  - [ ] PROPOSED → REVIEW_QUEUE → APPROVED/REJECTED workflow
+  - [ ] Detail view: deterministic signals, LLM reasoning, evidence
+  - [ ] Bulk approve (with audit trail)
+  - [ ] Rejection reasons (with lineage update)
+- [ ] Build dashboard alert: reuse_ratio < 75%
+  - [ ] Indicates unstable metadata or broken fingerprinting
+  - [ ] Show: reuse breakdown, unstable indexes, corrective action
+- [ ] Create queue observability dashboard:
+  - [ ] Reuse ratio trend (target >0.90)
+  - [ ] Filtering efficiency (target <10%)
+  - [ ] Confidence distribution (high/medium/low counts)
+  - [ ] Decision flip rate (week-over-week stability)
+
+---
+
+### 🔄 Week 3: Semantic Caching & Cold-Start Reasoning (PENDING)
+
+**Objective:** Cross-tenant AI efficiency via anonymized fingerprints
+
+- [ ] Implement anonymization function:
+  - [ ] Strip tenant IDs from fingerprints
+  - [ ] Keep structural signatures (buckets, counts, patterns)
+  - [ ] Build cross-tenant lookup table
+- [ ] Create global fingerprint cache:
+  - [ ] Hash anonymized fingerprints → stored decisions
+  - [ ] Confidence adjustment for cross-tenant reuse
+  - [ ] Cache hit rate tracking
+- [ ] AI worker enhancement:
+  - [ ] Check cache before LLM call
+  - [ ] "Cold-start reasoning blueprint" from previous customer
+  - [ ] Test cross-tenant scenario (Customer B inherits Tier B reasoning from Customer A fingerprint)
+
+---
+
+### ✅ Week 4: Full Integration & Metrics (PENDING)
+
+**Objective:** Complete queue_health_metrics collection + stability calibration
+
+- [ ] Connect all metrics collection points:
+  - [ ] decision_flip_rate (from decision history comparison)
+  - [ ] unstable_decisions count (decisions with flip_rate > 0.3)
+  - [ ] worker stats: avg_inference_latency_ms, worker_memory_peak_mb, worker_count_active
+- [ ] Implement confidence calibration:
+  - [ ] confidence_score = (llm_confidence × stability_score × completeness_factor) clamped to [0,1]
+  - [ ] Separate UI labels: "AI-Recommended" vs "High-Confidence" vs "Review-Required"
+- [ ] Build queue health dashboard:
+  - [ ] Reuse effectiveness trend
+  - [ ] Decision stability histogram
+  - [ ] Inference latency p95/p99
+  - [ ] Cost-per-decision tracking
+
+---
+
 ## Current Production Readiness (May 18, 2026)
 
 ### ✅ What's Working
@@ -307,32 +388,17 @@
 - No UI for modifying LLM decisions (read-only view)
 - No historical trending (single snapshot only)
 
-### 🔄 Next Phase: Advanced Features & Observability (Week 5+)
+### 🔄 Week 5+: Post-MVP Advanced Features
 
-**KPI Truth Separation (CRITICAL for enterprise trust)**
-- [ ] Tag each KPI with source: 'DETERMINISTIC' (Splunk facts) vs 'AI' (LLM-derived)
-- [ ] Update UI to label: "AI-Generated Insight" vs "Direct Splunk Metric"
-- [ ] Separate confidence intervals for AI-derived signals
-
-**Queue Observability (Monitor the AI system itself)**
-- [ ] Track: queue_depth, avg_inference_ms, retries_per_job, reuse_ratio
-- [ ] Track: changed_entity_ratio, candidate_reduction_ratio, decision_flip_rate
-- [ ] Add queue intelligence dashboard: % changed vs unchanged, avg candidates per run
-- [ ] Monitor inference cost per snapshot and reuse effectiveness
-
-**Remaining Hardening**
-- [ ] Implement confidence calibration: confidence = llm_confidence × stability × completeness
-- [ ] Build auto-review workflow state machine (PENDING → APPROVED → EXPIRED)
-- [ ] Add 180-day re-review enforcement for long-lived overrides
-- [ ] Create queue health dashboard (monitor AI system metrics)
-
-**UI Enhancements**
+**Beyond Roadmap (aspirational—not currently scheduled)**
 - [ ] Historical KPI trending (7/30/90 day trends)
-- [ ] Decision reasoning drill-down (expand evidence)
-- [ ] Bulk actions (ARCHIVE, OPTIMIZE multiple indexes)
-- [ ] Custom cost model configuration
-- [ ] Export/reporting features
-- [ ] Performance optimization (caching, indexes)
+- [ ] Decision reasoning drill-down (expand evidence in UI)
+- [ ] Bulk actions (ARCHIVE, OPTIMIZE multiple indexes at once)
+- [ ] Custom cost model configuration (more granular than current sliders)
+- [ ] Export/reporting features (PDF, CSV exports)
+- [ ] Performance optimization (database indexes, query caching)
+- [ ] Cross-tenant benchmarking (compare reuse ratios, decision patterns)
+- [ ] Anomaly detection (alert on unusual fingerprints or flip rates)
 
 ---
 
