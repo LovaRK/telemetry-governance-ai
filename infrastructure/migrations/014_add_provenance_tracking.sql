@@ -33,7 +33,7 @@ SELECT
 FROM decision_lineage
 WHERE fingerprint_version IS NOT NULL
 GROUP BY fingerprint_version
-ORDER BY created_at DESC;
+ORDER BY MAX(created_at) DESC;
 
 -- Alert: detect fingerprint drift (when fingerprint_version changes mid-batch)
 -- This indicates potential reprocessing cascade

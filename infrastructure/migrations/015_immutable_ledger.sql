@@ -33,15 +33,24 @@ CREATE TABLE IF NOT EXISTS telemetry_facts (
     ) STORED,
 
     monthly_waste_gb NUMERIC(14, 4) GENERATED ALWAYS AS (
-        ROUND((daily_waste_gb * 30)::numeric, 4)
+        CASE
+            WHEN utilization_pct = 0 THEN ROUND((daily_avg_gb * 30)::numeric, 4)
+            ELSE ROUND((daily_avg_gb * (1.0 - (utilization_pct / 100.0)) * 30)::numeric, 4)
+        END
     ) STORED,
 
     monthly_waste_usd NUMERIC(14, 2) GENERATED ALWAYS AS (
-        ROUND((monthly_waste_gb * storage_cost_per_gb_mo)::numeric, 2)
+        CASE
+            WHEN utilization_pct = 0 THEN ROUND((daily_avg_gb * 30 * storage_cost_per_gb_mo)::numeric, 2)
+            ELSE ROUND((daily_avg_gb * (1.0 - (utilization_pct / 100.0)) * 30 * storage_cost_per_gb_mo)::numeric, 2)
+        END
     ) STORED,
 
     annual_waste_usd NUMERIC(14, 2) GENERATED ALWAYS AS (
-        ROUND((monthly_waste_usd * 12)::numeric, 2)
+        CASE
+            WHEN utilization_pct = 0 THEN ROUND((daily_avg_gb * 30 * storage_cost_per_gb_mo * 12)::numeric, 2)
+            ELSE ROUND((daily_avg_gb * (1.0 - (utilization_pct / 100.0)) * 30 * storage_cost_per_gb_mo * 12)::numeric, 2)
+        END
     ) STORED,
 
     UNIQUE (snapshot_id, index_name, sourcetype)
