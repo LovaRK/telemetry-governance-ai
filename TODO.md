@@ -635,13 +635,54 @@
 
 ---
 
+#### Phase 6: Governance Observability (STARTED — May 18, 2026)
+
+**Objective:** Build operational visibility into governance mutations, telemetry, and health
+
+**Part 1: Database & Telemetry Infrastructure (COMPLETE)**
+- [x] Migration 102: Governance observability schema
+  - [x] governance_mutation_journal: Immutable event log (mutations, state transitions, errors)
+  - [x] governance_telemetry: Aggregated metrics (counts, latencies, failure rates)
+  - [x] governance_audit_snapshots: Point-in-time trust state for time-travel queries
+  - [x] operator_sessions: User activity and session tracking
+  - [x] Views: governance_history_timeline, governance_health_summary, governance_events_stream
+- [x] governance-telemetry-service.ts:
+  - [x] recordMutationEvent(): Log all governance actions
+  - [x] createAuditSnapshot(): Capture state at specific moments
+  - [x] recordTelemetry(): Aggregate metrics by index and time window
+  - [x] getAuditHistory(): Time-travel query support
+  - [x] getHealthSummary(): Real-time system health
+  - [x] getEventsStream(): Event feed for alerting
+
+**Part 2: API Endpoints (COMPLETE)**
+- [x] POST /api/governance/mutations: Record governance events
+- [x] GET /api/governance/history/:indexName: Audit trail replay with trust score progression
+- [x] GET /api/governance/telemetry: Health summary metrics
+- [x] GET /api/governance/events: Real-time event stream
+
+**Part 3: React Integration Layer (COMPLETE)**
+- [x] useGovernanceTelemetry(): Core telemetry API with deduplication
+- [x] TanStack Query hooks: useGovernanceHealthSummary(), useGovernanceAuditHistory(), useGovernanceEventsStream()
+- [x] useTelemetryWrappedMutations(): Wraps Phase 5.2 mutations with auto-recording
+- [x] useOperatorSession(): Tracks user session activity
+
+**Part 4: Observability Dashboard (COMPLETE)**
+- [x] GovernanceObservabilityDashboard.tsx:
+  - [x] Health metrics grid (mutations, collisions, invalidations, abandoned ops, degraded indexes)
+  - [x] Trust score progression timeline (when index selected)
+  - [x] Real-time events stream with severity indicators
+  - [x] Mutation statistics and error breakdown
+  - [x] Time range selector (1h/24h/7d)
+
+---
+
 ## Current Production Readiness (May 18, 2026)
 
 ### ✅ What's Working
 - **Core Pipeline:** Splunk → Aggregation → Job Queue → LLM Worker → Database → APIs
 - **Web UI:** Renders correctly, all components integrated
-- **APIs:** 17 endpoints, all returning real data or graceful DEMO_MODE
-- **Database:** Schema complete, 7 tables populated with real data
+- **APIs:** 22 endpoints (17 original + 5 governance telemetry), all returning real data or graceful DEMO_MODE
+- **Database:** Schema complete with Phase 5.1 (confidence recovery) + Phase 6 (observability) tables
 - **Async Jobs:** Queue-based processing with SSE streaming
 - **Web-Only Mode:** Works without database (for development)
 - **Candidate Reason Tracking:** Migration and API endpoints updated to track why indexes were selected for LLM processing
@@ -650,6 +691,8 @@
 - **Decision Stability Tracking:** Consistency ratio, duration factor, and flip-rate detection
 - **Enterprise Override Governance:** Scope precedence, priority resolution, auto-expiry, structured reason codes
 - **Governance Maintenance:** Auto-disable expired overrides, flag old overrides for review (180-day hygiene)
+- **Bidirectional Confidence Calibration:** Weighted additive blend with recovery milestones (7d/14d/30d) and governance caps
+- **Governance Telemetry:** Immutable event journal, audit replay with time-travel queries, real-time health monitoring
 
 ### ⚠️ Known Limitations
 - quality_hotspots: Requires indexes with quality_score < 50
