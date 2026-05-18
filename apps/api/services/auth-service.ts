@@ -2,9 +2,7 @@ import { Pool, PoolClient } from 'pg';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-const JWT_EXPIRY = '7d'; // 7 days
+import { TokenService } from './token-service';
 
 export interface LoginCredentials {
   email: string;
@@ -25,16 +23,27 @@ export interface AuthSession {
   email: string;
   name: string | null;
   role: string;
-  token: string;
-  expires_at: string;
+  accessToken: string;
+  refreshToken: string;
+  accessExpiresAt: string; // ISO8601
+  refreshExpiresAt: string; // ISO8601
+}
+
+export interface TokenRefreshResult {
+  accessToken: string;
+  accessExpiresAt: string;
 }
 
 export class AuthService {
-  constructor(private pool: Pool) {}
+  private tokenService: TokenService;
+
+  constructor(private pool: Pool) {
+    this.tokenService = new TokenService(pool);
+  }
 
   /**
    * Authenticate user with email and password
-   * Returns JWT token and session info
+   * Returns both short-lived access token and long-lived refresh token
    */
   async login(credentials: LoginCredentials, ipAddress?: string): Promise<AuthSession> {
     const client = await this.pool.connect();
@@ -105,8 +114,14 @@ export class AuthService {
         [user.id]
       );
 
-      // Create session
-      const session = await this.createSession(user.id, tenant_id, ipAddress, client);
+      // Issue token pair via TokenService
+      const tokenPair = await this.tokenService.issueTokenPair(
+        user.id,
+        tenant_id,
+        user.email,
+        user.role,
+        client
+      );
 
       return {
         user_id: user.id,
@@ -114,8 +129,10 @@ export class AuthService {
         email: user.email,
         name: user.name,
         role: user.role,
-        token: session.token,
-        expires_at: session.expires_at,
+        accessToken: tokenPair.accessToken,
+        refreshToken: tokenPair.refreshToken,
+        accessExpiresAt: tokenPair.accessExpiresAt,
+        refreshExpiresAt: tokenPair.refreshExpiresAt,
       };
     } finally {
       client.release();
@@ -162,72 +179,67 @@ export class AuthService {
   }
 
   /**
-   * Verify JWT token and return decoded payload
+   * Verify access token (fast, no database lookup)
+   * Returns decoded access token payload
    */
-  verifyToken(token: string): TokenPayload {
-    try {
-      const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
-      return decoded;
-    } catch (error) {
-      throw new Error('Invalid or expired token');
-    }
-  }
-
-  /**
-   * Validate session token (check database)
-   */
-  async validateSession(token: string): Promise<AuthSession | null> {
-    const result = await this.pool.query(
-      `
-      SELECT
-        us.id,
-        us.user_id,
-        us.tenant_id,
-        us.expires_at,
-        u.email,
-        u.name,
-        u.role
-      FROM user_sessions us
-      JOIN users u ON us.user_id = u.id
-      WHERE us.token = $1
-        AND us.expires_at > NOW()
-        AND NOT us.is_revoked
-        AND NOT u.is_locked
-      `,
-      [token]
-    );
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    const session = result.rows[0];
-
-    // Update last activity
-    await this.pool.query(
-      `UPDATE user_sessions SET last_activity_at = NOW() WHERE id = $1`,
-      [session.id]
-    );
-
+  verifyToken(accessToken: string): TokenPayload {
+    const decoded = this.tokenService.verifyAccessToken(accessToken);
     return {
-      user_id: session.user_id,
-      tenant_id: session.tenant_id,
-      email: session.email,
-      name: session.name,
-      role: session.role,
-      token,
-      expires_at: session.expires_at,
+      user_id: decoded.user_id,
+      tenant_id: decoded.tenant_id,
+      email: decoded.email,
+      role: decoded.role,
     };
   }
 
   /**
-   * Logout: revoke session token
+   * Refresh an access token using a refresh token
+   * Returns new access token with updated expiry
    */
-  async logout(token: string): Promise<void> {
-    await this.pool.query(
-      `UPDATE user_sessions SET is_revoked = true WHERE token = $1`,
-      [token]
-    );
+  async refreshToken(refreshToken: string): Promise<TokenRefreshResult> {
+    return await this.tokenService.refreshAccessToken(refreshToken);
+  }
+
+  /**
+   * Get current user info from access token
+   * Does not require database lookup (info is in JWT)
+   */
+  async getCurrentUser(accessToken: string): Promise<TokenPayload | null> {
+    try {
+      const payload = this.tokenService.verifyAccessToken(accessToken);
+      return payload;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Validate access token and return user info
+   * Used by middleware to verify requests
+   */
+  async validateAccessToken(accessToken: string): Promise<TokenPayload | null> {
+    return this.getCurrentUser(accessToken);
+  }
+
+  /**
+   * Logout: revoke refresh token
+   * Access token will naturally expire after 15 minutes
+   */
+  async logout(refreshToken: string): Promise<void> {
+    try {
+      await this.tokenService.revokeRefreshToken(refreshToken);
+    } catch (error) {
+      // Token might be invalid or expired, but we still mark as revoked if possible
+      console.warn('Error revoking refresh token:', error);
+    }
+  }
+
+  /**
+   * Logout user from all devices
+   * Revokes all refresh tokens for a user
+   */
+  async logoutAllDevices(userId: string, tenantId: string): Promise<void> {
+    await this.tokenService.revokeAllUserTokens(userId, tenantId);
   }
 
   /**
@@ -270,38 +282,4 @@ export class AuthService {
     );
   }
 
-  // ============ PRIVATE HELPER METHODS ============
-
-  private async createSession(
-    user_id: string,
-    tenant_id: string,
-    ipAddress: string | undefined,
-    client: PoolClient
-  ): Promise<{ token: string; expires_at: string }> {
-    // Create JWT token
-    const tokenPayload: TokenPayload = {
-      user_id,
-      tenant_id,
-      email: '', // Will be set during verification
-      role: '', // Will be set during verification
-    };
-
-    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
-
-    // Store session in database
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-    await client.query(
-      `
-      INSERT INTO user_sessions (user_id, tenant_id, token, ip_address, expires_at)
-      VALUES ($1, $2, $3, $4, $5)
-      `,
-      [user_id, tenant_id, token, ipAddress || null, expiresAt]
-    );
-
-    return {
-      token,
-      expires_at: expiresAt.toISOString(),
-    };
-  }
 }
