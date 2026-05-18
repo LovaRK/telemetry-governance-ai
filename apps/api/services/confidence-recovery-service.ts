@@ -33,38 +33,53 @@ export interface CalibratedConfidenceOutput {
 // Capped by governance limits based on approval_state
 
 /**
- * Calibrate confidence bidirectionally: allows both decay and recovery
- * Recovery is gated by stability milestones and approval state
+ * Calibrate confidence bidirectionally with weighted additive blend
+ * Separates trust-from-history and trust-from-recovery before applying environmental suppressors
+ * Formula: ((base × approval × w_stability) + (recovery × w_recovery)) × drift × decay
+ *
+ * Why: Multiplicative formulas trap degraded systems in the basement.
+ * Additive blend allows recovery to genuinely restore confidence even after strong drift.
  */
 export function calibrateConfidence(
   components: ConfidenceComponents,
   metrics: RecoveryMetrics
 ): CalibratedConfidenceOutput {
-  // Step 1: Calculate recovery factor from stability (7d +0.10, 14d +0.20, 30d +0.40)
+  // Weight allocation: history 60%, recovery 40%
+  const STABILITY_WEIGHT = 0.60;
+  const RECOVERY_WEIGHT = 0.40;
+
+  // Step 1: Calculate recovery factor from stability milestones (7d +0.10, 14d +0.20, 30d +0.40)
   const recoveryFactor = calculateRecoveryFactor(metrics.consecutiveStableDays);
 
-  // Step 2: Compute raw bidirectional score
-  // C_raw = base × drift × decay × approval_factor × (1.0 + recovery_factor)
+  // Step 2: Calculate approval multiplier
   const approvalMultiplier = getApprovalMultiplier(components.approvalState);
-  const rawBidirectionalScore =
-    components.baseConfidence *
-    components.driftPenalty *
-    components.temporalDecay *
-    approvalMultiplier *
-    (1.0 + recoveryFactor);
 
-  // Step 3: Apply governance cap based on approval state
-  // Prevents unreviewed decisions from ever reaching high confidence
+  // Step 3: Compute weighted additive blend (the fix)
+  // Trust from historical data: base × approval × stability_weight
+  const trustFromHistory = components.baseConfidence * approvalMultiplier * STABILITY_WEIGHT;
+
+  // Trust from recovery: recovery_factor × recovery_weight
+  const trustFromRecovery = recoveryFactor * RECOVERY_WEIGHT;
+
+  // Combined trust blend (before environmental suppressors)
+  const blendedTrust = trustFromHistory + trustFromRecovery;
+
+  // Step 4: Apply environmental suppressors (drift and temporal decay)
+  // These multiplicative factors reflect active conditions, not punish recovery
+  const rawBidirectionalScore =
+    blendedTrust * components.driftPenalty * components.temporalDecay;
+
+  // Step 5: Apply governance cap based on approval state
   const governanceCap = getGovernanceCap(components.approvalState);
   const effectiveConfidence = Math.min(
     Math.max(rawBidirectionalScore, 0.0),
     governanceCap
   );
 
-  // Step 4: Map to operational trust band
+  // Step 6: Map to operational trust band
   const confidenceBand = getBandFromScore(effectiveConfidence);
 
-  // Step 5: Track which recovery milestones were applied
+  // Step 7: Track which recovery milestones were applied
   const recoveryMilestones = getAppliedMilestones(metrics.consecutiveStableDays);
 
   return {

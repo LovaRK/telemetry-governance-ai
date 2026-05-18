@@ -119,8 +119,11 @@ ORDER BY min_threshold;
 -- ============================================================
 -- 5. BIDIRECTIONAL CONFIDENCE COMPUTATION VIEW
 -- ============================================================
--- Replaces the old unidirectional decay-only formula
--- with recovery-aware calibration
+-- Weighted additive blend model:
+-- C_eff = ((base × approval × 0.6) + (recovery × 0.4)) × drift × decay
+--
+-- Why: Additive blend allows recovery to restore confidence even after strong drift
+-- (Multiplicative formulas trap degraded systems in the basement)
 
 CREATE OR REPLACE VIEW bidirectional_confidence_analysis AS
 SELECT
@@ -133,7 +136,7 @@ SELECT
     b.consecutive_stable_days,
     b.recovery_score,
 
-    -- Recovery multiplier based on stability window
+    -- Recovery factor based on stability window (7d +0.10, 14d +0.20, 30d +0.40)
     CASE
         WHEN b.consecutive_stable_days >= 30 THEN
             CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
@@ -142,21 +145,50 @@ SELECT
         ELSE 0.00
     END AS calculated_recovery_factor,
 
-    -- Raw bidirectional score (decay × recovery)
+    -- Approval multiplier
+    CASE WHEN r.review_action = 'APPROVED' THEN 1.00
+         WHEN r.review_action = 'REJECTED' THEN 0.0
+         ELSE 0.5
+    END AS approval_multiplier,
+
+    -- Weighted additive blend: ((base × approval × 0.6) + (recovery × 0.4))
     ROUND(
-        e.confidence_score *
-        d.confidence_penalty_applied *
-        CASE WHEN r.review_action = 'APPROVED' THEN 1.00
-             WHEN r.review_action = 'REJECTED' THEN 0.0
-             ELSE 0.5
-        END *
-        (1.0 + CASE
-            WHEN b.consecutive_stable_days >= 30 THEN
-                CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
-            WHEN b.consecutive_stable_days >= 14 THEN 0.20
-            WHEN b.consecutive_stable_days >= 7 THEN 0.10
-            ELSE 0.00
-        END),
+        (
+            (e.confidence_score *
+             CASE WHEN r.review_action = 'APPROVED' THEN 1.00
+                  WHEN r.review_action = 'REJECTED' THEN 0.0
+                  ELSE 0.5
+             END *
+             0.6) +
+            (CASE
+                WHEN b.consecutive_stable_days >= 30 THEN
+                    CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
+                WHEN b.consecutive_stable_days >= 14 THEN 0.20
+                WHEN b.consecutive_stable_days >= 7 THEN 0.10
+                ELSE 0.00
+            END * 0.4)
+        ),
+        2
+    ) AS blended_trust,
+
+    -- Raw bidirectional score: blended_trust × drift × decay
+    ROUND(
+        (
+            (e.confidence_score *
+             CASE WHEN r.review_action = 'APPROVED' THEN 1.00
+                  WHEN r.review_action = 'REJECTED' THEN 0.0
+                  ELSE 0.5
+             END *
+             0.6) +
+            (CASE
+                WHEN b.consecutive_stable_days >= 30 THEN
+                    CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
+                WHEN b.consecutive_stable_days >= 14 THEN 0.20
+                WHEN b.consecutive_stable_days >= 7 THEN 0.10
+                ELSE 0.00
+            END * 0.4)
+        ) *
+        d.confidence_penalty_applied,
         2
     ) AS raw_bidirectional_score,
 
@@ -164,26 +196,29 @@ SELECT
     CASE WHEN r.review_action = 'APPROVED' THEN 0.95
          WHEN r.review_action = 'CONDITIONAL' THEN 0.75
          WHEN r.review_action = 'REJECTED' THEN 0.00
-         ELSE 0.50  -- PROPOSED/unreviewed cap
+         ELSE 0.50
     END AS governance_cap,
 
     -- Final capped score
     ROUND(
         LEAST(
             GREATEST(
-                e.confidence_score *
-                d.confidence_penalty_applied *
-                CASE WHEN r.review_action = 'APPROVED' THEN 1.00
-                     WHEN r.review_action = 'REJECTED' THEN 0.0
-                     ELSE 0.5
-                END *
-                (1.0 + CASE
-                    WHEN b.consecutive_stable_days >= 30 THEN
-                        CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
-                    WHEN b.consecutive_stable_days >= 14 THEN 0.20
-                    WHEN b.consecutive_stable_days >= 7 THEN 0.10
-                    ELSE 0.00
-                END),
+                (
+                    (e.confidence_score *
+                     CASE WHEN r.review_action = 'APPROVED' THEN 1.00
+                          WHEN r.review_action = 'REJECTED' THEN 0.0
+                          ELSE 0.5
+                     END *
+                     0.6) +
+                    (CASE
+                        WHEN b.consecutive_stable_days >= 30 THEN
+                            CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
+                        WHEN b.consecutive_stable_days >= 14 THEN 0.20
+                        WHEN b.consecutive_stable_days >= 7 THEN 0.10
+                        ELSE 0.00
+                    END * 0.4)
+                ) *
+                d.confidence_penalty_applied,
                 0.00
             ),
             CASE WHEN r.review_action = 'APPROVED' THEN 0.95
@@ -200,19 +235,22 @@ SELECT
         WHEN ROUND(
             LEAST(
                 GREATEST(
-                    e.confidence_score *
-                    d.confidence_penalty_applied *
-                    CASE WHEN r.review_action = 'APPROVED' THEN 1.00
-                         WHEN r.review_action = 'REJECTED' THEN 0.0
-                         ELSE 0.5
-                    END *
-                    (1.0 + CASE
-                        WHEN b.consecutive_stable_days >= 30 THEN
-                            CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
-                        WHEN b.consecutive_stable_days >= 14 THEN 0.20
-                        WHEN b.consecutive_stable_days >= 7 THEN 0.10
-                        ELSE 0.00
-                    END),
+                    (
+                        (e.confidence_score *
+                         CASE WHEN r.review_action = 'APPROVED' THEN 1.00
+                              WHEN r.review_action = 'REJECTED' THEN 0.0
+                              ELSE 0.5
+                         END *
+                         0.6) +
+                        (CASE
+                            WHEN b.consecutive_stable_days >= 30 THEN
+                                CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
+                            WHEN b.consecutive_stable_days >= 14 THEN 0.20
+                            WHEN b.consecutive_stable_days >= 7 THEN 0.10
+                            ELSE 0.00
+                        END * 0.4)
+                    ) *
+                    d.confidence_penalty_applied,
                     0.00
                 ),
                 CASE WHEN r.review_action = 'APPROVED' THEN 0.95
@@ -226,19 +264,22 @@ SELECT
         WHEN ROUND(
             LEAST(
                 GREATEST(
-                    e.confidence_score *
-                    d.confidence_penalty_applied *
-                    CASE WHEN r.review_action = 'APPROVED' THEN 1.00
-                         WHEN r.review_action = 'REJECTED' THEN 0.0
-                         ELSE 0.5
-                    END *
-                    (1.0 + CASE
-                        WHEN b.consecutive_stable_days >= 30 THEN
-                            CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
-                        WHEN b.consecutive_stable_days >= 14 THEN 0.20
-                        WHEN b.consecutive_stable_days >= 7 THEN 0.10
-                        ELSE 0.00
-                    END),
+                    (
+                        (e.confidence_score *
+                         CASE WHEN r.review_action = 'APPROVED' THEN 1.00
+                              WHEN r.review_action = 'REJECTED' THEN 0.0
+                              ELSE 0.5
+                         END *
+                         0.6) +
+                        (CASE
+                            WHEN b.consecutive_stable_days >= 30 THEN
+                                CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
+                            WHEN b.consecutive_stable_days >= 14 THEN 0.20
+                            WHEN b.consecutive_stable_days >= 7 THEN 0.10
+                            ELSE 0.00
+                        END * 0.4)
+                    ) *
+                    d.confidence_penalty_applied,
                     0.00
                 ),
                 CASE WHEN r.review_action = 'APPROVED' THEN 0.95
@@ -252,19 +293,22 @@ SELECT
         WHEN ROUND(
             LEAST(
                 GREATEST(
-                    e.confidence_score *
-                    d.confidence_penalty_applied *
-                    CASE WHEN r.review_action = 'APPROVED' THEN 1.00
-                         WHEN r.review_action = 'REJECTED' THEN 0.0
-                         ELSE 0.5
-                    END *
-                    (1.0 + CASE
-                        WHEN b.consecutive_stable_days >= 30 THEN
-                            CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
-                        WHEN b.consecutive_stable_days >= 14 THEN 0.20
-                        WHEN b.consecutive_stable_days >= 7 THEN 0.10
-                        ELSE 0.00
-                    END),
+                    (
+                        (e.confidence_score *
+                         CASE WHEN r.review_action = 'APPROVED' THEN 1.00
+                              WHEN r.review_action = 'REJECTED' THEN 0.0
+                              ELSE 0.5
+                         END *
+                         0.6) +
+                        (CASE
+                            WHEN b.consecutive_stable_days >= 30 THEN
+                                CASE WHEN r.review_action = 'APPROVED' THEN 0.60 ELSE 0.40 END
+                            WHEN b.consecutive_stable_days >= 14 THEN 0.20
+                            WHEN b.consecutive_stable_days >= 7 THEN 0.10
+                            ELSE 0.00
+                        END * 0.4)
+                    ) *
+                    d.confidence_penalty_applied,
                     0.00
                 ),
                 CASE WHEN r.review_action = 'APPROVED' THEN 0.95
