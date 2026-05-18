@@ -14,6 +14,7 @@ export interface ReasoningDrawerProps {
   confidence?: number;                 // 0-100 for display
   tier?: string;                       // CRITICAL, IMPORTANT, etc.
   action?: string;                     // KEEP, OPTIMIZE, ARCHIVE, etc.
+  candidateReason?: string[];          // Why this was selected for LLM processing
   rawData?: Record<string, unknown>;   // Raw numbers LLM saw
 }
 
@@ -29,6 +30,7 @@ export default function ReasoningDrawer({
   confidence,
   tier,
   action,
+  candidateReason = [],
   rawData,
 }: ReasoningDrawerProps) {
   // Close on Escape key
@@ -221,6 +223,36 @@ export default function ReasoningDrawer({
                 <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#cbd5e1', minWidth: '3rem' }}>
                   {Math.round(confidence)}%
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Candidate Selection Reasons */}
+          {candidateReason.length > 0 && (
+            <div style={{ marginBottom: '2rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Why This Was Selected
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {candidateReason.map((reason, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      borderRadius: 6,
+                      fontSize: '0.8rem',
+                      color: '#cbd5e1',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                    }}
+                  >
+                    <span style={{ color: '#3b82f6', fontWeight: 600 }}>✓</span>
+                    {reason.replace(/_/g, ' ')}
+                  </div>
+                ))}
               </div>
             </div>
           )}

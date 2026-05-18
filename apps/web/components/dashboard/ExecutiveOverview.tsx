@@ -156,6 +156,7 @@ interface DrawerState {
   confidence?: number;
   tier?: string;
   action?: string;
+  candidateReason?: string[];
   rawData?: Record<string, unknown>;
 }
 
@@ -959,6 +960,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         confidence={drawer.confidence}
         tier={drawer.tier}
         action={drawer.action}
+        candidateReason={drawer.candidateReason}
         rawData={drawer.rawData}
       />
     </div>
