@@ -737,18 +737,35 @@ export async function runFastAggregation(
 
   // Smart candidate filter: only send high-cost/low-use/stale items to LLM
   const now = new Date();
-  const candidates = allInputs.filter((inp) => {
+  const candidatesWithReasons = allInputs.map((inp) => {
     const daysSinceLast = inp.lastEvent
       ? (now.getTime() - new Date(inp.lastEvent).getTime()) / 86400000
       : 999;
-    return (
-      inp.dailyAvgGb > 1 ||
-      inp.retentionDays > 365 ||
-      daysSinceLast > 30
-    );
-  }).slice(0, MAX_INDEXES);
+    const reasons: string[] = [];
+
+    if (inp.dailyAvgGb > 1) reasons.push('HIGH_VOLUME_LOW_USAGE');
+    if (inp.retentionDays > 365) reasons.push('LONG_RETENTION');
+    if (daysSinceLast > 30) reasons.push('STALE_INDEX');
+
+    return { input: inp, reasons, selected: reasons.length > 0 };
+  });
+
+  const candidates = candidatesWithReasons
+    .filter(c => c.selected)
+    .slice(0, MAX_INDEXES)
+    .map(c => c.input);
+
+  const candidateReasons = candidatesWithReasons
+    .filter(c => c.selected)
+    .slice(0, MAX_INDEXES)
+    .map(c => ({
+      index: c.input.index,
+      sourcetype: c.input.sourcetype,
+      reasons: c.reasons,
+    }));
 
   console.log(`[FastAgg] ${allInputs.length} total inputs → ${candidates.length} candidates for LLM`);
+  console.log(`[FastAgg] Filtering reasons:`, candidateReasons.slice(0, 3).map(c => `${c.index}: ${c.reasons.join(', ')}`));
 
   // ── 4. Enqueue LLM job ──────────────────────────────────────────────────
   const jobId = await enqueueJob({
@@ -756,6 +773,7 @@ export async function runFastAggregation(
     snapshotId,
     payload: {
       inputs: candidates.length > 0 ? candidates : allInputs.slice(0, MAX_INDEXES),
+      candidateReasons: candidates.length > 0 ? candidateReasons : [],
       config: { lookbackDays: config.lookbackDays, costPerGbPerDay },
       checkpoint: 0,
       snapshotId,

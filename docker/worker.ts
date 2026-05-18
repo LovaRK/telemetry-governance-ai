@@ -22,14 +22,24 @@ async function sleep(ms: number) {
 }
 
 async function processJob(job: any): Promise<void> {
-  const { inputs, config, checkpoint = 0 } = job.payload as {
+  const { inputs, candidateReasons, config, checkpoint = 0 } = job.payload as {
     inputs: RawTelemetryInput[];
+    candidateReasons?: Array<{ index: string; sourcetype?: string; reasons: string[] }>;
     config: any;
     checkpoint: number;
   };
 
   const today = new Date().toISOString().split('T')[0];
   const snapshotId = job.snapshotId || job.payload.snapshotId;
+
+  // Map candidate reasons for quick lookup
+  const reasonsMap = new Map<string, string[]>();
+  if (candidateReasons) {
+    for (const cr of candidateReasons) {
+      const key = cr.sourcetype ? `${cr.index}:${cr.sourcetype}` : cr.index;
+      reasonsMap.set(key, cr.reasons);
+    }
+  }
 
   console.log(`[Worker] Processing job ${job.jobId}: ${inputs.length} inputs, resuming from checkpoint ${checkpoint}`);
 
@@ -54,7 +64,9 @@ async function processJob(job: any): Promise<void> {
       // Write decisions incrementally (partial results appear in dashboard)
       await transaction(async (client) => {
         for (const decision of decisions) {
-          await writeDecisionToDb(client, decision, snapshotId, today);
+          const reasonKey = decision.sourcetype ? `${decision.index}:${decision.sourcetype}` : decision.index;
+          const candidateReason = reasonsMap.get(reasonKey) || [];
+          await writeDecisionToDb(client, decision, snapshotId, today, candidateReason);
         }
       });
 
@@ -98,7 +110,7 @@ async function processJob(job: any): Promise<void> {
   console.log(`[Worker] Job ${job.jobId} complete — ${totalDecisions} decisions written`);
 }
 
-async function writeDecisionToDb(client: any, decision: any, snapshotId: string, today: string) {
+async function writeDecisionToDb(client: any, decision: any, snapshotId: string, today: string, candidateReason: string[] = []) {
   const confidenceMap: Record<string, number> = { 'HIGH': 0.9, 'MEDIUM': 0.5, 'LOW': 0.3 };
   const classificationMap: Record<string, string> = {
     KEEP: 'KEEP', OPTIMIZE: 'OPTIMIZE', ARCHIVE: 'ARCHIVE',
@@ -149,8 +161,8 @@ async function writeDecisionToDb(client: any, decision: any, snapshotId: string,
       tier, action, composite_score, utilization_score, detection_score,
       quality_score, risk_score, annual_license_cost, estimated_savings,
       confidence, confidence_score, recommendation, reasoning, evidence,
-      is_quick_win, is_s3_candidate, detection_gap
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+      is_quick_win, is_s3_candidate, detection_gap, candidate_reason
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
   `, [
     snapshotId, today, decision.index, decision.sourcetype || null,
     decision.tier, decision.action,
@@ -169,6 +181,7 @@ async function writeDecisionToDb(client: any, decision: any, snapshotId: string,
     Boolean(decision.isQuickWin),
     Boolean(decision.isS3Candidate),
     Boolean(decision.detectionGap),
+    JSON.stringify(candidateReason),
   ]);
 }
 

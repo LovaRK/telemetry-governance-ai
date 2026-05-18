@@ -187,6 +187,7 @@ export async function GET() {
         savings: d.estimated_savings,
         reasoning: d.reasoning,
         evidence: d.evidence,
+        candidateReason: d.candidate_reason || [],
       })),
       savingsStaircase: staircase,
       quickWins,

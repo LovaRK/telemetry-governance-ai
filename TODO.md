@@ -223,6 +223,7 @@
 - **Database:** Schema complete, 7 tables populated with real data
 - **Async Jobs:** Queue-based processing with SSE streaming
 - **Web-Only Mode:** Works without database (for development)
+- **Candidate Reason Tracking:** Migration and API endpoints updated to track why indexes were selected for LLM processing
 
 ### ⚠️ Known Limitations
 - quality_hotspots: Requires indexes with quality_score < 50

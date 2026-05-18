@@ -13,6 +13,31 @@ export interface TimelineEvent {
   duration_ms: number;
 }
 
+export interface AgentDecision {
+  snapshotId: string;
+  snapshotDate: string;
+  index: string;
+  sourcetype: string | null;
+  tier: string;
+  action: string;
+  compositeScore: number;
+  utilizationScore: number;
+  detectionScore: number;
+  qualityScore: number;
+  riskScore: number;
+  annualLicenseCost: number;
+  estimatedSavings: number;
+  confidence: number;
+  confidenceScore: number;
+  recommendation: string;
+  reasoning: string;
+  evidence: any[];
+  isQuickWin: boolean;
+  isS3Candidate: boolean;
+  detectionGap: boolean;
+  candidateReason: string[];
+}
+
 export interface SnapshotRow {
   indexName: string;
   sourcetype: string | null;
@@ -39,6 +64,7 @@ export interface SnapshotRow {
   isS3Candidate: boolean;
   detectionGap: boolean;
   snapshotId: string;
+  candidateReason?: string[];
 }
 
 export interface TierCounts {
