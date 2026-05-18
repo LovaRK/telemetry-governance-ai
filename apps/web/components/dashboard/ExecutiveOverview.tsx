@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { ExecutiveSummary } from '../../lib/types';
 import ReasoningDrawer from '../shared/ReasoningDrawer';
+import KPITrendChart from '../KPITrendChart';
 
 function fmt$(v: number): string {
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
@@ -463,6 +464,30 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             })}>
               <MiniGauge value={Math.round(kpis.avgConfidence * 100)} max={100} label="Confidence" color="#22c55e" />
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Trend Charts — Historical KPI Tracking (7-day view) */}
+      <div style={{ marginTop: '2rem' }}>
+        <div style={{ marginBottom: '1rem' }}>
+          <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f8fafc', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            📈 7-Day Trends
+          </h2>
+          <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '0.25rem 0 0 0' }}>Track how key metrics are changing over time</p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+          <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
+            <KPITrendChart metric="roi" days={7} height={250} title="ROI Score Trend" />
+          </div>
+          <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
+            <KPITrendChart metric="gainscope" days={7} height={250} title="GainScope Score Trend" />
+          </div>
+          <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
+            <KPITrendChart metric="savings" days={7} height={250} title="Storage Savings Potential Trend" />
+          </div>
+          <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
+            <KPITrendChart metric="ingest" days={7} height={250} title="Daily Ingest Trend" />
           </div>
         </div>
       </div>
