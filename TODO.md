@@ -174,28 +174,37 @@
 
 ---
 
-## 🔄 Phase 3: Secondary Tables & Advanced Visualizations (in progress)
+## 🔄 Phase 3: Data Flow Verification & Production Testing (in progress)
 
-### Build Stabilization (May 16, 2026) — COMPLETE
-- [x] Stub unavailable API routes (bulk-actions, decision-history) for web-only build
-- [x] Stub splunk-queries-service to return empty data (secondary tables not available in web-only build)
-- [x] Fix Sankey SVG rect borderRadius → rx/ry conversion
-- [x] Export ReasoningDrawerProps interface from ReasoningDrawer component
-- [x] Fix LLMDecision type mismatch (confidence field should remain string enum, not convert to number)
-- [x] Add missing SectionExplainer `title` props across all components
-- [x] Wire onOpenDrawer callbacks to detail page table components
-- [x] Verify production build succeeds
-- [x] Verify dev server starts and serves HTML
+### Build Stabilization (May 17, 2026) — COMPLETE  
+- [x] Web-only DEMO_MODE: APIs return 503 with mode indicator when database unavailable
+- [x] Middleware no longer requires DATABASE_URL/LLM_MODEL as hard errors
+- [x] APIs gracefully degrade when dependencies missing
+- [x] All 17 API routes compile and run correctly
+- [x] page.tsx JSX syntax fixed (return wrapped in fragment)
 
-### Secondary Table Population
+### Data Flow End-to-End Testing (May 17, 2026) — IN PROGRESS
+- [ ] Start PostgreSQL and Ollama services
+- [ ] Verify database schema (migrations complete)
+- [ ] Test Splunk connection with real credentials (https://144.202.48.85:8089)
+- [ ] Trigger /api/cache POST with Splunk URL + token
+- [ ] Verify Splunk → Aggregation pipeline works
+- [ ] Verify LLM processing completes
+- [ ] Check agent_decisions table has real data
+- [ ] Verify /api/executive-summary returns FULL_STACK mode with data
+- [ ] Verify /api/agent-decisions returns real decisions
+- [ ] Test dashboard end-to-end: connection → refresh → data displayed
+
+### Secondary Table Population (WEEK 2)
 - [ ] field_usage: Splunk tstats query for indexed vs used fields per sourcetype
 - [ ] security_coverage: Map sourcetype to MITRE techniques
 - [ ] quality_hotspots: Splunk parse error % per sourcetype
+- [ ] search_audit: Orphaned/unused saved searches
 
-### Advanced Visualizations
+### Advanced Visualizations (WEEK 3)
 - [ ] Line/trend charts (historical KPI trends)
 - [ ] Heat maps (activity patterns)
-- [ ] Sankey diagram (data flow and decisions) — component created, needs wiring
+- [ ] Sankey diagram (data flow and decisions)
 
 ---
 
