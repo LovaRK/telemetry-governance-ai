@@ -38,6 +38,12 @@ interface Decision {
   reviewedAt?: string;
   appliedAt?: string;
   dismissalReason?: string;
+  factId?: string;
+  calibrationVector?: number;
+  calibratedConfidence?: number;
+  reviewStatus?: string;
+  isCapped?: boolean;
+  processingTier?: 'TIER_A' | 'TIER_B';
 }
 
 export function DecisionReviewQueue() {
@@ -74,7 +80,7 @@ export function DecisionReviewQueue() {
     }
   };
 
-  const handleApprove = async (id: string) => {
+  const handleApprove = async (id: string, factId?: string) => {
     try {
       setProcessingId(id);
       const res = await fetch(`/api/decision-lineage/${id}`, {
@@ -82,7 +88,8 @@ export function DecisionReviewQueue() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'approve',
-          reviewedBy: userName
+          reviewedBy: userName,
+          factId: factId || id
         })
       });
 
@@ -97,7 +104,7 @@ export function DecisionReviewQueue() {
     }
   };
 
-  const handleReject = async (id: string, reason: string) => {
+  const handleReject = async (id: string, reason: string, factId?: string) => {
     try {
       setProcessingId(id);
       const res = await fetch(`/api/decision-lineage/${id}`, {
@@ -106,7 +113,8 @@ export function DecisionReviewQueue() {
         body: JSON.stringify({
           action: 'reject',
           reviewedBy: userName,
-          dismissalReason: reason
+          dismissalReason: reason,
+          factId: factId || id
         })
       });
 
@@ -307,10 +315,44 @@ export function DecisionReviewQueue() {
                   </div>
                 )}
 
+                {/* Human Calibration Status */}
+                <div style={{ marginBottom: '16px', backgroundColor: '#f5f5f5', padding: '12px', borderRadius: '4px', border: '1px solid #e0e0e0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <h4 style={{ margin: 0, color: '#333', fontSize: '14px' }}>
+                      ⚖️ Human Calibration
+                    </h4>
+                    <span style={{
+                      fontSize: '11px',
+                      backgroundColor: decision.processingTier === 'TIER_A' ? '#4caf50' : '#ff9800',
+                      color: 'white',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontWeight: '500'
+                    }}>
+                      {decision.processingTier || 'TIER_A'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#666' }}>
+                    <div style={{ marginBottom: '8px' }}>
+                      <strong>Review Status:</strong> {decision.reviewStatus || 'UNREVIEWED'}
+                    </div>
+                    <div style={{ marginBottom: '8px' }}>
+                      <strong>Calibration Vector (H):</strong> {decision.calibrationVector?.toFixed(2) || '0.50'}
+                    </div>
+                    <div style={{ marginBottom: '8px' }}>
+                      <strong>Raw Stability:</strong> {decision.cognitiveSignals?.confidence_score?.toFixed(2) || '0.00'}
+                    </div>
+                    <div style={{ marginBottom: '8px' }}>
+                      <strong>Calibrated Confidence:</strong> {decision.calibratedConfidence?.toFixed(2) || '0.00'}
+                      {decision.isCapped && <span style={{ marginLeft: '8px', color: '#ff6f00' }}>⚠️ Capped at 50%</span>}
+                    </div>
+                  </div>
+                </div>
+
                 {/* Action Buttons */}
                 <div style={{ display: 'flex', gap: '12px', marginTop: '20px', borderTop: '1px solid #e0e0e0', paddingTop: '16px' }}>
                   <button
-                    onClick={() => handleApprove(decision.id)}
+                    onClick={() => handleApprove(decision.id, decision.factId)}
                     disabled={processingId === decision.id}
                     style={{
                       flex: 1,
@@ -324,12 +366,12 @@ export function DecisionReviewQueue() {
                       fontWeight: '500'
                     }}
                   >
-                    {processingId === decision.id ? 'Processing...' : '✓ Approve & Apply'}
+                    {processingId === decision.id ? 'Processing...' : '✓ Approve & Calibrate'}
                   </button>
                   <button
                     onClick={() => {
                       const reason = prompt('Rejection reason:');
-                      if (reason) handleReject(decision.id, reason);
+                      if (reason) handleReject(decision.id, reason, decision.factId);
                     }}
                     disabled={processingId === decision.id}
                     style={{
@@ -344,7 +386,7 @@ export function DecisionReviewQueue() {
                       fontWeight: '500'
                     }}
                   >
-                    {processingId === decision.id ? 'Processing...' : '✗ Reject'}
+                    {processingId === decision.id ? 'Processing...' : '✗ Reject & Blacklist'}
                   </button>
                 </div>
               </div>

@@ -369,22 +369,80 @@
 
 ---
 
-### ✅ Week 4: Full Integration & Metrics (PENDING)
+### 🔄 Week 4: Human-Calibrated Stability & Immutable Ledger (IN PROGRESS — May 18, 2026)
 
-**Objective:** Complete queue_health_metrics collection + stability calibration
+**Objective:** Complete immutable ledger + human calibration formula + confidence capping
 
-- [ ] Connect all metrics collection points:
-  - [ ] decision_flip_rate (from decision history comparison)
-  - [ ] unstable_decisions count (decisions with flip_rate > 0.3)
-  - [ ] worker stats: avg_inference_latency_ms, worker_memory_peak_mb, worker_count_active
-- [ ] Implement confidence calibration:
-  - [ ] confidence_score = (llm_confidence × stability_score × completeness_factor) clamped to [0,1]
-  - [ ] Separate UI labels: "AI-Recommended" vs "High-Confidence" vs "Review-Required"
-- [ ] Build queue health dashboard:
-  - [ ] Reuse effectiveness trend
-  - [ ] Decision stability histogram
-  - [ ] Inference latency p95/p99
-  - [ ] Cost-per-decision tracking
+#### Phase 1: Human-Calibrated Stability Formula (COMPLETE — May 18, 2026)
+- [x] Create stability-calibration-service.ts:
+  - [x] computeCalibratedConfidence(): applies H vector (0.5/1.0/0.0) to raw confidence
+  - [x] updateReviewCalibration(): persists human review decision with calibration vector
+  - [x] shouldReanalyze(): triggers Tier B re-analysis for blacklisted fingerprints
+  - [x] isBlacklistedFingerprint(): checks rejection ledger
+  - [x] explainCalibration(): human-readable explanation with capping/blacklist info
+- [x] Update decision-lineage-service.ts:
+  - [x] Add interfaces: CalibratedConfidenceResult, DecisionWithCalibration
+  - [x] Implement updateDecisionWithCalibration() for approval/rejection with calibration
+  - [x] Add getPendingReviewDecisionsWithCalibration() for dashboard queue
+  - [x] Track: reviewStatus, calibrationVector, calibratedConfidence, isCapped, processingTier
+- [x] Update [id]/route.ts API endpoint:
+  - [x] Accept factId in request body for calibration tracking
+  - [x] Call updateDecisionWithCalibration instead of updateDecisionStatus
+  - [x] Return calibration timestamp in response
+- [x] Update DecisionReviewQueue UI component:
+  - [x] Display Human Calibration panel with H vector and tier badge
+  - [x] Show isCapped warning when confidence exceeds 50% without approval
+  - [x] Pass factId to approve/reject handlers
+  - [x] Update button labels: "Approve & Calibrate" / "Reject & Blacklist"
+
+**Formula Implementation:**
+- Unreviewed: H = 0.5 (confidence capped at max 50%)
+- Approved: H = 1.0 (confidence scaling unlocked)
+- Rejected: H = 0.0 (fingerprint blacklisted, forces Tier B re-analysis)
+
+#### Phase 2: Immutable Ledger Schema (COMPLETE)
+- [x] Migration 015_immutable_ledger.sql:
+  - [x] telemetry_facts: Immutable deterministic facts from Splunk
+    - [x] daily_avg_gb, utilization_pct, retention_days, search_count_30d (NOT NULL)
+    - [x] Computed columns (GENERATED ALWAYS AS STORED): daily_waste_gb, monthly_waste_gb, monthly_waste_usd, annual_waste_usd
+  - [x] cognitive_enrichments: Pure AI interpretation layer
+    - [x] ai_model_name, ai_model_version, prompt_hash, fingerprint_version
+    - [x] confidence_score, risk_category, strategic_rationale, remediation_suggestion
+  - [x] human_review_ledger: Breaks stable hallucination loop
+    - [x] review_status: UNREVIEWED, APPROVED, REJECTED
+    - [x] calibration_vector: 0.5, 1.0, 0.0
+  - [x] governance_lineage: Provenance tracking
+    - [x] source_system, source_timestamp, computed_by, computation_hash
+    - [x] reused_from_fact_id for inheritance tracking
+  - [x] Comprehensive indexes for query optimization
+
+#### Phase 3: UI Provenance Labels (PENDING)
+- [ ] Add provenance labels to dashboard:
+  - [ ] [✓ FACT] for deterministic signals from telemetry_facts
+  - [ ] [AI INFERENCE] for cognitive_enrichments
+  - [ ] [HUMAN APPROVED] when calibration_vector = 1.0
+  - [ ] [REUSED BASELINE] when reused_from_fact_id is set
+- [ ] Update MetricCard component to show signal source
+- [ ] Color-code signals by source (green=fact, blue=AI, orange=human, gray=reused)
+- [ ] Show fingerprint version and stability score on detail view
+
+#### Phase 4: Stress Testing Vectors (PENDING)
+- [ ] Test 1: Cold-start ingestion shock
+  - [ ] Load 1000+ indexes into test environment
+  - [ ] Verify fingerprinting doesn't churn (reuse_ratio > 90%)
+  - [ ] Check calibration vectors applied correctly
+- [ ] Test 2: Fingerprint drift simulation
+  - [ ] Increment fingerprint_version mid-run
+  - [ ] Verify old decisions marked for re-analysis
+  - [ ] Confirm no false positives in blacklist
+- [ ] Test 3: Worker failure recovery
+  - [ ] Kill worker with `kill -9` during decision batch
+  - [ ] Verify partially processed batch recovers correctly
+  - [ ] Confirm queue doesn't deadlock
+- [ ] Test 4: Schema migration resilience
+  - [ ] Run migration 015 on populated decision_lineage table
+  - [ ] Verify data migration to new ledger structure
+  - [ ] Confirm backward compatibility for old API calls
 
 ---
 

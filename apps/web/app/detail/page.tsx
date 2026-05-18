@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import TopAppBar from '../../components/layout/TopAppBar';
 import DecisionTimeline from '../../components/DecisionTimeline';
 import ReasoningDrawer, { ReasoningDrawerProps } from '../../components/shared/ReasoningDrawer';
+import BulkActionsPanel from '../../components/BulkActionsPanel';
 import { ExecutiveKPIs, SnapshotRow } from '../../lib/types';
 
 type DrawerData = Omit<ReasoningDrawerProps, 'isOpen' | 'onClose'>;
@@ -17,52 +18,55 @@ export default function DetailPage() {
   const [hasEverRefreshed, setHasEverRefreshed] = useState(false);
   const [hasAgentDecisions, setHasAgentDecisions] = useState(false);
   const [drawer, setDrawer] = useState<DrawerData | null>(null);
+  const [selectedIndexes, setSelectedIndexes] = useState<Set<string>>(new Set());
+  const [showBulkActions, setShowBulkActions] = useState(false);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const statusRes = await fetch('/api/cache-status');
+      const statusData = await statusRes.json();
+      const everRefreshed = statusData.hasEverRefreshed ?? false;
+      setHasEverRefreshed(everRefreshed);
+      setHasAgentDecisions(statusData.hasAgentDecisions ?? false);
+
+      if (!everRefreshed) {
+        setError('No Splunk refresh has run yet. Connect to Splunk from the main dashboard and run a refresh.');
+        setLoading(false);
+        return;
+      }
+
+      const safeJson = (r: Response) => r.ok ? r.json() : Promise.resolve({ data: [] });
+      const [summaryRes, decisions, fields, security, quality, audit] = await Promise.all([
+        fetch('/api/executive-summary'),
+        fetch('/api/agent-decisions').then(safeJson),
+        fetch('/api/field-usage').then(safeJson),
+        fetch('/api/security-coverage').then(safeJson),
+        fetch('/api/quality-hotspots').then(safeJson),
+        fetch('/api/search-audit').then(safeJson),
+      ]);
+
+      if (summaryRes.ok) {
+        const summary = await summaryRes.json();
+        setKpis(summary.kpis || null);
+        setSnapshots(summary.snapshots || []);
+      }
+
+      setData({
+        decisions: decisions?.data || [],
+        fields: fields?.data || [],
+        security: security?.data || [],
+        quality: quality?.data || [],
+        audit: audit?.data || [],
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const statusRes = await fetch('/api/cache-status');
-        const statusData = await statusRes.json();
-        const everRefreshed = statusData.hasEverRefreshed ?? false;
-        setHasEverRefreshed(everRefreshed);
-        setHasAgentDecisions(statusData.hasAgentDecisions ?? false);
-
-        if (!everRefreshed) {
-          setError('No Splunk refresh has run yet. Connect to Splunk from the main dashboard and run a refresh.');
-          setLoading(false);
-          return;
-        }
-
-        const safeJson = (r: Response) => r.ok ? r.json() : Promise.resolve({ data: [] });
-        const [summaryRes, decisions, fields, security, quality, audit] = await Promise.all([
-          fetch('/api/executive-summary'),
-          fetch('/api/agent-decisions').then(safeJson),
-          fetch('/api/field-usage').then(safeJson),
-          fetch('/api/security-coverage').then(safeJson),
-          fetch('/api/quality-hotspots').then(safeJson),
-          fetch('/api/search-audit').then(safeJson),
-        ]);
-
-        if (summaryRes.ok) {
-          const summary = await summaryRes.json();
-          setKpis(summary.kpis || null);
-          setSnapshots(summary.snapshots || []);
-        }
-
-        setData({
-          decisions: decisions?.data || [],
-          fields: fields?.data || [],
-          security: security?.data || [],
-          quality: quality?.data || [],
-          audit: audit?.data || [],
-        });
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load data');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadData();
   }, []);
 
@@ -123,11 +127,49 @@ export default function DetailPage() {
                     ? <PipelineGate label="LLM decisions not yet generated — run a Splunk refresh to populate this table." />
                     : data.decisions.length === 0
                       ? <EmptyTable label="No decisions found" />
-                      : <Table
-                          columns={['Index', 'Sourcetype', 'Tier', 'Score', 'Utilization', 'Detection', 'Quality', 'Cost/Year', 'Action']}
-                          rows={data.decisions.slice(0, 20)}
-                          rowKeys={['index_name', 'sourcetype', 'tier', 'composite_score', 'utilization_score', 'detection_score', 'quality_score', 'annual_license_cost', 'action']}
-                        />
+                      : <>
+                          {selectedIndexes.size > 0 && (
+                            <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                              <button
+                                onClick={() => setShowBulkActions(true)}
+                                style={{
+                                  padding: '0.5rem 1rem',
+                                  background: '#ef4444',
+                                  color: '#f8fafc',
+                                  border: 'none',
+                                  borderRadius: 6,
+                                  fontSize: '0.85rem',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Apply Action to {selectedIndexes.size} Selected
+                              </button>
+                              <button
+                                onClick={() => setSelectedIndexes(new Set())}
+                                style={{
+                                  padding: '0.5rem 1rem',
+                                  background: 'transparent',
+                                  color: '#64748b',
+                                  border: '1px solid #334155',
+                                  borderRadius: 6,
+                                  fontSize: '0.85rem',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Clear Selection
+                              </button>
+                            </div>
+                          )}
+                          <SelectableTable
+                            columns={['Index', 'Sourcetype', 'Tier', 'Score', 'Utilization', 'Detection', 'Quality', 'Cost/Year', 'Action']}
+                            rows={data.decisions.slice(0, 20)}
+                            rowKeys={['index_name', 'sourcetype', 'tier', 'composite_score', 'utilization_score', 'detection_score', 'quality_score', 'annual_license_cost', 'action']}
+                            selectedIndexes={selectedIndexes}
+                            onSelectChange={setSelectedIndexes}
+                            indexKeyField="index_name"
+                          />
+                        </>
                   }
                 </Section>
 
@@ -176,6 +218,40 @@ export default function DetailPage() {
         onClose={() => setDrawer(null)}
         {...(drawer || { title: '' })}
       />
+      {showBulkActions && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            background: '#0f172a',
+            borderRadius: 12,
+            border: '1px solid #1e293b',
+            maxWidth: 500,
+            maxHeight: '80vh',
+            overflow: 'auto',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
+          }}>
+            <BulkActionsPanel
+              selectedIndexes={Array.from(selectedIndexes)}
+              onClose={() => setShowBulkActions(false)}
+              onComplete={() => {
+                setShowBulkActions(false);
+                setSelectedIndexes(new Set());
+                loadData();
+              }}
+            />
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -875,6 +951,98 @@ function Table({ columns, rows, rowKeys }: { columns: string[]; rows: any[]; row
               ))}
             </tr>
           ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SelectableTable({
+  columns,
+  rows,
+  rowKeys,
+  selectedIndexes,
+  onSelectChange,
+  indexKeyField,
+}: {
+  columns: string[];
+  rows: any[];
+  rowKeys: string[];
+  selectedIndexes: Set<string>;
+  onSelectChange: (selected: Set<string>) => void;
+  indexKeyField: string;
+}) {
+  if (!rows || rows.length === 0) {
+    return <div style={{ color: '#64748b', fontSize: '0.875rem' }}>No data</div>;
+  }
+
+  const toggleRow = (indexName: string) => {
+    const newSelected = new Set(selectedIndexes);
+    if (newSelected.has(indexName)) {
+      newSelected.delete(indexName);
+    } else {
+      newSelected.add(indexName);
+    }
+    onSelectChange(newSelected);
+  };
+
+  const toggleAll = () => {
+    if (selectedIndexes.size === rows.length) {
+      onSelectChange(new Set());
+    } else {
+      const allSelected = new Set(rows.map(r => r[indexKeyField]));
+      onSelectChange(allSelected);
+    }
+  };
+
+  return (
+    <div style={{ overflowX: 'auto', marginTop: '1rem' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', color: '#cbd5e1' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid #1e293b' }}>
+            <th style={{ padding: '0.75rem', textAlign: 'center', fontWeight: 600, color: '#94a3b8', width: 40 }}>
+              <input
+                type="checkbox"
+                checked={selectedIndexes.size === rows.length && rows.length > 0}
+                onChange={toggleAll}
+                style={{ cursor: 'pointer' }}
+              />
+            </th>
+            {columns.map((col) => (
+              <th key={col} style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 600, color: '#94a3b8' }}>
+                {col}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => {
+            const indexName = row[indexKeyField];
+            const isSelected = selectedIndexes.has(indexName);
+            return (
+              <tr
+                key={idx}
+                style={{
+                  borderBottom: '1px solid #1e293b',
+                  background: isSelected ? '#1e293b30' : undefined,
+                }}
+              >
+                <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleRow(indexName)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </td>
+                {rowKeys.map((key) => (
+                  <td key={key} style={{ padding: '0.75rem' }}>
+                    {String(row[key] || '—').slice(0, 50)}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

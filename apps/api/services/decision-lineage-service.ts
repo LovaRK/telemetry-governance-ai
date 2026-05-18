@@ -1,6 +1,7 @@
 import { PoolClient } from 'pg';
 import { RawTelemetryInput } from '../agents/llm-decision-agent';
 import { validateDeterministicSignals, validateCognitiveSignals } from './governance-constants';
+import { computeCalibratedConfidence, updateReviewCalibration, isBlacklistedFingerprint } from './stability-calibration-service';
 
 export interface DeterministicSignals {
   daily_avg_gb_change_pct: number;
@@ -40,6 +41,16 @@ export interface DecisionLineageRecord {
   applied_at?: Date;
   dismissal_reason?: string;
   fingerprint_version?: string; // Track fingerprinting schema version to detect drift
+  processingTier?: 'TIER_A' | 'TIER_B'; // Tier A: reuse with calibration, Tier B: full re-analysis
+  calibratedConfidence?: number; // Confidence after human review calibration
+}
+
+export interface DecisionWithCalibration extends DecisionLineageRecord {
+  rawStability: number;
+  calibrationVector: number;
+  reviewStatus: 'UNREVIEWED' | 'APPROVED' | 'REJECTED';
+  isCapped: boolean;
+  isBlacklisted: boolean;
 }
 
 // Compute deterministic signals from input metadata
@@ -165,6 +176,25 @@ export async function updateDecisionStatus(
   );
 }
 
+// Update decision with human calibration (approval/rejection)
+export async function updateDecisionWithCalibration(
+  client: PoolClient,
+  lineageId: string,
+  factId: string,
+  reviewAction: 'APPROVE' | 'REJECT',
+  reviewedBy: string,
+  dismissalReason?: string
+): Promise<void> {
+  const reviewStatus = reviewAction === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+  const decisionStatus = reviewAction === 'APPROVE' ? 'APPLIED' : 'DISMISSED';
+
+  // Update calibration in human_review_ledger
+  await updateReviewCalibration(client, factId, reviewStatus, reviewedBy, dismissalReason);
+
+  // Update decision lineage status
+  await updateDecisionStatus(client, lineageId, decisionStatus as 'APPLIED' | 'DISMISSED', reviewedBy, dismissalReason);
+}
+
 // Get decision status summary for dashboard
 export async function getDecisionStatusSummary(
   client: PoolClient,
@@ -220,6 +250,58 @@ export async function getPendingReviewDecisions(
     applied_at: row.applied_at,
     dismissal_reason: row.dismissal_reason,
   }));
+}
+
+// Get pending decisions with calibration data for review queue
+export async function getPendingReviewDecisionsWithCalibration(
+  client: PoolClient,
+  limit: number = 20
+): Promise<DecisionWithCalibration[]> {
+  const result = await client.query(
+    `SELECT
+       dl.id, dl.snapshot_id, dl.index_name, dl.sourcetype,
+       dl.deterministic_signals, dl.cognitive_signals,
+       dl.decision_status, dl.reviewed_by, dl.reviewed_at,
+       dl.applied_at, dl.dismissal_reason,
+       COALESCE(hrl.review_status, 'UNREVIEWED') as review_status,
+       COALESCE(hrl.calibration_vector, 0.5) as calibration_vector
+     FROM decision_lineage dl
+     LEFT JOIN human_review_ledger hrl ON dl.id = hrl.fact_id
+     WHERE dl.decision_status IN ('PROPOSED', 'REVIEW_QUEUE')
+     ORDER BY dl.created_at DESC
+     LIMIT $1`,
+    [limit]
+  );
+
+  return result.rows.map((row: any) => {
+    const cognitiveSignals = row.cognitive_signals || {};
+    const rawStability = cognitiveSignals.confidence_score || 0;
+    const calibrationVector = row.calibration_vector || 0.5;
+    const reviewStatus = row.review_status || 'UNREVIEWED';
+    const calibratedConfidence = rawStability * calibrationVector;
+    const isCapped = reviewStatus === 'UNREVIEWED' && rawStability > 0.5;
+
+    return {
+      id: row.id,
+      snapshot_id: row.snapshot_id,
+      index_name: row.index_name,
+      sourcetype: row.sourcetype,
+      deterministic_signals: row.deterministic_signals,
+      cognitive_signals: row.cognitive_signals,
+      decision_status: row.decision_status,
+      reviewed_by: row.reviewed_by,
+      reviewed_at: row.reviewed_at,
+      applied_at: row.applied_at,
+      dismissal_reason: row.dismissal_reason,
+      rawStability,
+      calibrationVector,
+      reviewStatus: reviewStatus as 'UNREVIEWED' | 'APPROVED' | 'REJECTED',
+      calibratedConfidence: Math.min(calibratedConfidence, 1.0),
+      isCapped,
+      isBlacklisted: false, // TODO: check fingerprint blacklist
+      processingTier: reviewStatus === 'REJECTED' ? 'TIER_B' : 'TIER_A',
+    };
+  });
 }
 
 // Persist queue health metrics for observability
