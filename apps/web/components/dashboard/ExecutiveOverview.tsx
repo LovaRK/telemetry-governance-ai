@@ -468,26 +468,26 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         </div>
       </div>
 
-      {/* Trend Charts — Historical KPI Tracking (7-day view) */}
+      {/* Trend Charts — Historical KPI Tracking with Period Selection */}
       <div style={{ marginTop: '2rem' }}>
         <div style={{ marginBottom: '1rem' }}>
           <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f8fafc', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            📈 7-Day Trends
+            📈 KPI Trends
           </h2>
-          <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '0.25rem 0 0 0' }}>Track how key metrics are changing over time</p>
+          <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '0.25rem 0 0 0' }}>Track how key metrics are changing over time (select 7, 30, or 90-day periods)</p>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
           <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
-            <KPITrendChart metric="roi" days={7} height={250} title="ROI Score Trend" />
+            <KPITrendChart metric="roi" days={7} height={250} title="ROI Score Trend" showPeriodToggle={true} />
           </div>
           <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
-            <KPITrendChart metric="gainscope" days={7} height={250} title="GainScope Score Trend" />
+            <KPITrendChart metric="gainscope" days={7} height={250} title="GainScope Score Trend" showPeriodToggle={true} />
           </div>
           <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
-            <KPITrendChart metric="savings" days={7} height={250} title="Storage Savings Potential Trend" />
+            <KPITrendChart metric="savings" days={7} height={250} title="Storage Savings Potential Trend" showPeriodToggle={true} />
           </div>
           <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
-            <KPITrendChart metric="ingest" days={7} height={250} title="Daily Ingest Trend" />
+            <KPITrendChart metric="ingest" days={7} height={250} title="Daily Ingest Trend" showPeriodToggle={true} />
           </div>
         </div>
       </div>

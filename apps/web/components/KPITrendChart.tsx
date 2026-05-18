@@ -19,14 +19,17 @@ interface KPITrendChartProps {
   days?: 7 | 30 | 90;
   height?: number;
   title?: string;
+  showPeriodToggle?: boolean;
 }
 
 export default function KPITrendChart({
   metric,
-  days = 7,
+  days: initialDays = 7,
   height = 300,
-  title
+  title,
+  showPeriodToggle = false
 }: KPITrendChartProps) {
+  const [days, setDays] = useState<7 | 30 | 90>(initialDays);
   const [data, setData] = useState<KPIHistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -147,11 +150,50 @@ export default function KPITrendChart({
 
   return (
     <div style={{ width: '100%' }}>
-      {title && (
-        <div style={{ marginBottom: '1rem', fontSize: '0.9rem', fontWeight: 600, color: '#cbd5e1' }}>
-          {title}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+        <div>
+          {title && (
+            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#cbd5e1' }}>
+              {title}
+            </div>
+          )}
         </div>
-      )}
+        {showPeriodToggle && (
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            {[7, 30, 90].map((period) => (
+              <button
+                key={period}
+                onClick={() => setDays(period as 7 | 30 | 90)}
+                style={{
+                  padding: '0.4rem 0.8rem',
+                  background: days === period ? '#3b82f6' : '#1e293b',
+                  color: days === period ? '#f8fafc' : '#64748b',
+                  border: `1px solid ${days === period ? '#3b82f6' : '#334155'}`,
+                  borderRadius: 4,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                }}
+                onMouseEnter={(e) => {
+                  if (days !== period) {
+                    (e.currentTarget as HTMLButtonElement).style.background = '#334155';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (days !== period) {
+                    (e.currentTarget as HTMLButtonElement).style.background = '#1e293b';
+                  }
+                }}
+              >
+                {period}d
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <ResponsiveContainer width="100%" height={height}>
         <LineChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
