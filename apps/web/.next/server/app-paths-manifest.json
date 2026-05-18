@@ -1,12 +1,4 @@
 {
-  "/api/config/route": "app/api/config/route.js",
-  "/api/job-stream/route": "app/api/job-stream/route.js",
-  "/api/security-coverage/route": "app/api/security-coverage/route.js",
-  "/api/agent-decisions/route": "app/api/agent-decisions/route.js",
-  "/api/field-usage/route": "app/api/field-usage/route.js",
-  "/api/executive-summary/route": "app/api/executive-summary/route.js",
-  "/api/quality-hotspots/route": "app/api/quality-hotspots/route.js",
-  "/page": "app/page.js",
-  "/api/cache-status/route": "app/api/cache-status/route.js",
-  "/api/search-audit/route": "app/api/search-audit/route.js"
+  "/not-found": "app/not-found.js",
+  "/settings/page": "app/settings/page.js"
 }

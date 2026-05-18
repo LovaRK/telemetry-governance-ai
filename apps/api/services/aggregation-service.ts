@@ -8,6 +8,7 @@ import { computeDecisionStability } from './decision-stability-service';
 import { computeMetadataFingerprint } from './fingerprint-service';
 import { getApplicableOverrides, resolveOverride, disableExpiredOverrides, flagOverduesForReview } from './override-governance-service';
 import { recordDecisionLineage, computeDeterministicSignals, persistQueueHealthMetrics } from './decision-lineage-service';
+import { evaluateSemanticDrift, getDriftedDecisions, DriftSeverity } from './drift-detection-service';
 import { query, transaction } from '../../../core/database/connection';
 import { enqueueJob } from './job-service';
 import { v4 as uuidv4 } from 'uuid';
@@ -351,6 +352,15 @@ export async function runAggregation(
       }
     } catch (e) {
       console.warn('[Aggregation] Search audit skipped (non-fatal):', e instanceof Error ? e.message : e);
+    }
+
+    // ── Step 6: Drift Detection & Confidence Penalty ──────────────────────
+    // Evaluate semantic drift and route significantly drifted indexes for reanalysis
+    try {
+      const driftMetrics = await evaluateDriftForSnapshot(client, snapshotId, today, allInputs);
+      console.log(`[Aggregation] Drift evaluation complete: ${driftMetrics.driftedCount} drifted, ${driftMetrics.reanalyzedCount} queued for reanalysis`);
+    } catch (e) {
+      console.warn('[Aggregation] Drift detection skipped (non-fatal):', e instanceof Error ? e.message : e);
     }
   });
 
@@ -959,4 +969,120 @@ export async function runFastAggregation(
   console.log(`[FastAgg] Done in ${Date.now() - start}ms. Snapshot ${snapshotId}, job ${jobId}, ${inserted} snapshots written.`);
 
   return { snapshotId, jobId, inserted, durationMs: Date.now() - start };
+}
+
+/**
+ * Evaluate semantic drift for all decisions in current snapshot
+ * Routes significantly drifted indexes back to LLM reanalysis queue
+ */
+async function evaluateDriftForSnapshot(
+  client: PoolClient,
+  snapshotId: string,
+  snapshotDate: string,
+  allInputs: RawTelemetryInput[]
+): Promise<{ driftedCount: number; reanalyzedCount: number }> {
+  try {
+    console.log(`[Drift Detection] Starting drift evaluation for snapshot ${snapshotId}...`);
+
+    // Fetch all current decisions
+    const decisionsResult = await client.query(
+      `SELECT id, snapshot_id, index_name, sourcetype, confidence_score
+       FROM agent_decisions
+       WHERE snapshot_date = $1 AND snapshot_id = $2`,
+      [snapshotDate, snapshotId]
+    );
+
+    const currentDecisions = decisionsResult.rows;
+    console.log(`[Drift Detection] Evaluating ${currentDecisions.length} decisions for drift...`);
+
+    let driftedCount = 0;
+    let reanalyzedCount = 0;
+
+    // For each decision, compare to previous snapshot
+    for (const decision of currentDecisions) {
+      try {
+        // Get previous snapshot for this index/sourcetype
+        const prevResult = await client.query(
+          `SELECT snapshot_date, total_events, daily_avg_gb, retention_days, utilization_pct
+           FROM telemetry_snapshots
+           WHERE index_name = $1 AND sourcetype = $2 AND snapshot_date < $3
+           ORDER BY snapshot_date DESC LIMIT 1`,
+          [decision.index_name, decision.sourcetype || null, snapshotDate]
+        );
+
+        if (prevResult.rows.length === 0) {
+          // No previous snapshot — new index, no drift
+          continue;
+        }
+
+        const prevSnap = prevResult.rows[0];
+        const currentInput = allInputs.find(
+          inp => inp.index === decision.index_name && (inp.sourcetype || null) === (decision.sourcetype || null)
+        );
+
+        if (!currentInput) {
+          continue;
+        }
+
+        // Evaluate drift
+        const driftResult = await evaluateSemanticDrift(
+          client,
+          decision.snapshot_id,
+          {
+            indexName: decision.index_name,
+            totalEventsNow: currentInput.totalEvents,
+            utilizationPctNow: (currentInput.totalEvents > 0) ? Math.min(100, (currentInput.totalEvents / 1000000)) : 0,
+            retentionDaysNow: currentInput.retentionDays,
+            snapshotDateNow: new Date(snapshotDate),
+          },
+          {
+            totalEventsBaseline: prevSnap.total_events,
+            utilizationPctBaseline: parseFloat(prevSnap.utilization_pct),
+            retentionDaysBaseline: prevSnap.retention_days,
+            snapshotDateBaseline: new Date(prevSnap.snapshot_date),
+          },
+          parseFloat(decision.confidence_score) || 0.5
+        );
+
+        if (driftResult.driftSeverity !== 'NONE') {
+          driftedCount++;
+          console.log(
+            `[Drift Detection] ${decision.index_name}: ${driftResult.driftSeverity} drift detected`,
+            {
+              vol_drift: driftResult.driftVector.vol_drift_pct,
+              util_delta: driftResult.driftVector.util_delta_pct,
+              penalty: driftResult.confidencePenalty,
+              invalidated: driftResult.wasInvalidated,
+            }
+          );
+
+          if (driftResult.reanalysisTriggered) {
+            reanalyzedCount++;
+            // Queue for reanalysis if severity >= METRIC
+            if (['METRIC', 'SEMANTIC', 'POLICY'].includes(driftResult.driftSeverity)) {
+              await enqueueJob({
+                jobType: 'drift_reanalysis',
+                snapshotId: decision.snapshot_id,
+                payload: {
+                  indexName: decision.index_name,
+                  sourcetype: decision.sourcetype,
+                  previousSnapshotDate: prevSnap.snapshot_date,
+                  driftSeverity: driftResult.driftSeverity,
+                  confidencePenalty: driftResult.confidencePenalty,
+                },
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[Drift Detection] Error evaluating drift for ${decision.index_name}:`, e instanceof Error ? e.message : e);
+      }
+    }
+
+    console.log(`[Drift Detection] Complete: ${driftedCount} drifted, ${reanalyzedCount} queued for reanalysis`);
+    return { driftedCount, reanalyzedCount };
+  } catch (e) {
+    console.error('[Drift Detection] Error in drift evaluation:', e instanceof Error ? e.message : e);
+    return { driftedCount: 0, reanalyzedCount: 0 };
+  }
 }

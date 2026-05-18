@@ -416,17 +416,70 @@
     - [x] reused_from_fact_id for inheritance tracking
   - [x] Comprehensive indexes for query optimization
 
-#### Phase 3: UI Provenance Labels (PENDING)
-- [ ] Add provenance labels to dashboard:
-  - [ ] [✓ FACT] for deterministic signals from telemetry_facts
-  - [ ] [AI INFERENCE] for cognitive_enrichments
-  - [ ] [HUMAN APPROVED] when calibration_vector = 1.0
-  - [ ] [REUSED BASELINE] when reused_from_fact_id is set
-- [ ] Update MetricCard component to show signal source
-- [ ] Color-code signals by source (green=fact, blue=AI, orange=human, gray=reused)
-- [ ] Show fingerprint version and stability score on detail view
+#### Phase 2: Trust Decay & Approval Expiry (COMPLETE — May 18, 2026)
+- [x] Create trust-decay-service.ts:
+  - [x] calculateExponentialDecay(): 30-day half-life formula (λ = 0.0231)
+  - [x] calculateEffectiveConfidence(): applies decay to unreviewed, expiry to stale approvals
+  - [x] Approval expiry mechanics: H degrades from 1.0 → 0.7 after 90 days
+  - [x] calculateModelTrustScore(): disagreement rate with system health alerts
+  - [x] persistConfidenceDecayLog(): audit trail for decay calculations
+  - [x] getProvenianceLabel/Color(): color-coded signal origin badges
+  - [x] explainDecay(): human-readable decay justification
+- [x] Migration 016_trust_decay_and_expiry.sql:
+  - [x] Extend human_review_ledger with expires_at, is_disagreement, days_since_review (GENERATED ALWAYS)
+  - [x] Create model_health_ledger: disagreement tracking + system health status
+  - [x] Create confidence_decay_log: audit trail for all decay calculations
+  - [x] Comprehensive indexes for performance
+- [x] Update decision-lineage-service.ts:
+  - [x] Import and integrate trust-decay-service
+  - [x] getPendingReviewDecisionsWithCalibration() computes effective confidence with decay
+  - [x] DecisionWithCalibration interface extended with decay fields
+- [x] Create ModelHealthMonitor component:
+  - [x] Display Model Trust Score (%) with color coding
+  - [x] Show disagreement rate over past 30 days
+  - [x] Alert when trust < 70% (DEGRADED) or < 60% (CRITICAL)
+  - [x] Track stale/expired approvals requiring re-review
+  - [x] System health status indicator
+- [x] Create /api/model-health endpoint
+- [x] Update DecisionReviewQueue to display:
+  - [x] Effective confidence (after decay)
+  - [x] Provenance labels with color coding
+  - [x] Days since review + decay reason
+  - [x] Approval expiry warnings (⏳ STALE)
+- [x] Integrate ModelHealthMonitor into governance tab
 
-#### Phase 4: Stress Testing Vectors (PENDING)
+**Formula Implementation:**
+- Unreviewed decay: C(t) = C₀ × e^(-0.0231t) — 30-day half-life
+- Approval expiry: After 90 days, H degrades 1.0 → 0.7, forcing re-review
+- Model trust: 1.0 - (rejections/reviews), triggers alerts at 70%/60%
+
+#### Phase 3: UI Provenance Labels (IN PROGRESS)
+- [x] Provenance label system in trust-decay-service:
+  - [x] getProvenanceLabel(): returns emoji + text label
+  - [x] getProvenanceColor(): returns color code (green/blue/amber/purple)
+  - [x] Color mapping: #27AE60 (approved), #8E44AD (AI), #D35400 (stale), #E74C3C (low conf)
+- [x] DecisionReviewQueue displays provenance:
+  - [x] Badge with label + color in governance card
+  - [x] Effective confidence in visually distinct container
+  - [x] Decay reason in italicized explanation
+- [ ] Extend to full dashboard:
+  - [ ] MetricCard component shows signal origin
+  - [ ] All KPI calculations show [✓ FACT], [🤖 AI], [👤 APPROVED], [⏳ STALE]
+  - [ ] Executive Overview updates with provenance
+  - [ ] Detail page shows fingerprint version and decay status
+
+#### Phase 4: Drift Detection & Re-Analysis Triggers (PENDING)
+- [ ] Implement structural drift detection:
+  - [ ] Monitor volume changes > 25% in snapshots
+  - [ ] Detect retention window alterations
+  - [ ] Trigger Tier B re-analysis when fingerprint changes
+- [ ] Update aggregation-service to:
+  - [ ] Calculate fingerprint changes between snapshots
+  - [ ] Route drifted indexes directly to Tier A classifier
+  - [ ] Persist drift signals to model_health_ledger
+- [ ] Alert dashboard when drift detected
+
+#### Phase 5: Stress Testing Vectors (PENDING)
 - [ ] Test 1: Cold-start ingestion shock
   - [ ] Load 1000+ indexes into test environment
   - [ ] Verify fingerprinting doesn't churn (reuse_ratio > 90%)
@@ -434,7 +487,7 @@
 - [ ] Test 2: Fingerprint drift simulation
   - [ ] Increment fingerprint_version mid-run
   - [ ] Verify old decisions marked for re-analysis
-  - [ ] Confirm no false positives in blacklist
+  - [ ] Confirm no false positives in drift detection
 - [ ] Test 3: Worker failure recovery
   - [ ] Kill worker with `kill -9` during decision batch
   - [ ] Verify partially processed batch recovers correctly
@@ -442,7 +495,7 @@
 - [ ] Test 4: Schema migration resilience
   - [ ] Run migration 015 on populated decision_lineage table
   - [ ] Verify data migration to new ledger structure
-  - [ ] Confirm backward compatibility for old API calls
+  - [ ] Run migration 016 and verify decay calculations
 
 ---
 

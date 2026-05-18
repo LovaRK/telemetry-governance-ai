@@ -41,9 +41,15 @@ interface Decision {
   factId?: string;
   calibrationVector?: number;
   calibratedConfidence?: number;
+  effectiveConfidence?: number;
   reviewStatus?: string;
   isCapped?: boolean;
   processingTier?: 'TIER_A' | 'TIER_B';
+  approvalStatus?: 'FRESH' | 'STALE' | 'EXPIRED';
+  provenanceLabel?: string;
+  provenanceColor?: string;
+  daysSinceReview?: number;
+  decayReason?: string;
 }
 
 export function DecisionReviewQueue() {
@@ -315,11 +321,11 @@ export function DecisionReviewQueue() {
                   </div>
                 )}
 
-                {/* Human Calibration Status */}
-                <div style={{ marginBottom: '16px', backgroundColor: '#f5f5f5', padding: '12px', borderRadius: '4px', border: '1px solid #e0e0e0' }}>
+                {/* Human Calibration Status with Trust Decay */}
+                <div style={{ marginBottom: '16px', backgroundColor: decision.provenanceColor ? `${decision.provenanceColor}20` : '#f5f5f5', padding: '12px', borderRadius: '4px', border: `1px solid ${decision.provenanceColor || '#e0e0e0'}` }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                     <h4 style={{ margin: 0, color: '#333', fontSize: '14px' }}>
-                      ⚖️ Human Calibration
+                      ⚖️ Governance Lifecycle
                     </h4>
                     <span style={{
                       fontSize: '11px',
@@ -331,10 +337,20 @@ export function DecisionReviewQueue() {
                     }}>
                       {decision.processingTier || 'TIER_A'}
                     </span>
+                    <span style={{
+                      fontSize: '11px',
+                      backgroundColor: decision.provenanceColor || '#8E44AD',
+                      color: 'white',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontWeight: '500'
+                    }}>
+                      {decision.provenanceLabel || '🤖 AI'}
+                    </span>
                   </div>
                   <div style={{ fontSize: '13px', color: '#666' }}>
                     <div style={{ marginBottom: '8px' }}>
-                      <strong>Review Status:</strong> {decision.reviewStatus || 'UNREVIEWED'}
+                      <strong>Review Status:</strong> {decision.reviewStatus || 'UNREVIEWED'} {decision.approvalStatus === 'EXPIRED' && <span style={{ color: '#D35400' }}>⏳ (Expired)</span>}
                     </div>
                     <div style={{ marginBottom: '8px' }}>
                       <strong>Calibration Vector (H):</strong> {decision.calibrationVector?.toFixed(2) || '0.50'}
@@ -345,6 +361,17 @@ export function DecisionReviewQueue() {
                     <div style={{ marginBottom: '8px' }}>
                       <strong>Calibrated Confidence:</strong> {decision.calibratedConfidence?.toFixed(2) || '0.00'}
                       {decision.isCapped && <span style={{ marginLeft: '8px', color: '#ff6f00' }}>⚠️ Capped at 50%</span>}
+                    </div>
+                    <div style={{ marginBottom: '8px', padding: '8px', backgroundColor: 'white', borderRadius: '4px', borderLeft: `3px solid ${decision.provenanceColor || '#8E44AD'}` }}>
+                      <strong>Effective Confidence (with decay):</strong> {decision.effectiveConfidence?.toFixed(2) || '0.00'}
+                      {decision.daysSinceReview !== undefined && (
+                        <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+                          Days since review: {decision.daysSinceReview}d
+                          {decision.decayReason && (
+                            <p style={{ margin: '4px 0', fontStyle: 'italic' }}>{decision.decayReason}</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

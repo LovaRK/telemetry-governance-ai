@@ -288,7 +288,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         </div>
       ) : null}
       <div style={{ display: hasAgentDecisions ? 'grid' : 'none', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr', gap: '1rem' }}>
-        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>ROI Score</div>
           <Gauge
             value={kpis.roiScore}
@@ -317,7 +318,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             })}
           />
         </div>
-        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>GainScope</div>
           <Gauge
             value={kpis.gainScopeScore}
@@ -346,7 +348,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             })}
           />
         </div>
-        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Low-Value Spend</div>
           <div style={{ cursor: 'pointer' }} onClick={() => setDrawer({
             isOpen: true,
@@ -371,7 +374,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             <SpendGauge amount={kpis.licenseSpendLowValue} total={kpis.totalLicenseSpend} label="" color="#ef4444" />
           </div>
         </div>
-        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Savings Potential</div>
           <div style={{ cursor: 'pointer' }} onClick={() => setDrawer({
             isOpen: true,
@@ -396,12 +400,14 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             <SpendGauge amount={kpis.storageSavingsPotential} total={kpis.totalLicenseSpend} label="" color="#22c55e" />
           </div>
         </div>
-        <div style={card({ borderLeft: '4px solid #8b5cf6' })}>
+        <div style={{ ...card({ borderLeft: '4px solid #8b5cf6' }), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#27AE60', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>✓ FACT</div>
           <div style={cardTitle}>Daily Ingest</div>
           <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc' }}>{fmtGB(kpis.totalDailyGb)}</div>
           <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>{kpis.totalSourcetypes} sourcetypes</div>
         </div>
-        <div style={card({ borderLeft: '4px solid #f59e0b' })}>
+        <div style={{ ...card({ borderLeft: '4px solid #f59e0b' }), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Coverage Gaps</div>
           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'space-around' }}>
             <div style={{ cursor: 'pointer' }} onClick={() => setDrawer({
@@ -503,7 +509,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         </div>
       ) : null}
       <div style={{ display: hasAgentDecisions ? 'grid' : 'none', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
-        <div style={card()}>
+        <div style={{ ...card(), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Tier Distribution <span style={{ color: '#334155' }}>— {tierTotal} indexes</span></div>
           <div style={{ height: 12, borderRadius: 6, overflow: 'hidden', display: 'flex', marginBottom: '1rem' }}>
             {tierBars.filter(t => t.value > 0).map((t) => (
@@ -547,7 +554,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
           })}
         </div>
 
-        <div style={card()}>
+        <div style={{ ...card(), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Score Averages</div>
           <ScoreBar label="Utilization" value={kpis.avgUtilization} color="#3b82f6" />
           <ScoreBar label="Detection Coverage" value={kpis.avgDetection} color="#8b5cf6" />
@@ -558,7 +566,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
           </div>
         </div>
 
-        <div style={card()}>
+        <div style={{ ...card(), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Agent Actions</div>
           {Object.entries(actionCounts).length === 0
             ? <div style={{ color: '#475569', fontSize: '0.875rem' }}>No actions yet</div>
@@ -582,7 +591,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
       </div>
 
       {/* Row 2.5 — D7: Score Profile by Tier (requires LLM decisions) */}
-      <div style={{ ...card(), display: hasAgentDecisions ? undefined : 'none' }}>
+      <div style={{ ...card(), display: hasAgentDecisions ? undefined : 'none', position: 'relative' }}>
+        <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
         <div style={cardTitle}>Score Profile by Tier</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '1.25rem' }}>
           {tierGroups.map(tg => (
@@ -614,7 +624,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
 
         {/* D4: Data Volume Split */}
-        <div style={card()}>
+        <div style={{ ...card(), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#27AE60', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>✓ FACT</div>
           <div style={cardTitle}>Data Volume Split</div>
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.875rem' }}>
             <DonutChart segments={[
@@ -635,7 +646,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         </div>
 
         {/* D5: Sourcetype Count Split */}
-        <div style={card()}>
+        <div style={{ ...card(), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#27AE60', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>✓ FACT</div>
           <div style={cardTitle}>Sourcetype Split</div>
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.875rem' }}>
             <DonutChart segments={[
@@ -656,7 +668,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         </div>
 
         {/* D9: Annual License Spend by Tier */}
-        <div style={card()}>
+        <div style={{ ...card(), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Annual License Spend by Tier</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {spendByTier.map((tier) => (
@@ -676,7 +689,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
 
       {/* Row 4 — Savings Staircase + Quick Wins */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-        <div style={card()}>
+        <div style={{ ...card(), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Savings Staircase</div>
           {staircase.length === 0
             ? <div style={{ color: '#475569', fontSize: '0.875rem' }}>No savings data yet</div>
@@ -745,7 +759,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
           }
         </div>
 
-        <div style={card()}>
+        <div style={{ ...card(), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Quick Wins</div>
           {(() => {
             const wins = quickWins.length > 0
@@ -810,7 +825,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
 
         {/* D11: Utilization × Detection Quadrant */}
-        <div style={card()}>
+        <div style={{ ...card(), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Utilization × Detection</div>
           {scatterData.length === 0
             ? <div style={{ color: '#475569', fontSize: '0.875rem' }}>No data</div>
@@ -892,7 +908,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         </div>
 
         {/* D8: Top Indexes by Volume */}
-        <div style={card()}>
+        <div style={{ ...card(), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#27AE60', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>✓ FACT</div>
           <div style={cardTitle}>Top Indexes by Volume</div>
           {top6ByVol.length === 0
             ? <div style={{ color: '#475569', fontSize: '0.875rem' }}>No data</div>
@@ -921,7 +938,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
 
       {/* Row 6 — D12: S3 / Archive Candidates Table */}
       {archiveCandidates.length > 0 && (
-        <div style={card()}>
+        <div style={{ ...card(), position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>S3 / Archive Candidates — {archiveCandidates.length} indexes</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
@@ -966,7 +984,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
 
       {/* Row 7 — Agent Reasoning */}
       {agentReasoning && (
-        <div style={{ ...card(), borderLeft: '4px solid #3b82f6' }}>
+        <div style={{ ...card(), borderLeft: '4px solid #3b82f6', position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>🧠 Agent Reasoning</div>
           <p style={{ color: '#cbd5e1', fontSize: '0.875rem', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>{agentReasoning}</p>
         </div>

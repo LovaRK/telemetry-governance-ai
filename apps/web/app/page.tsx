@@ -9,6 +9,7 @@ import ConnectionGatedUI from '../components/shared/ConnectionGatedUI';
 import ConfigPanel from '../components/dashboard/ConfigPanel';
 import { DecisionReviewQueue } from '../components/DecisionReviewQueue';
 import { QueueHealthMetrics } from '../components/QueueHealthMetrics';
+import { ModelHealthMonitor } from '../components/ModelHealthMonitor';
 import { UserProvider } from '../lib/user-context';
 import { ExecutiveSummary, CacheStatus } from '../lib/types';
 import JobStatusToast from '../components/shared/JobStatusToast';
@@ -325,6 +326,9 @@ export default function Home() {
 
             {activeTab === 'governance' && (
               <div style={{ display: 'grid', gap: '1.5rem' }}>
+                <div style={{ backgroundColor: '#0f172a', borderRadius: '8px', padding: '1rem', border: '1px solid #1e293b' }}>
+                  <ModelHealthMonitor />
+                </div>
                 <div>
                   <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '1rem' }}>Queue Health</h3>
                   <QueueHealthMetrics />

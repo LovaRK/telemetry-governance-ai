@@ -2,6 +2,7 @@ import { PoolClient } from 'pg';
 import { RawTelemetryInput } from '../agents/llm-decision-agent';
 import { validateDeterministicSignals, validateCognitiveSignals } from './governance-constants';
 import { computeCalibratedConfidence, updateReviewCalibration, isBlacklistedFingerprint } from './stability-calibration-service';
+import { calculateEffectiveConfidence, persistConfidenceDecayLog, getProvenianceLabel, getProvenanceColor } from './trust-decay-service';
 
 export interface DeterministicSignals {
   daily_avg_gb_change_pct: number;
@@ -51,6 +52,12 @@ export interface DecisionWithCalibration extends DecisionLineageRecord {
   reviewStatus: 'UNREVIEWED' | 'APPROVED' | 'REJECTED';
   isCapped: boolean;
   isBlacklisted: boolean;
+  effectiveConfidence?: number;
+  approvalStatus?: 'FRESH' | 'STALE' | 'EXPIRED';
+  provenanceLabel?: string;
+  provenanceColor?: string;
+  daysSinceReview?: number;
+  decayReason?: string;
 }
 
 // Compute deterministic signals from input metadata
@@ -262,9 +269,10 @@ export async function getPendingReviewDecisionsWithCalibration(
        dl.id, dl.snapshot_id, dl.index_name, dl.sourcetype,
        dl.deterministic_signals, dl.cognitive_signals,
        dl.decision_status, dl.reviewed_by, dl.reviewed_at,
-       dl.applied_at, dl.dismissal_reason,
+       dl.applied_at, dl.dismissal_reason, dl.created_at,
        COALESCE(hrl.review_status, 'UNREVIEWED') as review_status,
-       COALESCE(hrl.calibration_vector, 0.5) as calibration_vector
+       COALESCE(hrl.calibration_vector, 0.5) as calibration_vector,
+       COALESCE(hrl.days_since_review, 0) as days_since_review
      FROM decision_lineage dl
      LEFT JOIN human_review_ledger hrl ON dl.id = hrl.fact_id
      WHERE dl.decision_status IN ('PROPOSED', 'REVIEW_QUEUE')
@@ -280,6 +288,14 @@ export async function getPendingReviewDecisionsWithCalibration(
     const reviewStatus = row.review_status || 'UNREVIEWED';
     const calibratedConfidence = rawStability * calibrationVector;
     const isCapped = reviewStatus === 'UNREVIEWED' && rawStability > 0.5;
+
+    // Calculate effective confidence with decay
+    const decayResult = calculateEffectiveConfidence(
+      calibratedConfidence,
+      new Date(row.created_at),
+      reviewStatus === 'APPROVED',
+      row.reviewed_at ? new Date(row.reviewed_at) : undefined
+    );
 
     return {
       id: row.id,
@@ -297,8 +313,14 @@ export async function getPendingReviewDecisionsWithCalibration(
       calibrationVector,
       reviewStatus: reviewStatus as 'UNREVIEWED' | 'APPROVED' | 'REJECTED',
       calibratedConfidence: Math.min(calibratedConfidence, 1.0),
+      effectiveConfidence: decayResult.effectiveConfidence,
+      approvalStatus: decayResult.approvalStatus,
+      provenanceLabel: getProvenianceLabel(decayResult),
+      provenanceColor: getProvenanceColor(decayResult),
+      decayReason: decayResult.decayReason,
+      daysSinceReview: row.days_since_review,
       isCapped,
-      isBlacklisted: false, // TODO: check fingerprint blacklist
+      isBlacklisted: false,
       processingTier: reviewStatus === 'REJECTED' ? 'TIER_B' : 'TIER_A',
     };
   });
