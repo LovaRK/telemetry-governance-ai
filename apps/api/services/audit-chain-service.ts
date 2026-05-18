@@ -8,11 +8,13 @@
  * - Chain position is strictly monotonic (no clock dependencies)
  * - Root hash anchors entire chain to prevent retroactive history rewrites
  * - Hash algorithm versioning enables future migration without invalidating ledger
+ * - Single successor per (trace_id, previous_binding_hash) pair (fork detection via Migration 111)
  */
 
 import { createHash, randomBytes } from 'crypto';
-import { PoolClient } from 'pg';
+import { PoolClient, Pool } from 'pg';
 import canonicalize from 'canonicalize';
+import { AuditChainForkDetectionService } from './audit-chain-fork-detection';
 
 export interface RawBindingPayload {
   tenantId: string;
@@ -33,6 +35,14 @@ export interface ComputedChainHashes {
 export class AuditChainService {
   private static readonly SYSTEM_CHAIN_SECRET = process.env.CHAIN_ROOT_SECRET || 'FALLBACK_GOVERNANCE_SECRET_2026';
   private static readonly HASH_ALGORITHM_VERSION = 'SHA256_JCS_V1';
+  private static forkDetectionService: AuditChainForkDetectionService | null = null;
+
+  /**
+   * Initialize fork detection service (call once during app startup)
+   */
+  public static initializeForkDetection(pool: Pool): void {
+    this.forkDetectionService = new AuditChainForkDetectionService(pool);
+  }
 
   /**
    * Compute a deterministic cryptographic hash block linked to its predecessor.
@@ -105,15 +115,30 @@ export class AuditChainService {
    * Verify complete chain integrity by recalculating and comparing all hashes.
    *
    * This function:
-   * 1. Verifies chain_position is strictly monotonic
-   * 2. Recalculates each hash using canonical JSON (must match stored hash)
-   * 3. Verifies root anchor hash on first binding
-   * 4. Returns immediately on first discrepancy (fail-closed)
+   * 1. Checks for forks (multiple successors from same binding)
+   * 2. Verifies chain_position is strictly monotonic
+   * 3. Recalculates each hash using canonical JSON (must match stored hash)
+   * 4. Verifies root anchor hash on first binding
+   * 5. Returns immediately on first discrepancy (fail-closed)
    */
   public static async verifyChainIntegrity(
     client: PoolClient,
-    tenantId: string
+    tenantId: string,
+    traceId?: string
   ): Promise<{ valid: boolean; brokenAtId?: string; reason?: string }> {
+    // CRITICAL: Check for forks FIRST before full chain verification
+    // If fork detection is enabled, scan for any multiple successors
+    if (this.forkDetectionService && traceId) {
+      const forkResult = await this.forkDetectionService.detectTraceFork(traceId);
+      if (forkResult.hasFork) {
+        return {
+          valid: false,
+          brokenAtId: forkResult.forkPointHash,
+          reason: `AUDIT_CHAIN_FORK_DETECTED: Multiple successors (${forkResult.successorCount}) from binding ${forkResult.forkPointHash}`,
+        };
+      }
+    }
+
     const fetchChainQuery = `
       SELECT
         id,

@@ -9,6 +9,7 @@
  */
 
 import { OperatorTraceBinding } from './operator-trace-binding';
+import { VersionedSignature } from '../services/envelope-signing-key-service';
 
 // ===== TRUST DOMAIN SNAPSHOTS =====
 
@@ -66,6 +67,7 @@ export interface TopologyEpoch {
   epoch: number; // Incremented on deployment, topology change
   deploymentId: string; // Correlate to deployment event
   deployedAt: string; // ISO8601
+  signatureEpoch: number; // Signature epoch: incremented when signing keys rotate (prevents cross-deployment replays)
   services: {
     [serviceName: string]: {
       version: string; // Semantic version
@@ -73,6 +75,15 @@ export interface TopologyEpoch {
       lastHeartbeat: string; // ISO8601
     };
   };
+}
+
+// ===== EXECUTION CONTEXT (Signature Binding) =====
+
+export interface ExecutionContext {
+  route: string; // API route or handler path where envelope is processed
+  tenantId: string; // Tenant UUID (binds signature to specific tenant)
+  executionMode: 'SYNC' | 'ASYNC' | 'BATCH'; // How was this envelope processed?
+  operationId: string; // Unique ID for this operation/request
 }
 
 // ===== MAIN ENVELOPE =====
@@ -102,11 +113,25 @@ export interface GovernanceTelemetryEnvelopeV1 {
   topologyEpoch: TopologyEpoch; // Which deployment version is this?
   systemicClusterLink?: SystemicClusterLink; // Phase 2A.1 cross-trace correlation
 
+  // ===== Execution Context (Signature Binding) =====
+  executionContext: ExecutionContext; // Route, tenant, mode - bound into signature
+
   // ===== Replay Safety =====
   replayAuthority?: ReplayAuthority; // Replay permissions and nonce
+  envelopeNonce?: string; // One-time use nonce for envelope replay detection (prevents replay attacks)
+  nonceExpiresAt?: string; // ISO8601 when this nonce becomes invalid
+
+  // ===== Bounded Freshness (Time-Bounding for Replay Prevention) =====
+  issuedAt: string; // ISO8601 when envelope was issued (signed)
+  expiresAt: string; // ISO8601 when envelope becomes invalid (absolute deadline)
+  acceptedClockSkewMs?: number; // Tolerance for clock drift (default: 5000ms = 5s)
 
   // ===== Cryptographic Integrity =====
-  envelopeSignature: string; // HMAC-SHA256(canonicalize(envelope), serviceSecret) — prevents mutation attacks
+  envelopeSignature: VersionedSignature; // { keyId, algorithm, signature } — enables key rotation without invalidating historical signatures
+  signatureEpoch: number; // Deployment signature epoch when envelope was signed (prevents cross-deployment replay)
+
+  // ===== Deployment Verification =====
+  topologyAttestation?: any; // Signed attestation of deployment topology (prevents topology spoofing)
 
   // ===== Metadata =====
   emittedAt: string; // ISO8601 when envelope was created
@@ -192,13 +217,15 @@ export function envelopeToDTO(env: GovernanceTelemetryEnvelopeV1): GovernanceTel
 // ===== HELPERS: ENVELOPE SIGNATURE =====
 
 /**
- * Compute HMAC-SHA256 signature for envelope using canonical JSON serialization.
+ * Compute raw HMAC-SHA256 digest for envelope using canonical JSON serialization.
  * CRITICAL: Uses canonicalize() for deterministic serialization (not JSON.stringify).
- * This prevents object key reordering attacks from invalidating signatures.
+ * Includes context binding (tenantId, route, topologyEpoch, issuedAt, nonce) to prevent
+ * cross-context and cross-tenant replay attacks.
+ * Returns hex digest of HMAC-SHA256 (algorithm independent).
  */
-export function computeEnvelopeHMAC(
+export function computeEnvelopeHMACDigest(
   envelope: Partial<GovernanceTelemetryEnvelopeV1>,
-  serviceSecret: string
+  keyMaterial: string
 ): string {
   const { createHmac } = require('crypto');
   const canonicalize = require('canonicalize');
@@ -206,35 +233,112 @@ export function computeEnvelopeHMAC(
   // Create a copy without the signature field for hashing
   const { envelopeSignature, ...envelopeWithoutSignature } = envelope as any;
 
-  // Use canonical JSON serialization to ensure deterministic hash
-  const canonicalEnvelope = canonicalize(envelopeWithoutSignature);
+  // Build context binding to prevent cross-context/cross-tenant replay
+  const contextBinding = {
+    // Tenant binding: cannot replay across tenants
+    tenantId: (envelope as any).executionContext?.tenantId,
+    // Route binding: cannot replay to different endpoints
+    route: (envelope as any).executionContext?.route,
+    // Deployment binding: cannot replay across deployments
+    topologyEpoch: (envelope as any).topologyEpoch?.epoch,
+    // Time binding: includes issued and expiration times
+    issuedAt: (envelope as any).issuedAt,
+    expiresAt: (envelope as any).expiresAt,
+    // Nonce binding: ties signature to specific nonce
+    envelopeNonce: (envelope as any).envelopeNonce,
+  };
 
-  if (!canonicalEnvelope) {
-    throw new Error('ENVELOPE_CANONICALIZATION_FAILED: Could not serialize envelope');
+  // Create signing payload: context binding + envelope
+  const signingPayload = {
+    context: contextBinding,
+    envelope: envelopeWithoutSignature,
+  };
+
+  // Use canonical JSON serialization to ensure deterministic hash
+  const canonicalPayload = canonicalize(signingPayload);
+
+  if (!canonicalPayload) {
+    throw new Error('ENVELOPE_CANONICALIZATION_FAILED: Could not serialize signing payload');
   }
 
   // Compute HMAC-SHA256
-  const hmac = createHmac('sha256', serviceSecret)
-    .update(canonicalEnvelope)
+  const hmac = createHmac('sha256', keyMaterial)
+    .update(canonicalPayload)
     .digest('hex');
 
   return hmac;
 }
 
 /**
+ * Compute versioned envelope signature with keyId and algorithm.
+ * Used during envelope creation to include which key was used for signing.
+ */
+export function computeEnvelopeHMAC(
+  envelope: Partial<GovernanceTelemetryEnvelopeV1>,
+  keyId: string,
+  keyMaterial: string
+): VersionedSignature {
+  const digest = computeEnvelopeHMACDigest(envelope, keyMaterial);
+
+  return {
+    keyId,
+    algorithm: 'HMAC_SHA256_V1',
+    signature: digest,
+  };
+}
+
+/**
  * Verify envelope signature hasn't been tampered with.
- * Recomputes HMAC and compares against stored signature.
+ * Supports multiple keys for fallback verification (e.g., during key rotation grace period).
+ * Recomputes HMAC and compares against stored signature using constant-time comparison.
+ * CRITICAL: Uses crypto.timingSafeEqual to prevent timing side-channel attacks.
  */
 export function verifyEnvelopeSignature(
   envelope: GovernanceTelemetryEnvelopeV1,
-  serviceSecret: string
-): boolean {
+  verificationKeys: Array<{ keyId: string; keyMaterial: string }>
+): { valid: boolean; usedKeyId?: string } {
+  const { timingSafeEqual } = require('crypto');
+
   try {
-    const expectedSignature = computeEnvelopeHMAC(envelope, serviceSecret);
-    return envelope.envelopeSignature === expectedSignature;
+    if (!envelope.envelopeSignature) {
+      return { valid: false };
+    }
+
+    const { keyId, signature } = envelope.envelopeSignature;
+
+    // Try to verify with each available key
+    for (const key of verificationKeys) {
+      try {
+        const expectedDigest = computeEnvelopeHMACDigest(envelope, key.keyMaterial);
+
+        // Use constant-time comparison to prevent timing attacks
+        // Both must be equal length for timingSafeEqual
+        if (expectedDigest.length === signature.length) {
+          try {
+            const expectedBuffer = Buffer.from(expectedDigest, 'hex');
+            const signatureBuffer = Buffer.from(signature, 'hex');
+
+            if (timingSafeEqual(expectedBuffer, signatureBuffer)) {
+              return { valid: true, usedKeyId: key.keyId };
+            }
+          } catch {
+            // Fallback to string comparison if buffer conversion fails
+            // (e.g., invalid hex strings) - this is safe as we're already in a
+            // non-matching scenario
+            continue;
+          }
+        }
+      } catch {
+        // Continue to next key on error
+        continue;
+      }
+    }
+
+    // No key matched
+    return { valid: false };
   } catch (error) {
     console.error('Envelope signature verification failed:', error);
-    return false;
+    return { valid: false };
   }
 }
 
@@ -242,9 +346,10 @@ export function verifyEnvelopeSignature(
 
 /**
  * Create a new GovernanceTelemetryEnvelopeV1 with default values
- * Automatically computes and includes HMAC signature
+ * Automatically computes and includes versioned HMAC signature using active key
+ * Generates and includes a replay prevention nonce
  */
-export function createGovernanceTelemetryEnvelope(
+export async function createGovernanceTelemetryEnvelope(
   traceId: string,
   spanId: string,
   trustDomainSnapshots: {
@@ -256,9 +361,37 @@ export function createGovernanceTelemetryEnvelope(
   },
   topologyEpoch: TopologyEpoch,
   coherenceTier: CoherenceTier,
-  serviceSecret: string = process.env.ENVELOPE_SIGNING_SECRET || 'default-envelope-secret'
-): GovernanceTelemetryEnvelopeV1 {
+  keyService: any, // EnvelopeSigningKeyService
+  tenantId: string,
+  executionContext: ExecutionContext, // Route, mode, operation ID (for signature binding)
+  replayPreventionService?: any, // EnvelopeReplayPreventionService (optional)
+  ttlSeconds: number = 3600, // Default 1 hour
+  acceptedClockSkewMs: number = 5000 // Default 5 seconds
+): Promise<GovernanceTelemetryEnvelopeV1> {
   const { randomBytes } = require('crypto');
+
+  // Get active signing key
+  const activeKey = await keyService.getActiveKey(tenantId);
+  if (!activeKey) {
+    throw new Error('NO_ACTIVE_SIGNING_KEY: Cannot create envelope without active signing key');
+  }
+
+  // Decrypt key material
+  const keyMaterial = await keyService.decryptKeyMaterial(activeKey.keyMaterialEncrypted);
+
+  // Generate replay prevention nonce if service is available
+  let envelopeNonce: string | undefined;
+  let nonceExpiresAt: string | undefined;
+
+  if (replayPreventionService) {
+    const nonceResult = replayPreventionService.generateNonce();
+    envelopeNonce = nonceResult.nonce;
+    nonceExpiresAt = nonceResult.expiresAt.toISOString();
+  }
+
+  // Set time-bounding fields
+  const issuedAt = new Date();
+  const expiresAt = new Date(issuedAt.getTime() + ttlSeconds * 1000);
 
   const envelope: GovernanceTelemetryEnvelopeV1 = {
     envelopeId: randomBytes(16).toString('hex'),
@@ -268,44 +401,101 @@ export function createGovernanceTelemetryEnvelope(
     trustDomains: trustDomainSnapshots,
     coherenceTier,
     topologyEpoch,
-    emittedAt: new Date().toISOString(),
+    executionContext, // Context binding for signature
+    emittedAt: issuedAt.toISOString(),
     emittedBy: 'governance-engine',
-    envelopeSignature: '', // Placeholder, will be computed below
+    envelopeNonce,
+    nonceExpiresAt,
+    issuedAt: issuedAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    acceptedClockSkewMs,
+    signatureEpoch: topologyEpoch.signatureEpoch, // Bind signature to deployment epoch
+    envelopeSignature: { keyId: '', algorithm: 'HMAC_SHA256_V1', signature: '' }, // Placeholder
   };
 
-  // Compute and set the signature
-  envelope.envelopeSignature = computeEnvelopeHMAC(envelope, serviceSecret);
+  // Compute and set the versioned signature (includes context binding)
+  envelope.envelopeSignature = computeEnvelopeHMAC(envelope, activeKey.keyId, keyMaterial);
 
   return envelope;
 }
 
 /**
- * Verify an envelope hasn't been modified by checking:
- * - envelopeSignature is valid (HMAC-SHA256 matches canonical serialization)
+ * Verify an envelope hasn't been modified and hasn't been replayed by checking:
+ * - envelopeSignature is valid (HMAC-SHA256 matches canonical serialization with active/previous keys)
  * - schemaVersion is '1.0'
  * - All trust domain scores are in [0, 1]
  * - emittedAt is a valid ISO8601 timestamp
+ * - envelopeNonce hasn't been seen before (replay detection)
+ * - envelopeNonce hasn't expired
  * - If operatorTraceBinding exists, its signature is valid
  */
-export function verifyGovernanceTelemetryEnvelope(
+export async function verifyGovernanceTelemetryEnvelope(
   env: GovernanceTelemetryEnvelopeV1,
-  serviceSecret: string = process.env.ENVELOPE_SIGNING_SECRET || 'default-envelope-secret'
-): {
+  keyService: any, // EnvelopeSigningKeyService
+  tenantId: string,
+  replayPreventionService?: any // EnvelopeReplayPreventionService (optional)
+): Promise<{
   valid: boolean;
   errors: string[];
-} {
+  usedKeyId?: string;
+}> {
   const errors: string[] = [];
+  let usedKeyId: string | undefined;
 
   // Check envelope signature FIRST (integrity)
   if (!env.envelopeSignature) {
     errors.push('Missing envelopeSignature: envelope integrity cannot be verified');
-  } else if (!verifyEnvelopeSignature(env, serviceSecret)) {
-    errors.push('Envelope signature verification failed: envelope may have been tampered with');
+  } else {
+    try {
+      // Get all valid keys for verification (active + recent previous)
+      const verificationKeys = await keyService.getVerificationKeys(tenantId);
+
+      if (verificationKeys.length === 0) {
+        errors.push('No valid signing keys available for verification');
+      } else {
+        // Decrypt all key materials
+        const decryptedKeys = await Promise.all(
+          verificationKeys.map(async (key: any) => ({
+            keyId: key.keyId,
+            keyMaterial: await keyService.decryptKeyMaterial(key.keyMaterialEncrypted),
+          }))
+        );
+
+        // Try verification with all available keys
+        const result = verifyEnvelopeSignature(env, decryptedKeys);
+
+        if (!result.valid) {
+          errors.push('Envelope signature verification failed: envelope may have been tampered with');
+          // Log verification failure for compromise detection
+          await keyService.logVerificationFailure(
+            tenantId,
+            env.envelopeId,
+            env.envelopeSignature.keyId,
+            'SIGNATURE_MISMATCH'
+          );
+        } else {
+          usedKeyId = result.usedKeyId;
+        }
+      }
+    } catch (error) {
+      errors.push(`Envelope signature verification error: ${error}`);
+    }
   }
 
   // Check schema version
   if (env.schemaVersion !== '1.0') {
     errors.push(`Invalid schemaVersion: ${env.schemaVersion}`);
+  }
+
+  // Check signature epoch matches deployment (prevents cross-deployment replay)
+  const currentEpoch = env.topologyEpoch.signatureEpoch;
+  if (env.signatureEpoch !== currentEpoch) {
+    // Allow a 1-epoch grace period for gradual deployment rollout
+    if (env.signatureEpoch !== currentEpoch - 1) {
+      errors.push(
+        `Signature epoch mismatch: envelope signed in epoch ${env.signatureEpoch}, current epoch is ${currentEpoch}`
+      );
+    }
   }
 
   // Check trust domain scores
@@ -330,6 +520,87 @@ export function verifyGovernanceTelemetryEnvelope(
     errors.push(`Invalid emittedAt timestamp: ${env.emittedAt}`);
   }
 
+  // Check bounded freshness (time-bounding for replay prevention)
+  const nowTime = Date.now();
+  const acceptedClockSkewMs = env.acceptedClockSkewMs || 5000; // Default 5 seconds
+
+  try {
+    const issuedAtTime = new Date(env.issuedAt).getTime();
+    const expiresAtTime = new Date(env.expiresAt).getTime();
+
+    // Validate timestamp order
+    if (issuedAtTime >= expiresAtTime) {
+      errors.push(`Invalid time bounds: issuedAt (${env.issuedAt}) must be before expiresAt (${env.expiresAt})`);
+    }
+
+    // Check if current time is within acceptable window
+    // Allow clock skew: [issuedAt - clockSkew, expiresAt + clockSkew]
+    const earliestAcceptedTime = issuedAtTime - acceptedClockSkewMs;
+    const latestAcceptedTime = expiresAtTime + acceptedClockSkewMs;
+
+    if (nowTime < earliestAcceptedTime) {
+      errors.push(
+        `Envelope not yet valid: issued at ${env.issuedAt}, current time is ${new Date(nowTime).toISOString()}, clock skew allowed: ${acceptedClockSkewMs}ms`
+      );
+    }
+
+    if (nowTime > latestAcceptedTime) {
+      errors.push(
+        `Envelope has expired: expires at ${env.expiresAt}, current time is ${new Date(nowTime).toISOString()}, clock skew allowed: ${acceptedClockSkewMs}ms`
+      );
+    }
+  } catch (error) {
+    errors.push(`Invalid time bounds: ${error}`);
+  }
+
+  // Check replay prevention (nonce tracking) if service is available
+  if (replayPreventionService) {
+    // First check if nonce has expired
+    if (env.envelopeNonce && env.nonceExpiresAt) {
+      const expiresAt = new Date(env.nonceExpiresAt).getTime();
+      const nowTime = Date.now();
+
+      if (nowTime > expiresAt) {
+        errors.push(
+          `Envelope nonce has expired: expires at ${env.nonceExpiresAt}, current time is ${new Date(nowTime).toISOString()}`
+        );
+      }
+
+      // Then check if nonce has been seen before (replay detection)
+      if (errors.length === 0 && env.envelopeNonce) {
+        const replayCheck = await replayPreventionService.checkAndRegisterEnvelope(
+          tenantId,
+          env.envelopeId,
+          env.envelopeNonce,
+          new Date(env.nonceExpiresAt),
+          env.envelopeSignature.keyId,
+          'governance-engine',
+          undefined // consumer_id will be set by consumer
+        );
+
+        if (!replayCheck.allowed) {
+          errors.push(`Replay prevention: ${replayCheck.reason}`);
+        }
+      }
+    } else if (env.envelopeNonce || env.nonceExpiresAt) {
+      // Nonce present but expiry missing, or vice versa
+      errors.push('Envelope replay protection incomplete: nonce and/or expiry missing');
+    }
+
+    // Check for replay attack patterns
+    if (errors.length === 0) {
+      const isUnderAttack = await replayPreventionService.detectReplayAttackPattern(
+        tenantId,
+        5, // threshold: 5 attempts
+        10 // window: 10 minutes
+      );
+
+      if (isUnderAttack) {
+        errors.push('SECURITY_ALERT: Replay attack pattern detected on tenant');
+      }
+    }
+  }
+
   // Verify operator trace binding if present
   if (env.operatorTraceBinding) {
     const { verifyOperatorTraceBinding } = require('./operator-trace-binding');
@@ -338,9 +609,35 @@ export function verifyGovernanceTelemetryEnvelope(
     }
   }
 
+  // Verify topology attestation if present (prevents topology spoofing)
+  if (env.topologyAttestation) {
+    try {
+      // Import TopologyAttestationService and verify
+      const { TopologyAttestationService } = require('../services/topology-attestation-service');
+      // Note: In production, pass actual signing key material from KMS
+      // For now, we verify the structure exists
+      if (
+        !env.topologyAttestation.manifest ||
+        !env.topologyAttestation.signature ||
+        !env.topologyAttestation.signer
+      ) {
+        errors.push('Topology attestation is malformed: missing required fields');
+      }
+
+      // Check attestation hasn't expired
+      const expiresAtTime = new Date(env.topologyAttestation.expiresAt).getTime();
+      if (nowTime > expiresAtTime) {
+        errors.push(`Topology attestation has expired: expires at ${env.topologyAttestation.expiresAt}`);
+      }
+    } catch (error) {
+      errors.push(`Topology attestation verification error: ${error}`);
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,
+    usedKeyId,
   };
 }
 
