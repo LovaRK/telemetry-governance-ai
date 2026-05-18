@@ -577,6 +577,64 @@
 
 ---
 
+#### Phase 5: Trust Inspection & Transparency Layer (IN PROGRESS — May 18, 2026)
+
+**Objective:** Diagnostic visibility without calcifying unstable semantics into UI
+
+**Part 1: Trust Inspection Service (COMPLETE)**
+- [x] trust-inspection-service.ts:
+  - [x] Assembles complete governance payload per index
+  - [x] Queries drift status, confidence decomposition, reanalysis metadata, sampling audit
+  - [x] Maps internal states to user-friendly trust levels
+  - [x] Calculates effective confidence with all multipliers
+- [x] API endpoint: GET /api/trust-inspection?indexName={name}
+- [x] TrustInspectionPanel.tsx:
+  - [x] Collapsible sections for governance, drift, confidence, reanalysis, sampling
+  - [x] Shows all confidence multipliers (base, stability, drift, decay, oscillation)
+  - [x] Human-readable drift reasons and sampling criteria
+- [x] TrustInspectionModal.tsx: Modal wrapper for inline inspection
+- [x] /trust-inspection diagnostic page: Search and inspect any index
+
+**Part 2: Dashboard Integration (COMPLETE)**
+- [x] Integrate into DecisionReviewQueue:
+  - [x] Add "🔍 Inspect Trust" button to each decision card
+  - [x] Opens modal with complete governance state
+- [x] DriftMonitor.tsx:
+  - [x] Consolidated view of all drifting indexes
+  - [x] Grouped by severity (POLICY/SEMANTIC/METRIC/NOISE)
+  - [x] Summary statistics by drift class
+  - [x] Clickable rows open inspection modal
+- [x] API endpoint: GET /api/drift-monitor - fetches drift events by severity
+- [x] ReanalysisQueueStatus.tsx:
+  - [x] Real-time queue depth by priority tier (EMERGENCY/CRITICAL/STANDARD/BACKGROUND/DEFERRED)
+  - [x] Progress bars showing queue composition
+  - [x] Estimated completion time based on job rates
+  - [x] Processing capacity and thermal state
+  - [x] Auto-refresh every 30 seconds
+- [x] Comprehensive Governance Dashboard at /governance:
+  - [x] 4 tabs: Overview, Drift Monitor, Reanalysis Queue, Decision Review
+  - [x] System status overview
+  - [x] Usage guide and design philosophy
+  - [x] All components integrated
+
+**Design Philosophy (NOT BUILDING YET)**
+- ✅ Diagnostic over aesthetic (monospace, collapsible, technical)
+- ✅ Honest over impressive (raw system state, no narratives)
+- ✅ Transparent over simplified (every multiplier visible)
+- ❌ Do NOT build: executive dashboards, ROI storytelling, savings narratives
+- ❌ Do NOT build: pretty graphics, trend visualizations, polished UI
+  (These lock unstable semantics into perception. Build in Phase 6.)
+
+**What Users Can Now Do**
+- Inspect complete trust state of any decision
+- See all drift events in real-time
+- Monitor reanalysis queue progress
+- Understand exactly why confidence is X (all multipliers shown)
+- Click any index to see why it was sampled
+- Verify system is working before trusting it with higher stakes
+
+---
+
 ## Current Production Readiness (May 18, 2026)
 
 ### ✅ What's Working
