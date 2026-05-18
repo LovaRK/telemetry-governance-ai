@@ -307,23 +307,41 @@
 
 ---
 
-### 📋 Week 2: Decision Review Queue & Dashboard Alerts (PENDING)
+### ✅ Week 2: Decision Review Queue & Dashboard Alerts (IN PROGRESS)
 
 **Objective:** Human approval workflow + observability alarms
 
-- [ ] Add UI for decision review queue:
-  - [ ] PROPOSED → REVIEW_QUEUE → APPROVED/REJECTED workflow
-  - [ ] Detail view: deterministic signals, LLM reasoning, evidence
-  - [ ] Bulk approve (with audit trail)
-  - [ ] Rejection reasons (with lineage update)
-- [ ] Build dashboard alert: reuse_ratio < 75%
-  - [ ] Indicates unstable metadata or broken fingerprinting
-  - [ ] Show: reuse breakdown, unstable indexes, corrective action
-- [ ] Create queue observability dashboard:
-  - [ ] Reuse ratio trend (target >0.90)
-  - [ ] Filtering efficiency (target <10%)
-  - [ ] Confidence distribution (high/medium/low counts)
-  - [ ] Decision flip rate (week-over-week stability)
+**Backend & API (COMPLETE)**
+- [x] Create API endpoints:
+  - [x] GET /api/decision-lineage (fetch pending review decisions)
+  - [x] POST /api/decision-lineage/[id] (approve/reject with audit trail)
+  - [x] GET /api/queue-health (fetch queue health metrics)
+- [x] Implement decision status update logic (PROPOSED → APPLIED/DISMISSED)
+
+**UI Components (COMPLETE)**
+- [x] DecisionReviewQueue component:
+  - [x] Display deterministic signals (Splunk facts)
+  - [x] Display cognitive signals (LLM reasoning)
+  - [x] Expandable detail view for each pending decision
+  - [x] Approve/reject buttons with reason tracking
+  - [x] Real-time refresh after action
+- [x] QueueHealthMetrics component:
+  - [x] Reuse ratio card (target >0.90) with progress bar
+  - [x] Filtering efficiency card (target <10%) with health color coding
+  - [x] Decision flip rate card (target <5%)
+  - [x] Confidence distribution breakdown (high/medium/low counts)
+  - [x] Alert box when reuse_ratio < 75% (broken fingerprinting indicator)
+  - [x] Metrics history table (last 30 snapshots)
+
+**Integration (PENDING)**
+- [ ] Wire DecisionReviewQueue into dashboard:
+  - [ ] New route: /decisions/review-queue or modal in main dashboard
+  - [ ] Add "Review Queue" button to header with pending count badge
+  - [ ] User context for reviewedBy tracking (currently hardcoded)
+- [ ] Wire QueueHealthMetrics into observability dashboard:
+  - [ ] New route: /observability/queue-health
+  - [ ] Auto-refresh every 5 minutes
+  - [ ] Add dashboard cards for at-a-glance metrics
 
 ---
 
