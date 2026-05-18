@@ -1,4 +1,5 @@
 import { PoolClient } from 'pg';
+import { getHardwareCapabilityService } from './hardware-capability-service';
 
 export type GovernancePriorityTier = 'EMERGENCY' | 'CRITICAL' | 'STANDARD' | 'BACKGROUND' | 'DEFERRED';
 export type ExecutionState = 'PENDING' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'DEFERRED';
@@ -101,9 +102,27 @@ export async function enqueueReanalysisJob(
     // Get total corpus size
     const corpusResult = await client.query(`SELECT COUNT(DISTINCT index_name) as total FROM agent_decisions`);
     const totalIndexes = corpusResult.rows[0].total;
-    const budgetMax = Math.ceil(totalIndexes * BUDGET_PERCENTAGE);
 
-    // Create new budget entry
+    // Calculate baseline budget (5% of corpus)
+    const baselineBudget = Math.ceil(totalIndexes * BUDGET_PERCENTAGE);
+
+    // Get current queue depth for adaptive budgeting
+    const queueDepthResult = await client.query(
+      `SELECT COUNT(*) as pending FROM reanalysis_job_queue WHERE execution_state = 'PENDING'`
+    );
+    const currentQueueDepth = queueDepthResult.rows[0].pending;
+
+    // Apply adaptive budgeting based on hardware capabilities
+    const hwService = getHardwareCapabilityService();
+    const adaptiveBudgetResult = await hwService.getAdaptiveBudget(
+      baselineBudget,
+      totalIndexes,
+      currentQueueDepth
+    );
+
+    const budgetMax = adaptiveBudgetResult.effectiveBudget;
+
+    // Create new budget entry with hardware-aware constraints
     const newBudgetResult = await client.query(
       `INSERT INTO reanalysis_budget_ledger (
         budget_date, total_indexes_in_corpus, budget_max_reanalyses,
