@@ -10,7 +10,7 @@ import { getApplicableOverrides, resolveOverride, disableExpiredOverrides, flagO
 import { recordDecisionLineage, computeDeterministicSignals, persistQueueHealthMetrics } from './decision-lineage-service';
 import { evaluateSemanticDrift, getDriftedDecisions, DriftSeverity } from './drift-detection-service';
 import { getSeasonalityBaselineService } from './seasonality-baseline-service';
-import { getConfidenceRecoveryService } from './confidence-recovery-service';
+import { recordDriftEvent, recordCleanSnapshot } from './confidence-recovery-service';
 import { getRiskWeightedSamplingService } from './risk-weighted-sampling-service';
 import { enqueueReanalysisJob } from './reanalysis-budget-service';
 import { query, transaction } from '../../../core/database/connection';
@@ -990,7 +990,6 @@ async function evaluateDriftForSnapshot(
 
     // Initialize services for drift evaluation with seasonality and recovery
     const seasonalityService = getSeasonalityBaselineService();
-    const confidenceRecoveryService = getConfidenceRecoveryService();
     const riskSamplingService = getRiskWeightedSamplingService();
 
     // Fetch all current decisions
@@ -1006,7 +1005,7 @@ async function evaluateDriftForSnapshot(
 
     let driftedCount = 0;
     let reanalyzedCount = 0;
-    const cleanSnapshots: Array<{ indexName: string; sourcetype: string | null }> = [];
+    const cleanSnapshots: Array<{ decisionId: string; snapshotDate: Date }> = [];
 
     // For each decision, compare to previous snapshot
     for (const decision of currentDecisions) {
@@ -1022,7 +1021,7 @@ async function evaluateDriftForSnapshot(
 
         if (prevResult.rows.length === 0) {
           // No previous snapshot — new index, no drift
-          cleanSnapshots.push({ indexName: decision.index_name, sourcetype: decision.sourcetype || null });
+          cleanSnapshots.push({ decisionId: decision.id, snapshotDate: new Date(snapshotDate) });
           continue;
         }
 
@@ -1092,7 +1091,7 @@ async function evaluateDriftForSnapshot(
                 utilizationSigma: seasonalViolation.utilizationSigmaDistance,
               }
             );
-            cleanSnapshots.push({ indexName: decision.index_name, sourcetype: decision.sourcetype || null });
+            cleanSnapshots.push({ decisionId: decision.id, snapshotDate: new Date(snapshotDate) });
           } else {
             driftedCount++;
             console.log(
@@ -1104,6 +1103,22 @@ async function evaluateDriftForSnapshot(
                 invalidated: driftResult.wasInvalidated,
               }
             );
+
+            // ── Record drift event with asymmetric recovery mechanics ──
+            // This updates historical drift count and sets recovery cooldown
+            try {
+              const penalizedConfidence = driftResult.confidenceEffective;
+              await recordDriftEvent(
+                client,
+                decision.id,
+                penalizedConfidence,
+                driftResult.confidencePenalty
+              );
+              console.log(`[Confidence Recovery] Recorded drift event for ${decision.index_name}: cooldown applied`);
+            } catch (e) {
+              console.warn(`[Confidence Recovery] Error recording drift event for ${decision.index_name}:`,
+                e instanceof Error ? e.message : e);
+            }
 
             if (driftResult.reanalysisTriggered) {
               reanalyzedCount++;
@@ -1125,7 +1140,7 @@ async function evaluateDriftForSnapshot(
             }
           }
         } else {
-          cleanSnapshots.push({ indexName: decision.index_name, sourcetype: decision.sourcetype || null });
+          cleanSnapshots.push({ decisionId: decision.id, snapshotDate: new Date(snapshotDate) });
         }
       } catch (e) {
         console.warn(`[Drift Detection] Error evaluating drift for ${decision.index_name}:`, e instanceof Error ? e.message : e);
@@ -1136,13 +1151,16 @@ async function evaluateDriftForSnapshot(
     // Indexes with no drift can begin recovering from previous penalties
     for (const snap of cleanSnapshots) {
       try {
-        await confidenceRecoveryService.recordCleanSnapshot(
+        const recoveryResult = await recordCleanSnapshot(
           client,
-          snap.indexName,
-          snap.sourcetype
+          snap.decisionId,
+          snap.snapshotDate
         );
+        if (recoveryResult.milestonesReached.length > 0) {
+          console.log(`[Confidence Recovery] ${snap.decisionId}: Recovered via ${recoveryResult.milestonesReached.length} milestones`);
+        }
       } catch (e) {
-        console.warn(`[Confidence Recovery] Error recording clean snapshot for ${snap.indexName}:`,
+        console.warn(`[Confidence Recovery] Error recording clean snapshot for ${snap.decisionId}:`,
           e instanceof Error ? e.message : e);
       }
     }
