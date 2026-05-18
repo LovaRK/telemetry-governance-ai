@@ -3,6 +3,10 @@ import { SplunkClient } from './splunk-client';
 import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/llm-decision-agent';
 import { loadUserConfig } from './config-service';
 import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics } from './splunk-queries-service';
+import { diffSnapshots, reuseDecisionsForUnchanged, persistDiffStats, persistMetadataHistory } from './snapshot-diff-service';
+import { computeDecisionStability } from './decision-stability-service';
+import { computeMetadataFingerprint } from './fingerprint-service';
+import { getApplicableOverrides, resolveOverride, disableExpiredOverrides, flagOverduesForReview } from './override-governance-service';
 import { query, transaction } from '../../../core/database/connection';
 import { enqueueJob } from './job-service';
 import { v4 as uuidv4 } from 'uuid';
@@ -46,6 +50,18 @@ export async function runAggregation(
   const userConfig = await loadUserConfig();
   const costPerGbPerDay = config.costPerGbPerDay ?? userConfig.costPerGbPerDay;
   console.log(`[Aggregation] Using cost model: $${costPerGbPerDay}/GB/day from user config`);
+
+  // Version tracking for reproducibility
+  const versions = {
+    llmVersion: process.env.LLM_VERSION || '1.0',
+    promptVersion: process.env.PROMPT_VERSION || '2.0',
+    modelVersion: process.env.MODEL_VERSION || 'gemma2:9b',
+    heuristicVersion: process.env.HEURISTIC_VERSION || '1.2',
+  };
+  console.log(`[Aggregation] Processing with versions:`, versions);
+
+  // Compute today's date for snapshot identification
+  const today = new Date().toISOString().split('T')[0];
 
   // ── Step 1: Fetch raw data from Splunk ──────────────────────────────────────
   const indexMetrics = await splunk.getIndexMetrics();
@@ -108,24 +124,66 @@ export async function runAggregation(
 
   console.log(`[Aggregation] Backpressure check passed: ${indexCount}/${MAX_INDEXES} indexes, ${sourcetypeCount}/${MAX_SOURCETYPES} sourcetypes`);
 
-  // ── Step 3: LLM agent makes ALL decisions ──────────────────────────────────
-  console.log(`[Aggregation] Sending ${allInputs.length} metrics to LLM decision agent...`);
-  const agentSummary = await runLLMDecisionAgent(allInputs, userConfig);
-  console.log(`[Aggregation] LLM agent completed. ${agentSummary.decisions.length} decisions received.`);
+  // ── Step 3: Incremental snapshot diffing ───────────────────────────────────
+  console.log(`[Aggregation] Starting incremental snapshot diffing...`);
+  const diffResult = await transaction(async (client) => {
+    // Auto-disable expired overrides and flag old ones for review
+    const expiredCount = await disableExpiredOverrides(client);
+    const overdueCount = await flagOverduesForReview(client);
+    if (expiredCount > 0 || overdueCount > 0) {
+      console.log(`[Aggregation] Governance maintenance: ${expiredCount} expired, ${overdueCount} flagged for review`);
+    }
+    return await diffSnapshots(client, allInputs, today, versions);
+  });
 
-  // ── Step 4: Persist decisions to DB ────────────────────────────────────────
-  const today = new Date().toISOString().split('T')[0];
+  console.log(`[Aggregation] Diffing results:`, diffResult.summaryStats);
+
+  // Only send changed/new to LLM (incremental processing)
+  const toProcess = [...diffResult.changed, ...diffResult.new];
+  console.log(`[Aggregation] Incremental processing: ${toProcess.length}/${allInputs.length} indexes need LLM re-analysis`);
+  console.log(`[Aggregation]   Unchanged: ${diffResult.summaryStats.unchangedCount} (will reuse decisions)`);
+  console.log(`[Aggregation]   Changed: ${diffResult.summaryStats.changedCount} (will re-analyze)`);
+  console.log(`[Aggregation]   New: ${diffResult.summaryStats.newCount} (will analyze)`);
+
+  // ── Step 4: LLM agent makes decisions for changed/new only ──────────────────
+  let agentSummary: any = { decisions: [], agentReasoning: 'No LLM processing needed' };
+
+  if (toProcess.length > 0) {
+    console.log(`[Aggregation] Sending ${toProcess.length} changed/new indexes to LLM decision agent...`);
+    agentSummary = await runLLMDecisionAgent(toProcess, userConfig);
+    console.log(`[Aggregation] LLM agent completed. ${agentSummary.decisions.length} decisions received.`);
+  } else {
+    console.log(`[Aggregation] All indexes unchanged - skipping LLM processing`);
+  }
+
+  // ── Step 5: Persist decisions to DB ────────────────────────────────────────
   let inserted = 0;
   let errors = 0;
 
   // Batch insert (50 rows per batch) with savepoint per batch
   const BATCH_SIZE = 50;
   const decisions = agentSummary.decisions;
+  // Note: 'today' already defined at the beginning of function
 
   await transaction(async (client) => {
     // Clear today's rows before inserting to avoid conflicts on re-run
     await client.query(`DELETE FROM telemetry_snapshots WHERE snapshot_date = $1`, [today]);
     await client.query(`DELETE FROM agent_decisions WHERE snapshot_date = $1`, [today]);
+
+    // Reuse decisions for unchanged indexes (incremental reuse)
+    if (diffResult.summaryStats.unchangedCount > 0) {
+      const previousDate = new Date(new Date(today).getTime() - 24 * 60 * 60 * 1000)
+        .toISOString().split('T')[0];
+      const reused = await reuseDecisionsForUnchanged(
+        client,
+        diffResult.unchanged,
+        previousDate,
+        snapshotId,
+        today,
+        versions
+      );
+      inserted += reused;
+    }
 
     for (let i = 0; i < decisions.length; i += BATCH_SIZE) {
       const batch = decisions.slice(i, i + BATCH_SIZE);
@@ -135,14 +193,39 @@ export async function runAggregation(
           const input = allInputs.find(
             (inp) => inp.index === decision.index && (inp.sourcetype || null) === (decision.sourcetype || null)
           );
+
+          // Compute metadata fingerprint for change detection
+          const metadataFingerprint = input ? computeMetadataFingerprint(input) : undefined;
+
+          // Apply override governance if applicable
+          const applicableOverrides = await getApplicableOverrides(
+            client,
+            decision.index,
+            decision.sourcetype || null,
+            snapshotId
+          );
+          let finalDecision = decision;
+          if (applicableOverrides.length > 0) {
+            const override = resolveOverride(applicableOverrides);
+            if (override) {
+              finalDecision = {
+                ...decision,
+                action: override.overrideAction,
+                tier: override.overrideTier || decision.tier,
+                reasoning: `Overridden: ${override.reasonCode} - ${override.reasonText}`,
+              };
+              console.log(`[Aggregation] Override applied to ${decision.index}: ${override.scopeType} scope (${override.scopeValue})`);
+            }
+          }
+
           console.log('[Aggregation] Processing decision for:', decision.index, {
             riskScore: decision.riskScore,
             confidenceScore: decision.confidenceScore,
             annualLicenseCost: decision.annualLicenseCost,
             utilScore: decision.utilizationScore
           });
-          await upsertDecision(client, decision, input, snapshotId, today);
-          await upsertAgentDecision(client, decision, snapshotId, today);
+          await upsertDecision(client, finalDecision, input, snapshotId, today);
+          await upsertAgentDecision(client, finalDecision, snapshotId, today, versions, metadataFingerprint);
           inserted++;
         }
       } catch (e) {
@@ -153,6 +236,24 @@ export async function runAggregation(
 
     // Persist executive KPIs
     await upsertExecutiveKpis(client, agentSummary, snapshotId, today);
+
+    // Persist snapshot metadata and diff stats (incremental processing tracking)
+    await persistDiffStats(client, {
+      snapshotId,
+      snapshotDate: today,
+      totalIndexes: allInputs.length,
+      unchangedIndexes: diffResult.summaryStats.unchangedCount,
+      changedIndexes: diffResult.summaryStats.changedCount,
+      newIndexes: diffResult.summaryStats.newCount,
+      removedIndexes: diffResult.summaryStats.removedCount,
+      llmVersion: versions.llmVersion,
+      promptVersion: versions.promptVersion,
+      modelVersion: versions.modelVersion,
+      heuristicVersion: versions.heuristicVersion,
+    });
+
+    // Persist metadata history for diffing in next snapshot
+    await persistMetadataHistory(client, allInputs, today, diffResult);
 
     // Update cache metadata
     await updateCacheMetadata(client, 'index_metrics', inserted);
@@ -183,7 +284,7 @@ export async function runAggregation(
       if (savedSearches.length > 0) {
         await client.query(`DELETE FROM search_audit WHERE snapshot_date = $1`, [today]);
         const archivedIndexes = new Set(
-          decisions.filter(d => d.action === 'ARCHIVE' || d.action === 'ELIMINATE').map(d => d.index)
+          decisions.filter((d: any) => d.action === 'ARCHIVE' || d.action === 'ELIMINATE').map((d: any) => d.index)
         );
         for (const s of savedSearches) {
           const isOrphan = s.isScheduled && !s.lastRun;
@@ -382,10 +483,21 @@ async function upsertAgentDecision(
   client: PoolClient,
   decision: LLMDecision,
   snapshotId: string,
-  today: string
+  today: string,
+  versions?: {
+    llmVersion: string;
+    promptVersion: string;
+    modelVersion: string;
+    heuristicVersion: string;
+  },
+  metadataFingerprint?: string
 ): Promise<void> {
   // Sanitize numeric fields
   const clean = sanitizeDecision(decision);
+
+  // Compute decision stability
+  const stability = await computeDecisionStability(client, clean.index, clean.sourcetype || null);
+  const processingStatus = stability.isUnstable ? 'unstable_decision' : 'changed';
 
   await client.query(
     `
@@ -397,8 +509,11 @@ async function upsertAgentDecision(
       annual_license_cost, estimated_savings,
       confidence, confidence_score,
       recommendation, reasoning, evidence,
-      is_quick_win, is_s3_candidate, detection_gap
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+      is_quick_win, is_s3_candidate, detection_gap,
+      metadata_fingerprint,
+      llm_version, prompt_version, model_version, heuristic_version,
+      last_llm_processed_at, decision_stability_score, processing_status
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
     ON CONFLICT (snapshot_id, index_name, sourcetype) DO UPDATE SET
       tier = EXCLUDED.tier,
       action = EXCLUDED.action,
@@ -417,6 +532,14 @@ async function upsertAgentDecision(
       is_quick_win = EXCLUDED.is_quick_win,
       is_s3_candidate = EXCLUDED.is_s3_candidate,
       detection_gap = EXCLUDED.detection_gap,
+      metadata_fingerprint = EXCLUDED.metadata_fingerprint,
+      llm_version = EXCLUDED.llm_version,
+      prompt_version = EXCLUDED.prompt_version,
+      model_version = EXCLUDED.model_version,
+      heuristic_version = EXCLUDED.heuristic_version,
+      last_llm_processed_at = EXCLUDED.last_llm_processed_at,
+      decision_stability_score = EXCLUDED.decision_stability_score,
+      processing_status = EXCLUDED.processing_status,
       updated_at = NOW()
 `,
     [
@@ -441,6 +564,14 @@ async function upsertAgentDecision(
       clean.isQuickWin,
       clean.isS3Candidate,
       clean.detectionGap,
+      metadataFingerprint || null,
+      versions?.llmVersion || '1.0',
+      versions?.promptVersion || '2.0',
+      versions?.modelVersion || 'gemma2:9b',
+      versions?.heuristicVersion || '1.2',
+      new Date(),
+      Math.round(stability.stabilityScore * 100),
+      processingStatus,
     ]
   );
 }
