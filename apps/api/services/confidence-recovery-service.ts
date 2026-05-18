@@ -13,6 +13,10 @@ export interface DecisionStabilityRun {
   confidenceAfterRecovery: number;
   recoveryVelocityFactor: number;
   lastPenaltyEventDate?: Date;
+  // Asymmetric recovery controls
+  historicalDriftCount: number; // Total drift events ever
+  recoveryCooldownUntil?: Date; // When recovery lock expires
+  oscillationMultiplier: number; // 1.0 / (1.0 + historicalDriftCount)
 }
 
 export interface ConfidenceRecoveryMilestone {
@@ -77,8 +81,9 @@ export async function getOrCreateStabilityRun(
       consecutive_clean_snapshots, last_clean_snapshot_date, drift_free_days,
       original_confidence, current_penalized_confidence,
       confidence_recovery_applied, confidence_after_recovery,
-      recovery_velocity_factor
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      recovery_velocity_factor,
+      historical_drift_count, recovery_cooldown_until, oscillation_multiplier
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     RETURNING *`,
     [
       decisionId,
@@ -91,6 +96,9 @@ export async function getOrCreateStabilityRun(
       0,
       originalConfidence,
       1.0,
+      0, // historical_drift_count starts at 0
+      null, // recovery_cooldown_until is null initially
+      1.0, // oscillation_multiplier starts at 1.0
     ]
   );
 
@@ -99,14 +107,19 @@ export async function getOrCreateStabilityRun(
 
 /**
  * Record a clean snapshot (no drift detected) and update stability metrics
+ * Respects asymmetric recovery: fast penalty, slow recovery with cooldowns
  */
 export async function recordCleanSnapshot(
   client: PoolClient,
   decisionId: string,
   snapshotDate: Date
-): Promise<{ run: DecisionStabilityRun; milestonesReached: ConfidenceRecoveryMilestone[] }> {
+): Promise<{ run: DecisionStabilityRun; milestonesReached: ConfidenceRecoveryMilestone[]; recoveryCooledDown: boolean }> {
   const run = await getOrCreateStabilityRun(client, decisionId, '', 0.5);
   const milestonesReached: ConfidenceRecoveryMilestone[] = [];
+
+  // Check if recovery cooldown is still active
+  const now = new Date();
+  const recoveryCooledDown = !run.recoveryCooldownUntil || now > run.recoveryCooldownUntil;
 
   // Increment consecutive clean snapshots
   const newConsecutive = run.consecutiveCleanSnapshots + 1;
@@ -114,57 +127,64 @@ export async function recordCleanSnapshot(
     (snapshotDate.getTime() - run.lastCleanSnapshotDate.getTime()) / (1000 * 60 * 60 * 24)
   );
 
-  // Check which recovery milestones have been reached
-  for (const threshold of STABLE_DAYS_THRESHOLDS) {
-    if (daysSinceOriginal >= threshold && daysSinceOriginal > run.driftFreeDays) {
-      // Reached new milestone
-      const recovery = RECOVERY_SCHEDULE[threshold];
-      const recoveryAmount = run.originalConfidence * recovery.percentage;
-      const newConfidence = run.currentPenalizedConfidence + recoveryAmount;
+  // Only attempt recovery if cooldown has expired
+  if (recoveryCooledDown) {
+    // Check which recovery milestones have been reached
+    for (const threshold of STABLE_DAYS_THRESHOLDS) {
+      if (daysSinceOriginal >= threshold && daysSinceOriginal > run.driftFreeDays) {
+        // Reached new milestone
+        const recovery = RECOVERY_SCHEDULE[threshold];
+        let recoveryAmount = run.originalConfidence * recovery.percentage;
 
-      const milestone: ConfidenceRecoveryMilestone = {
-        milestoneId: `${decisionId}-${threshold}d`,
-        runId: run.runId,
-        indexName: run.indexName,
-        stableDaysThreshold: threshold,
-        milestoneReachedAt: new Date(),
-        confidenceBefore: run.confidenceAfterRecovery,
-        recoveryAmount,
-        confidenceAfter: Math.min(newConfidence, run.originalConfidence),
-        milestoneType: getMilestoneType(threshold),
-      };
+        // Apply oscillation multiplier to throttle recovery on repeated drift systems
+        recoveryAmount *= run.oscillationMultiplier;
 
-      milestonesReached.push(milestone);
+        const newConfidence = run.currentPenalizedConfidence + recoveryAmount;
 
-      // Persist milestone
-      await client.query(
-        `INSERT INTO confidence_recovery_milestones (
-          run_id, index_name,
-          stable_days_threshold, milestone_reached_at,
-          confidence_before, recovery_amount, confidence_after,
-          milestone_type
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT DO NOTHING`,
-        [
-          run.runId,
-          run.indexName,
-          threshold,
-          milestone.milestoneReachedAt,
-          milestone.confidenceBefore,
-          milestone.recoveryAmount,
-          milestone.confidenceAfter,
-          milestone.milestoneType,
-        ]
-      );
+        const milestone: ConfidenceRecoveryMilestone = {
+          milestoneId: `${decisionId}-${threshold}d`,
+          runId: run.runId,
+          indexName: run.indexName,
+          stableDaysThreshold: threshold,
+          milestoneReachedAt: new Date(),
+          confidenceBefore: run.confidenceAfterRecovery,
+          recoveryAmount,
+          confidenceAfter: Math.min(newConfidence, run.originalConfidence),
+          milestoneType: getMilestoneType(threshold),
+        };
 
-      // Update run with new confidence
-      run.confidenceAfterRecovery = milestone.confidenceAfter;
-      run.confidenceRecoveryApplied += recoveryAmount;
+        milestonesReached.push(milestone);
+
+        // Persist milestone
+        await client.query(
+          `INSERT INTO confidence_recovery_milestones (
+            run_id, index_name,
+            stable_days_threshold, milestone_reached_at,
+            confidence_before, recovery_amount, confidence_after,
+            milestone_type
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT DO NOTHING`,
+          [
+            run.runId,
+            run.indexName,
+            threshold,
+            milestone.milestoneReachedAt,
+            milestone.confidenceBefore,
+            milestone.recoveryAmount,
+            milestone.confidenceAfter,
+            milestone.milestoneType,
+          ]
+        );
+
+        // Update run with new confidence
+        run.confidenceAfterRecovery = milestone.confidenceAfter;
+        run.confidenceRecoveryApplied += recoveryAmount;
+      }
     }
   }
 
   // Update stability run
-  const velocityFactor = 0.05 * Math.log(newConsecutive + 1);
+  const velocityFactor = 0.05 * Math.log(newConsecutive + 1) * run.oscillationMultiplier;
   const updatedRun = await client.query(
     `UPDATE decision_stability_runs SET
       consecutive_clean_snapshots = $1,
@@ -189,11 +209,13 @@ export async function recordCleanSnapshot(
   return {
     run: parseStabilityRun(updatedRun.rows[0]),
     milestonesReached,
+    recoveryCooledDown,
   };
 }
 
 /**
- * Record a drift event (penalty) and reset stability metrics
+ * Record a drift event (penalty) and implement asymmetric recovery cooldown
+ * Asymmetric: penalties are immediate, recovery is slow and gets slower with repeated drift
  */
 export async function recordDriftEvent(
   client: PoolClient,
@@ -203,15 +225,38 @@ export async function recordDriftEvent(
 ): Promise<DecisionStabilityRun> {
   const run = await getOrCreateStabilityRun(client, decisionId, '', 0.5);
 
+  // Increment historical drift count
+  const newDriftCount = run.historicalDriftCount + 1;
+
+  // Calculate recovery cooldown: each drift adds 7 days to the lock
+  // Formula: cooldownUntil = NOW + (historicalDriftCount * 7 days)
+  const cooldownMs = newDriftCount * 7 * 24 * 60 * 60 * 1000;
+  const recoveryCooldownUntil = new Date(Date.now() + cooldownMs);
+
+  // Calculate oscillation multiplier: 1.0 / (1.0 + historicalDriftCount)
+  // This throttles recovery velocity: first drift allows recovery, subsequent drifts throttle it
+  // Pattern: 1.0 → 0.5 → 0.33 → 0.25 → ...
+  const oscillationMultiplier = 1.0 / (1.0 + newDriftCount);
+
   // Reset consecutive clean snapshots
   const updatedRun = await client.query(
     `UPDATE decision_stability_runs SET
       consecutive_clean_snapshots = 0,
       current_penalized_confidence = $1,
-      last_penalty_event_date = $2
-    WHERE decision_id = $3
+      last_penalty_event_date = $2,
+      historical_drift_count = $3,
+      recovery_cooldown_until = $4,
+      oscillation_multiplier = $5
+    WHERE decision_id = $6
     RETURNING *`,
-    [newPenalizedConfidence, new Date(), decisionId]
+    [
+      newPenalizedConfidence,
+      new Date(),
+      newDriftCount,
+      recoveryCooldownUntil,
+      oscillationMultiplier,
+      decisionId,
+    ]
   );
 
   return parseStabilityRun(updatedRun.rows[0]);
@@ -404,6 +449,9 @@ function parseStabilityRun(row: any): DecisionStabilityRun {
     confidenceAfterRecovery: parseFloat(row.confidence_after_recovery),
     recoveryVelocityFactor: parseFloat(row.recovery_velocity_factor),
     lastPenaltyEventDate: row.last_penalty_event_date ? new Date(row.last_penalty_event_date) : undefined,
+    historicalDriftCount: row.historical_drift_count || 0,
+    recoveryCooldownUntil: row.recovery_cooldown_until ? new Date(row.recovery_cooldown_until) : undefined,
+    oscillationMultiplier: parseFloat(row.oscillation_multiplier || '1.0'),
   };
 }
 
