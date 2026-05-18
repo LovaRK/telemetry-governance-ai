@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "outDir": "./dist",
+    "rootDir": "./",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["apps/api/*"],
+      "@api/*": ["apps/api/*"],
+      "@core/*": ["core/*"],
+      "@agents/*": ["agents/*"],
+      "@tools/*": ["tools/*"]
+    }
+  },
+  "include": ["apps/**/*.ts", "core/**/*.ts"],
+  "exclude": ["node_modules", "dist", ".next"]
+}
