@@ -223,9 +223,11 @@
 - security_coverage triggers when decision.detection_gap = true (none found in current data)
 
 ### Advanced Visualizations (WEEK 3)
-- [ ] Line/trend charts (historical KPI trends) 
+- [x] Line/trend charts (historical KPI trends) — 7-day trends for ROI, GainScope, Savings, Ingest
 - [ ] Heat maps (activity patterns)
 - [ ] Sankey diagram (data flow and decisions) — component exists, needs wiring to real data
+- [ ] 30/90 day trend views (toggle options)
+- [ ] Trend drill-down (click trends to see decision changes)
 
 ---
 
