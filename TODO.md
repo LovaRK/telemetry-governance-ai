@@ -635,7 +635,7 @@
 
 ---
 
-#### Phase 6: Governance Observability (STARTED — May 18, 2026)
+#### Phase 6: Governance Observability (COMPLETE — May 18, 2026)
 
 **Objective:** Build operational visibility into governance mutations, telemetry, and health
 
@@ -673,6 +673,59 @@
   - [x] Real-time events stream with severity indicators
   - [x] Mutation statistics and error breakdown
   - [x] Time range selector (1h/24h/7d)
+
+---
+
+#### Phase 6.1: Causality & Cache Coherence Instrumentation (IN PROGRESS — May 18, 2026)
+
+**Objective:** Production-grade causal tracing, cache coherence metrics, mutation lifecycle tracking, replay authorization boundaries, and operator anonymization
+
+**Part 1: Database Schema Extension (COMPLETE)**
+- [x] Migration 103_phase6_1_causality_and_coherence.sql:
+  - [x] governance_mutation_journal extended: correlation_id, causal_parent_id, trace_id, span_id, parent_span_id, session_id
+  - [x] cache_coherence_telemetry: Track invalidation latency, stale render duration, UI/server divergence (total_divergence_window_ms, is_divergent flag)
+  - [x] mutation_lifecycle_events: 10-stage progression (INTENT_RECEIVED → OPERATOR_ACKNOWLEDGED) with state transitions and timing
+  - [x] governance_replay_journal: Triple-gate authorization (RBAC, temporal boundary, state-match), replay scopes, rate limiting
+  - [x] operator_identity_mapping: SHA-256 anonymization with monthly token rotation, data retention controls
+  - [x] Views: operator_activity_anonymous, cache_coherence_health, mutation_lifecycle_analysis
+
+**Part 2: Service Layer (IN PROGRESS)**
+- [x] governance-causality-service.ts:
+  - [x] generateCorrelationContext(): Create correlation_id fabric (corr_[timestamp]_[entropy])
+  - [x] extendCorrelationContext(): Support nested mutations with parent span references
+  - [x] calculateCacheCoherenceMetrics(): Measure full mutation-to-UI-reconciliation latency
+  - [x] createLifecycleEvent(): Track 10-stage mutation progression
+  - [x] authorizeReplay(): Enforce triple-gate replay boundaries
+  - [x] anonymizeOperatorId(): SHA-256 hashing with rotating salt cluster
+  - [x] verifyAnonymizedToken(): Compliance audit verification
+
+**Part 3: API Endpoints (IN PROGRESS)**
+- [x] POST /api/governance/trace: Register correlation context at mutation origin
+- [x] POST /api/governance/cache-coherence: Record cache invalidation latency metrics
+- [x] POST /api/governance/mutation-lifecycle: Track state transitions with duration
+- [x] POST /api/governance/replay: Authorize and execute replay requests with triple-gate enforcement
+- [x] GET /api/governance/replay: Query replay audit trail
+
+**Part 4: React Integration & Cache Coherence Monitoring (IN PROGRESS)**
+- [x] useCacheCoherenceMonitor(): Hook for TanStack Query instrumentation
+  - [x] recordInvalidation(): Called when cache invalidation starts
+  - [x] recordRefetch(): Called when refetch completes
+  - [x] recordUiReconciliation(): Called when React reconciles
+  - [x] Automatic coherence metrics recording to backend
+- [x] useQueryWithCacheCoherence(): Attach correlation ID to query metadata
+- [x] Update useTelemetryWrappedMutations():
+  - [x] Inject correlation context at mutation origin
+  - [x] Record lifecycle states (INTENT_RECEIVED, STATE_PERSISTED, QUERY_INVALIDATED, etc.)
+  - [x] Track cache coherence metrics for full mutation lifecycle
+
+**Part 5: Operator Anonymization Middleware (IN PROGRESS)**
+- [x] operator-anonymization.ts:
+  - [x] Anonymize operator IDs before database storage
+  - [x] Maintain operator_identity_mapping for compliance audit
+  - [x] Support monthly salt rotation
+  - [x] Query operator activity without PII linkage
+
+**Phase 6.1 Status:** ✅ Infrastructure complete, Integration in progress
 
 ---
 
