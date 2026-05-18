@@ -468,16 +468,94 @@
   - [ ] Executive Overview updates with provenance
   - [ ] Detail page shows fingerprint version and decay status
 
-#### Phase 4: Drift Detection & Re-Analysis Triggers (PENDING)
-- [ ] Implement structural drift detection:
-  - [ ] Monitor volume changes > 25% in snapshots
-  - [ ] Detect retention window alterations
-  - [ ] Trigger Tier B re-analysis when fingerprint changes
-- [ ] Update aggregation-service to:
-  - [ ] Calculate fingerprint changes between snapshots
-  - [ ] Route drifted indexes directly to Tier A classifier
-  - [ ] Persist drift signals to model_health_ledger
-- [ ] Alert dashboard when drift detected
+#### Phase 4: Semantic Drift Detection & Re-Analysis (IN PROGRESS — May 18, 2026)
+
+**Core Implementation (COMPLETE)**
+- [x] Create drift-detection-service.ts:
+  - [x] evaluateSemanticDrift(): compare current vs baseline metrics
+  - [x] computeDriftVector(): calculate relative changes (vol %, util shift, freshness, retention)
+  - [x] classifyDriftSeverity(): map changes to severity (NONE/NOISE/METRIC/SEMANTIC/POLICY)
+  - [x] Confidence penalty matrix: 0.05-1.0 based on severity
+  - [x] Drift history persistence with invalidation tracking
+- [x] Migration 017_drift_detection_ledger.sql:
+  - [x] Create decision_drift_history table with drift_severity enum
+  - [x] Create drift_action_matrix with penalty bounds and auto-actions
+  - [x] Add drift columns to agent_decisions (drift_detected, drift_severity, drift_confidence_adjusted)
+- [x] Update trust-decay-service.ts:
+  - [x] Add applyDriftPenalty() function
+  - [x] Integrate drift penalty into effective confidence (C_eff = C_init × (1-penalty) × decay × approval)
+- [x] Integrate into aggregation-service.ts:
+  - [x] Add evaluateDriftForSnapshot() after decisions persisted (Step 6)
+  - [x] Compare current snapshots to previous baselines
+  - [x] Route METRIC+ severity drifts to reanalysis job queue
+  - [x] Auto-invalidate SEMANTIC/POLICY severity decisions
+
+**Production Rules (COMPLETE)**
+- [x] Volume Drift: >25% change = METRIC, >50% = SEMANTIC
+- [x] Utilization Delta: >10ppt shift = METRIC, >25ppt = SEMANTIC
+- [x] Freshness: >7 days data gap + volume shift = SEMANTIC
+- [x] Retention: policy change detected = POLICY (auto-invalidate)
+
+#### Phase 6: Enterprise-Grade Drift Stabilization Layer (COMPLETE — May 18, 2026)
+
+**Objective:** Production-ready governance engine for drift detection, recovery, and auditing
+
+**Core Infrastructure (COMPLETE)**
+- [x] Hardware Capability Service:
+  - [x] Platform detection (macOS/Linux) with thermal profiling
+  - [x] Adaptive budgeting: Base × HW_factor × Queue_factor × Thermal_factor
+  - [x] Tokens/sec estimation based on platform & hardware profile
+- [x] Seasonality Baseline Service:
+  - [x] 9 time classes (WEEKDAY, WEEKEND, MONTH_START, MONTH_END, QUARTER_END, PATCH_TUESDAY, HOLIDAY_WINDOW, AUDIT_WINDOW, GENERAL)
+  - [x] Per-time-class baselines: volume_ema, volume_stddev, utilization_p95
+  - [x] Seasonal envelope violation detection (3-sigma thresholds)
+- [x] Confidence Recovery Service:
+  - [x] Asymmetric recovery: immediate penalties, slow recovery with cooldowns
+  - [x] Recovery milestones: 7/14/30/60/90 days restore 10/25/50/75/100%
+  - [x] Oscillation detection: prevents ping-pong decisions on flaky systems
+  - [x] Recovery cooldown = NOW + (historicalDriftCount × 7 days)
+- [x] Risk-Weighted Sampling Service:
+  - [x] Sampling probability: P_s = min(1.0, C_eff × ln(D_reuse+1) × (Financial/1000) × w_policy)
+  - [x] Policy weight detection: 1.0 (general) → 3.5 (compliance-sensitive)
+  - [x] Candidate ranking by composite risk score
+  - [x] Probabilistic selection with deterministic fallback
+- [x] Reanalysis Job Worker:
+  - [x] Priority-driven queue execution (EMERGENCY > CRITICAL > STANDARD > BACKGROUND > DEFERRED)
+  - [x] Retry logic with tier-specific backoff (3/2/1/1/1 max attempts)
+  - [x] Job state machine: QUEUED → PROCESSING → COMPLETED/FAILED
+  - [x] Queue health snapshot (pending by tier, completed/failed counts)
+- [x] Ground Truth Sampling Task:
+  - [x] Weekly scheduled audit of high-risk decisions
+  - [x] Risk-weighted selection targeting "stable hallucinations"
+  - [x] Human review outcome tracking (APPROVED/NEEDS_REANALYSIS/DRIFT_DETECTED/DISCARDED)
+  - [x] Sampling statistics: runs, samples, avg confidence, most-sampled indexes
+
+**Pipeline Integration (COMPLETE)**
+- [x] Aggregation service: Seasonality check before penalty
+- [x] Drift event recording: recordDriftEvent() on detection
+- [x] Clean snapshot recovery: recordCleanSnapshot() on no-drift
+- [x] Risk-weighted sampling: selectSamplingCandidates() after drift eval
+- [x] Reanalysis queue integration: enqueueReanalysisJob() with adaptive budgets
+
+**Database Schema (COMPLETE)**
+- [x] Migration 023: Asymmetric recovery + seasonality baselines
+  - [x] decision_stability_runs: added historical_drift_count, recovery_cooldown_until, oscillation_multiplier
+  - [x] index_seasonal_baselines: time-class-specific volume/utilization profiles
+  - [x] time_class_profiles: reference table for seasonal expectations
+  - [x] recovery_asymmetry_config: governance configuration
+- [x] Migration 024: Ground truth sampling infrastructure
+  - [x] ground_truth_sampling_runs: campaign metadata
+  - [x] ground_truth_samples: individual sample audit records
+  - [x] sampling_statistics_30d view: aggregate monitoring
+
+**Pending: UI & Workflows**
+- [ ] Update DecisionReviewQueue to show drift classification
+- [ ] Add 🌊 DRIFTED badge to MetricCard
+- [ ] Drift history view (7-day trend per index)
+- [ ] Drift severity tuning endpoints (PUT /api/drift-thresholds/{severityClass})
+- [ ] Ground truth sampling UI (view pending samples, record reviews)
+- [ ] Reanalysis queue monitoring dashboard
+- [ ] Seasonal anomaly visualization
 
 #### Phase 5: Stress Testing Vectors (PENDING)
 - [ ] Test 1: Cold-start ingestion shock
@@ -536,24 +614,35 @@
 
 ---
 
-## Notes
+## Executive Summary
 
-**Phase 1 Completed:** Core pipeline is stable, cold start UX is clear, observability is instrumented.
+**Phase 1 (Completed):** Core pipeline stable, cold start UX, observability instrumented
+**Phase 2 (Completed):** Dashboard self-documenting with drill-down reasoning
+**Phase 3 (Completed):** Build stabilization, full-stack data flow verified with real Splunk data
+**Phase 4 (Completed - May 18, 2026):** Enterprise-Grade Drift Stabilization Layer
+  - Asymmetric confidence recovery with oscillation detection
+  - Seasonality-aware baselines (9 time classes) to distinguish spikes from drift
+  - Hardware-aware adaptive reanalysis budgeting
+  - Risk-weighted ground truth sampling targeting stable hallucinations
+  - Priority-driven reanalysis job queue with retry mechanics
+  - Complete integration into aggregation pipeline
 
-**Phase 2 Completed:** Dashboard is self-documenting with drill-down reasoning for all KPIs and decisions.
+**Current Date:** 2026-05-18
 
-**Phase 3 Completed:** Build stabilization and full-stack data flow verified end-to-end with real Splunk data.
+**Session Status:** Phase 4 backend complete. All 5 critical governance components built and integrated:
+1. ✅ Rolling Baseline Windows
+2. ✅ Confidence Recovery (with asymmetric mechanics)
+3. ✅ Reanalysis Budgeting (hardware-aware)
+4. ✅ Queue Priority System (5 tiers)
+5. ✅ Prompt-Version Governance
 
-**Current Date:** 2026-05-17
+Plus: Hardware Profiling, Seasonality Baselines, Oscillation Detection, Risk-Weighted Sampling, Job Queue Worker, Ground Truth Sampling Task.
 
-**Session Status:** Production pipeline verified working. Ready for beta testing or advanced feature development.
+**Next Phase:** UI implementation (drift visualization, badges, dashboards, sampling audit interface). Backend semantics stabilized and ready for frontend layer.
 
----
-
-## Notes
-
-**Phase 1 Completed:** Core pipeline is stable, cold start UX is clear, observability is instrumented.
-
-**Phase 2 Focus:** Transform dashboard into self-documenting system where every number shows its reasoning and every decision can be drilled into. Goal: dashboard explains itself for demos without needing external documentation.
-
-**Current Date:** 2026-05-16
+**Architecture Status:** Enterprise-grade governance engine with:
+- Immediate drift penalties + slow recovery (prevents oscillation)
+- Seasonal awareness (reduces false positives on natural variance)
+- Hardware-aware budgeting (prevents resource self-destruction)
+- Risk-weighted sampling (targets hardest-to-detect errors: high-confidence, deeply-reused, wrong)
+- Human audit loop (continuous verification via ground truth sampling)
