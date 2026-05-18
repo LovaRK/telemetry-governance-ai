@@ -7,9 +7,11 @@ import { diffSnapshots, reuseDecisionsForUnchanged, persistDiffStats, persistMet
 import { computeDecisionStability } from './decision-stability-service';
 import { computeMetadataFingerprint } from './fingerprint-service';
 import { getApplicableOverrides, resolveOverride, disableExpiredOverrides, flagOverduesForReview } from './override-governance-service';
+import { recordDecisionLineage, computeDeterministicSignals, persistQueueHealthMetrics } from './decision-lineage-service';
 import { query, transaction } from '../../../core/database/connection';
 import { enqueueJob } from './job-service';
 import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 
 export interface FastAggregationResult {
   snapshotId: string;
@@ -226,6 +228,32 @@ export async function runAggregation(
           });
           await upsertDecision(client, finalDecision, input, snapshotId, today);
           await upsertAgentDecision(client, finalDecision, snapshotId, today, versions, metadataFingerprint);
+
+          // Record decision lineage with full provenance
+          if (input) {
+            const deterministic = computeDeterministicSignals(input, undefined, costPerGbPerDay);
+            const promptHash = crypto.createHash('sha256').update(versions.promptVersion).digest('hex');
+            const cognitive = {
+              model: versions.modelVersion,
+              model_version: versions.modelVersion,
+              prompt_hash: promptHash,
+              temperature: 0.7,
+              confidence_score: finalDecision.confidenceScore,
+              reasoning: finalDecision.reasoning,
+              inference_tokens: 0,
+              latency_ms: 0,
+            };
+
+            await recordDecisionLineage(client, {
+              snapshot_id: snapshotId,
+              index_name: finalDecision.index,
+              sourcetype: finalDecision.sourcetype || null,
+              deterministic_signals: deterministic,
+              cognitive_signals: cognitive,
+              decision_status: 'PROPOSED',
+            });
+          }
+
           inserted++;
         }
       } catch (e) {
@@ -236,6 +264,21 @@ export async function runAggregation(
 
     // Persist executive KPIs
     await upsertExecutiveKpis(client, agentSummary, snapshotId, today);
+
+    // Persist queue health metrics (platform observability)
+    const decisions = agentSummary.decisions || [];
+    const highConfidence = decisions.filter((d: any) => Number(d.confidenceScore) >= 0.95).length;
+    const mediumConfidence = decisions.filter((d: any) => Number(d.confidenceScore) >= 0.70 && Number(d.confidenceScore) < 0.95).length;
+    const lowConfidence = decisions.filter((d: any) => Number(d.confidenceScore) < 0.70).length;
+
+    await persistQueueHealthMetrics(client, snapshotId, today, {
+      unchangedIndexes: diffResult.summaryStats.unchangedCount,
+      totalIndexes: allInputs.length,
+      candidatesSentToAi: toProcess.length,
+      highConfidenceProposals: highConfidence,
+      mediumConfidenceProposals: mediumConfidence,
+      lowConfidenceProposals: lowConfidence,
+    });
 
     // Persist snapshot metadata and diff stats (incremental processing tracking)
     await persistDiffStats(client, {
