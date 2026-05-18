@@ -1,20 +1,20 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect } from 'react';
 
 export interface ReasoningDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  title: string;
-  metric?: string;
+  title: string;                       // e.g. "ROI Score: 72"
+  metric?: string;                      // e.g. "roi_score"
   value?: string | number;
-  howCalculated?: string;
-  llmReasoning?: string;
-  evidence?: string[];
-  confidence?: number;
-  tier?: string;
-  action?: string;
-  rawData?: Record<string, unknown>;
+  howCalculated?: string;              // Human-readable formula or explanation
+  llmReasoning?: string;               // Full reasoning text from agent
+  evidence?: string[];                 // Evidence array
+  confidence?: number;                 // 0-100 for display
+  tier?: string;                       // CRITICAL, IMPORTANT, etc.
+  action?: string;                     // KEEP, OPTIMIZE, ARCHIVE, etc.
+  rawData?: Record<string, unknown>;   // Raw numbers LLM saw
 }
 
 export default function ReasoningDrawer({
@@ -23,15 +23,34 @@ export default function ReasoningDrawer({
   title,
   metric,
   value,
-  howCalculated,
+  howCalculated = 'Details about this metric',
   llmReasoning,
-  evidence,
+  evidence = [],
   confidence,
   tier,
   action,
   rawData,
 }: ReasoningDrawerProps) {
-  const [expandedRawData, setExpandedRawData] = useState(false);
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  // Prevent body scroll when drawer is open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -41,10 +60,12 @@ export default function ReasoningDrawer({
       <div
         style={{
           position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
           zIndex: 999,
-          backdropFilter: 'blur(4px)',
         }}
         onClick={onClose}
       />
@@ -57,58 +78,65 @@ export default function ReasoningDrawer({
           top: 0,
           bottom: 0,
           width: 420,
-          backgroundColor: '#0f172a',
-          boxShadow: '-4px 0 16px rgba(0, 0, 0, 0.4)',
+          background: '#0f172a',
+          borderLeft: '1px solid #1e293b',
+          boxShadow: '-4px 0 24px rgba(0,0,0,0.5)',
           zIndex: 1000,
-          overflow: 'auto',
           display: 'flex',
           flexDirection: 'column',
-          animation: 'slideInRight 0.3s ease-out',
+          overflow: 'hidden',
         }}
       >
-        <style>{`
-          @keyframes slideInRight {
-            from {
-              transform: translateX(100%);
-            }
-            to {
-              transform: translateX(0);
-            }
-          }
-        `}</style>
-
         {/* Header */}
         <div
           style={{
-            padding: '24px',
-            borderBottom: '1px solid rgba(51, 65, 85, 0.5)',
+            padding: '1.5rem',
+            borderBottom: '1px solid #1e293b',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'flex-start',
+            gap: '1rem',
+            flexShrink: 0,
           }}
         >
           <div>
-            <h2
-              style={{
-                margin: 0,
-                fontSize: '18px',
-                fontWeight: 600,
-                color: '#f1f5f9',
-              }}
-            >
+            <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              {metric}
+            </div>
+            <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc', marginTop: '0.25rem' }}>
               {title}
-            </h2>
-            {value !== undefined && (
-              <p
-                style={{
-                  margin: '8px 0 0 0',
-                  fontSize: '24px',
-                  fontWeight: 700,
-                  color: '#00d9ff',
-                }}
-              >
-                {value}
-              </p>
+            </div>
+            {(tier || action) && (
+              <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
+                {tier && (
+                  <span
+                    style={{
+                      fontSize: '0.7rem',
+                      padding: '0.25rem 0.5rem',
+                      background: '#3b82f620',
+                      color: '#3b82f6',
+                      borderRadius: 4,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {tier}
+                  </span>
+                )}
+                {action && (
+                  <span
+                    style={{
+                      fontSize: '0.7rem',
+                      padding: '0.25rem 0.5rem',
+                      background: '#8b5cf620',
+                      color: '#8b5cf6',
+                      borderRadius: 4,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {action}
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
@@ -118,8 +146,8 @@ export default function ReasoningDrawer({
             style={{
               background: 'none',
               border: 'none',
-              color: '#94a3b8',
-              fontSize: '24px',
+              color: '#64748b',
+              fontSize: '1.5rem',
               cursor: 'pointer',
               padding: 0,
               width: 32,
@@ -127,178 +155,93 @@ export default function ReasoningDrawer({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              flexShrink: 0,
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = '#cbd5e1')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = '#94a3b8')}
           >
-            ✕
+            ×
           </button>
         </div>
 
-        {/* Content */}
+        {/* Scrollable Content */}
         <div
           style={{
-            flex: 1,
             overflow: 'auto',
-            padding: '24px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '24px',
+            flex: 1,
+            padding: '1.5rem',
           }}
         >
-          {/* Tier & Action */}
-          {(tier || action) && (
-            <div style={{ display: 'flex', gap: '12px' }}>
-              {tier && (
-                <div
-                  style={{
-                    display: 'inline-block',
-                    padding: '4px 12px',
-                    backgroundColor: getTierColor(tier),
-                    color: '#fff',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '4px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                  }}
-                >
-                  Tier: {tier}
-                </div>
-              )}
-              {action && (
-                <div
-                  style={{
-                    display: 'inline-block',
-                    padding: '4px 12px',
-                    backgroundColor: getActionColor(action),
-                    color: '#fff',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    borderRadius: '4px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                  }}
-                >
-                  Action: {action}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* How Calculated */}
-          {howCalculated && (
-            <div>
-              <h3
-                style={{
-                  margin: '0 0 12px 0',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: '#cbd5e1',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                }}
-              >
-                How This Was Calculated
-              </h3>
-              <div
-                style={{
-                  padding: '12px',
-                  backgroundColor: 'rgba(15, 23, 42, 0.8)',
-                  border: '1px solid rgba(51, 65, 85, 0.5)',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  color: '#cbd5e1',
-                  lineHeight: '1.6',
-                  fontFamily: 'monospace',
-                }}
-              >
-                {howCalculated}
-              </div>
+          <div style={{ marginBottom: '2rem' }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              How This Was Calculated
             </div>
-          )}
+            <div
+              style={{
+                padding: '1rem',
+                background: '#1e293b',
+                border: '1px solid #334155',
+                borderRadius: 8,
+                fontFamily: 'monospace',
+                fontSize: '0.8rem',
+                color: '#cbd5e1',
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {howCalculated}
+            </div>
+          </div>
 
           {/* Confidence */}
           {confidence !== undefined && (
-            <div>
-              <h3
-                style={{
-                  margin: '0 0 8px 0',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: '#cbd5e1',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                }}
-              >
-                Confidence
-              </h3>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                }}
-              >
+            <div style={{ marginBottom: '2rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Confidence Score
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                 <div
                   style={{
                     flex: 1,
-                    height: '8px',
-                    backgroundColor: 'rgba(51, 65, 85, 0.5)',
-                    borderRadius: '4px',
+                    height: 8,
+                    background: '#334155',
+                    borderRadius: 4,
                     overflow: 'hidden',
                   }}
                 >
                   <div
                     style={{
                       height: '100%',
-                      width: `${Math.min(100, confidence * 100)}%`,
-                      backgroundColor: getConfidenceColor(confidence),
-                      transition: 'width 0.2s ease',
+                      width: `${confidence}%`,
+                      background: confidence >= 80 ? '#22c55e' : confidence >= 50 ? '#f59e0b' : '#ef4444',
+                      transition: 'width 0.3s ease',
                     }}
                   />
                 </div>
-                <span
-                  style={{
-                    fontSize: '13px',
-                    color: '#94a3b8',
-                    minWidth: '40px',
-                  }}
-                >
-                  {Math.round(confidence * 100)}%
-                </span>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#cbd5e1', minWidth: '3rem' }}>
+                  {Math.round(confidence)}%
+                </div>
               </div>
             </div>
           )}
 
           {/* LLM Reasoning */}
           {llmReasoning && (
-            <div>
-              <h3
-                style={{
-                  margin: '0 0 12px 0',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: '#cbd5e1',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                }}
-              >
+            <div style={{ marginBottom: '2rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 LLM Reasoning
-              </h3>
+              </div>
               <div
                 style={{
-                  padding: '12px',
-                  backgroundColor: 'rgba(15, 23, 42, 0.8)',
-                  border: '1px solid rgba(51, 65, 85, 0.5)',
-                  borderRadius: '6px',
-                  fontSize: '13px',
+                  padding: '1rem',
+                  background: '#1e293b',
+                  border: '1px solid #334155',
+                  borderRadius: 8,
+                  fontSize: '0.8rem',
                   color: '#cbd5e1',
-                  lineHeight: '1.7',
+                  lineHeight: 1.7,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
-                  maxHeight: '300px',
-                  overflow: 'auto',
                 }}
               >
                 {llmReasoning}
@@ -307,138 +250,75 @@ export default function ReasoningDrawer({
           )}
 
           {/* Evidence */}
-          {evidence && evidence.length > 0 && (
-            <div>
-              <h3
-                style={{
-                  margin: '0 0 12px 0',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: '#cbd5e1',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                }}
-              >
+          {evidence.length > 0 && (
+            <div style={{ marginBottom: '2rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Evidence
-              </h3>
-              <ul
-                style={{
-                  margin: 0,
-                  padding: '0 0 0 20px',
-                  listStyle: 'disc',
-                }}
-              >
-                {evidence.map((item, idx) => (
-                  <li
-                    key={idx}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {evidence.map((e, i) => (
+                  <div
+                    key={i}
                     style={{
-                      fontSize: '13px',
+                      padding: '0.75rem',
+                      background: '#1e293b',
+                      border: '1px solid #334155',
+                      borderRadius: 6,
+                      fontSize: '0.8rem',
                       color: '#cbd5e1',
-                      marginBottom: '8px',
-                      lineHeight: '1.6',
                     }}
                   >
-                    {item}
-                  </li>
+                    <span style={{ color: '#64748b', marginRight: '0.5rem' }}>•</span>
+                    {e}
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
 
-          {/* Raw Data (Optional, Expandable) */}
-          {rawData && (
-            <div>
-              <button
-                onClick={() => setExpandedRawData(!expandedRawData)}
+          {/* Raw Data */}
+          {rawData && Object.keys(rawData).length > 0 && (
+            <div style={{ marginBottom: '2rem' }}>
+              <details
                 style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  color: '#00d9ff',
-                  fontSize: '13px',
-                  fontWeight: 600,
                   cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                  marginBottom: '12px',
                 }}
               >
-                <span
+                <summary
                   style={{
-                    display: 'inline-block',
-                    transition: 'transform 0.2s ease',
-                    transform: expandedRawData ? 'rotate(90deg)' : 'rotate(0deg)',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: '#cbd5e1',
+                    marginBottom: '0.75rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em',
+                    userSelect: 'none',
                   }}
                 >
-                  ▶
-                </span>
-                Raw Data LLM Received
-              </button>
-
-              {expandedRawData && (
-                <pre
+                  Raw Data LLM Received
+                </summary>
+                <div
                   style={{
-                    padding: '12px',
-                    backgroundColor: 'rgba(15, 23, 42, 0.8)',
-                    border: '1px solid rgba(51, 65, 85, 0.5)',
-                    borderRadius: '6px',
-                    fontSize: '11px',
+                    marginTop: '0.75rem',
+                    padding: '1rem',
+                    background: '#1e293b',
+                    border: '1px solid #334155',
+                    borderRadius: 8,
+                    fontFamily: 'monospace',
+                    fontSize: '0.75rem',
                     color: '#cbd5e1',
                     overflow: 'auto',
-                    margin: 0,
-                    fontFamily: 'monospace',
-                    lineHeight: '1.5',
                   }}
                 >
-                  {JSON.stringify(rawData, null, 2)}
-                </pre>
-              )}
+                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {JSON.stringify(rawData, null, 2)}
+                  </pre>
+                </div>
+              </details>
             </div>
           )}
         </div>
       </div>
     </>
   );
-}
-
-// Helper functions for colors
-function getTierColor(tier: string): string {
-  switch (tier?.toUpperCase()) {
-    case 'CRITICAL':
-      return '#dc2626';
-    case 'IMPORTANT':
-      return '#f97316';
-    case 'NICE_TO_HAVE':
-      return '#eab308';
-    case 'LOW_VALUE':
-      return '#64748b';
-    default:
-      return '#64748b';
-  }
-}
-
-function getActionColor(action: string): string {
-  switch (action?.toUpperCase()) {
-    case 'KEEP':
-      return '#059669';
-    case 'OPTIMIZE':
-      return '#0891b2';
-    case 'ARCHIVE':
-      return '#7c3aed';
-    case 'ELIMINATE':
-      return '#dc2626';
-    case 'S3_CANDIDATE':
-      return '#6366f1';
-    default:
-      return '#64748b';
-  }
-}
-
-function getConfidenceColor(confidence: number): string {
-  if (confidence >= 0.8) return '#10b981';
-  if (confidence >= 0.6) return '#f59e0b';
-  return '#ef4444';
 }

@@ -1,16 +1,17 @@
 import { NextResponse } from 'next/server';
+import { query } from '@core/database/connection';
 
-// Stub implementation — security coverage requires database queries
-// Available only in full-stack deployment with PostgreSQL
 export async function GET() {
-  return NextResponse.json(
-    {
-      mode: 'DEMO_MODE',
-      error: 'Security coverage not available in demo mode',
-      missingDependency: 'PostgreSQL + Splunk',
-      reason: 'Requires full-stack deployment with Splunk queries.',
-      data: [],
-    },
-    { status: 503 }
-  );
+  try {
+    const res = await query(`
+      SELECT sourcetype, coverage_pct, active_alerts, detection_gaps
+      FROM security_coverage
+      WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM security_coverage)
+      ORDER BY coverage_pct ASC, sourcetype
+      LIMIT 100
+    `);
+    return NextResponse.json({ data: res.rows || [] });
+  } catch {
+    return NextResponse.json({ data: [] });
+  }
 }

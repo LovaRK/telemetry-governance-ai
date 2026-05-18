@@ -1,14 +1,17 @@
 import { NextResponse } from 'next/server';
+import { query } from '@core/database/connection';
 
 export async function GET() {
-  return NextResponse.json(
-    {
-      mode: 'DEMO_MODE',
-      error: 'Field usage not available in demo mode',
-      missingDependency: 'PostgreSQL + Splunk',
-      reason: 'Requires Splunk tstats queries and database storage.',
-      data: [],
-    },
-    { status: 503 }
-  );
+  try {
+    const res = await query(`
+      SELECT sourcetype, fields_indexed, fields_used, optimization_pct
+      FROM field_usage
+      WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM field_usage)
+      ORDER BY optimization_pct ASC, sourcetype
+      LIMIT 100
+    `);
+    return NextResponse.json({ data: res.rows || [] });
+  } catch {
+    return NextResponse.json({ data: [] });
+  }
 }

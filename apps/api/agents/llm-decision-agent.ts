@@ -282,8 +282,8 @@ export async function runLLMDecisionAgent(
     throw new Error('No LLM available: Ollama is not running AND ANTHROPIC_API_KEY is not configured. Dashboard unavailable. Start Ollama or set ANTHROPIC_API_KEY.');
   }
 
-  const BATCH_SIZE = 5;
-  const LLM_TIMEOUT_MS = 30000; // 30 second timeout per batch
+  const BATCH_SIZE = 1; // Reduced from 5 for local Ollama memory constraint (gemma2:9b is 5.4GB + batch overhead)
+  const LLM_TIMEOUT_MS = parseInt(process.env.LLM_BATCH_TIMEOUT || '120', 10) * 1000;
 
   // Timeout wrapper
   const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
@@ -401,27 +401,37 @@ export async function runLLMDecisionAgent(
 
   console.log(`[LLMDecisionAgent] Complete — ${allDecisions.length} valid decisions, $${totalLicenseSpend.toFixed(2)} total spend`);
 
+  if (!p?.roiScore || p.roiScore < 0 || p.roiScore > 100) {
+    throw new Error(`LLM must return roiScore (0-100). Got: ${p?.roiScore}`);
+  }
+  if (!p?.gainScopeScore || p.gainScopeScore < 0 || p.gainScopeScore > 100) {
+    throw new Error(`LLM must return gainScopeScore (0-100). Got: ${p?.gainScopeScore}`);
+  }
+  if (typeof p?.storageSavingsPotential !== 'number' || p.storageSavingsPotential < 0) {
+    throw new Error(`LLM must return storageSavingsPotential (>=0). Got: ${p?.storageSavingsPotential}`);
+  }
+  if (!Array.isArray(p?.savingsStaircase) || p.savingsStaircase.length === 0) {
+    throw new Error(`LLM must return savingsStaircase (non-empty array). Got: ${JSON.stringify(p?.savingsStaircase)}`);
+  }
+
   return {
     decisions: allDecisions,
-    roiScore: typeof p?.roiScore === 'number' ? p.roiScore : Math.min(100, Math.round((lowValueSpend / Math.max(totalLicenseSpend, 1)) * 100)),
-    gainScopeScore: typeof p?.gainScopeScore === 'number' ? p.gainScopeScore : Math.round(avgUtil * 0.4 + avgDet * 0.3 + avgQual * 0.3),
+    roiScore: p.roiScore,
+    gainScopeScore: p.gainScopeScore,
     totalLicenseSpend,
-    licenseSpendLowValue: typeof p?.licenseSpendLowValue === 'number' ? p.licenseSpendLowValue : lowValueSpend,
-    storageSavingsPotential: typeof p?.storageSavingsPotential === 'number' ? p.storageSavingsPotential : lowValueSpend * 0.6,
+    licenseSpendLowValue: p.licenseSpendLowValue || lowValueSpend,
+    storageSavingsPotential: p.storageSavingsPotential,
     totalDailyGb: inputs.reduce((s, inp) => s + inp.dailyAvgGb, 0),
     totalSourcetypes: inputs.length,
     tierCounts,
-    securityGaps: typeof p?.securityGaps === 'number' ? p.securityGaps : allDecisions.filter((d) => d.detectionGap).length,
-    operationalGaps: typeof p?.operationalGaps === 'number' ? p.operationalGaps : allDecisions.filter((d) => d.action === 'OPTIMIZE').length,
+    securityGaps: p.securityGaps ?? 0,
+    operationalGaps: p.operationalGaps ?? 0,
     avgUtilization: Math.round(avgUtil),
     avgDetection: Math.round(avgDet),
     avgQuality: Math.round(avgQual),
     avgConfidence: Math.round(avgConf * 100),
-    quickWins: Array.isArray(p?.quickWins) ? p.quickWins.slice(0, 3) : allDecisions
-      .filter((d) => d.isQuickWin)
-      .slice(0, 3)
-      .map((d) => ({ index: d.index, action: d.action, impact: `Save $${Math.round(d.estimatedSavings).toLocaleString()}/year`, details: d.recommendation })),
-    savingsStaircase: Array.isArray(p?.savingsStaircase) ? p.savingsStaircase : defaultStaircase,
+    quickWins: p.quickWins || [],
+    savingsStaircase: p.savingsStaircase,
     agentReasoning: p?.agentReasoning || `Analyzed ${inputs.length} Splunk indexes. ${tierCounts.lowValue} low-value candidates identified. Total spend: $${totalLicenseSpend.toLocaleString()}.`,
   };
 }

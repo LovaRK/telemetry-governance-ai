@@ -1,95 +1,96 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// In-memory config store for web-only build
-let inMemoryConfig = {
-  costPerGbPerDay: 0.5,
-  maxRetentionDays: 730,
-  maxParallel: 2,
-  llmTimeoutMs: 30000,
-  decisionWeights: {},
-  retentionPolicy: {},
-};
-
 export interface UserConfig {
   costPerGbPerDay: number;
-  maxRetentionDays: number;
-  maxParallel: number;
+  maxIndexesPerRun: number;
   llmTimeoutMs: number;
   decisionWeights?: Record<string, unknown>;
-  retentionPolicy?: Record<string, unknown>;
 }
 
-export async function GET() {
+const DEFAULT_CONFIG: UserConfig = {
+  costPerGbPerDay: 0.5,
+  maxIndexesPerRun: 1000,
+  llmTimeoutMs: 30000,
+};
+
+// In-memory storage for demo purposes (not persisted across restarts)
+let config: UserConfig = { ...DEFAULT_CONFIG };
+
+/**
+ * GET /api/config
+ * Returns current user configuration (in-memory, not persisted).
+ */
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    return NextResponse.json(inMemoryConfig);
+    return NextResponse.json(config);
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[/api/config] GET failed:', message);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to load config' },
+      { error: 'Failed to load configuration', details: message },
       { status: 500 }
     );
   }
 }
 
-export async function POST(request: NextRequest) {
+/**
+ * POST /api/config
+ * Update configuration fields.
+ * Request body: { costPerGbPerDay?, maxIndexesPerRun?, llmTimeoutMs?, decisionWeights? }
+ * Note: Changes are not persisted (in-memory only for demo).
+ */
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
 
-    const updates: Partial<UserConfig> = {};
-
-    if (typeof body.costPerGbPerDay === 'number') {
-      if (body.costPerGbPerDay < 0.01 || body.costPerGbPerDay > 10) {
+    // Update only provided fields
+    if (body.costPerGbPerDay !== undefined) {
+      if (typeof body.costPerGbPerDay !== 'number' || body.costPerGbPerDay <= 0) {
         return NextResponse.json(
-          { error: 'costPerGbPerDay must be between 0.01 and 10.00' },
+          { error: 'costPerGbPerDay must be a positive number' },
           { status: 400 }
         );
       }
-      updates.costPerGbPerDay = body.costPerGbPerDay;
+      config.costPerGbPerDay = body.costPerGbPerDay;
     }
 
-    if (typeof body.maxRetentionDays === 'number') {
-      if (body.maxRetentionDays < 7 || body.maxRetentionDays > 3650) {
+    if (body.maxIndexesPerRun !== undefined) {
+      if (typeof body.maxIndexesPerRun !== 'number' || body.maxIndexesPerRun <= 0) {
         return NextResponse.json(
-          { error: 'maxRetentionDays must be between 7 and 3650' },
+          { error: 'maxIndexesPerRun must be a positive number' },
           { status: 400 }
         );
       }
-      updates.maxRetentionDays = body.maxRetentionDays;
+      config.maxIndexesPerRun = body.maxIndexesPerRun;
     }
 
-    if (typeof body.maxParallel === 'number') {
-      if (body.maxParallel < 1 || body.maxParallel > 10) {
+    if (body.llmTimeoutMs !== undefined) {
+      if (typeof body.llmTimeoutMs !== 'number' || body.llmTimeoutMs <= 0) {
         return NextResponse.json(
-          { error: 'maxParallel must be between 1 and 10' },
+          { error: 'llmTimeoutMs must be a positive number' },
           { status: 400 }
         );
       }
-      updates.maxParallel = body.maxParallel;
+      config.llmTimeoutMs = body.llmTimeoutMs;
     }
 
-    if (typeof body.llmTimeoutMs === 'number') {
-      if (body.llmTimeoutMs < 5000 || body.llmTimeoutMs > 120000) {
+    if (body.decisionWeights !== undefined) {
+      if (!body.decisionWeights || typeof body.decisionWeights !== 'object') {
         return NextResponse.json(
-          { error: 'llmTimeoutMs must be between 5000 and 120000' },
+          { error: 'decisionWeights must be an object' },
           { status: 400 }
         );
       }
-      updates.llmTimeoutMs = body.llmTimeoutMs;
+      config.decisionWeights = body.decisionWeights;
     }
 
-    if (body.decisionWeights && typeof body.decisionWeights === 'object') {
-      updates.decisionWeights = body.decisionWeights;
-    }
-
-    if (body.retentionPolicy && typeof body.retentionPolicy === 'object') {
-      updates.retentionPolicy = body.retentionPolicy;
-    }
-
-    inMemoryConfig = { ...inMemoryConfig, ...updates };
-    return NextResponse.json(inMemoryConfig);
+    return NextResponse.json(config);
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[/api/config] POST failed:', message);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to update config' },
-      { status: 500 }
+      { error: 'Failed to update configuration', details: message },
+      { status: 400 }
     );
   }
 }

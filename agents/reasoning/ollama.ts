@@ -1,5 +1,10 @@
 const OLLAMA_BASE = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const MODEL = 'gemma2:9b';
+const ALLOWED_MODEL = 'gemma2:9b';
+const MODEL = process.env.LLM_MODEL || ALLOWED_MODEL;
+
+if (MODEL !== ALLOWED_MODEL) {
+  throw new Error(`Invalid LLM_MODEL: "${MODEL}". Only "${ALLOWED_MODEL}" is allowed for decision authority.`);
+}
 
 interface OllamaGenerateRequest {
   model: string;

@@ -31,49 +31,32 @@ export class SplunkClient {
 
   constructor(config: SplunkMCPConfig) {
     if (!config.mcpUrl) throw new Error('Splunk MCP URL is required');
-    // Normalize URL: strip whitespace, ensure proper protocol
-    let normalized = config.mcpUrl.trim();
-    // Remove common key prefixes accidentally typed: "url:", "url-", "mcpUrl", etc.
-    normalized = normalized.replace(/^(url|mcpUrl|mcp_url|splunk)[:\-]?\s*/i, '');
-    // Strip any non-http prefix that isn't a valid protocol
-    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
-      normalized = `http://${normalized}`;
+    // If timeout not explicitly passed, read from SPLUNK_QUERY_TIMEOUT env var
+    if (!config.timeoutMs) {
+      const envTimeout = parseInt(process.env.SPLUNK_QUERY_TIMEOUT || '30', 10);
+      config.timeoutMs = envTimeout * 1000; // Convert seconds to ms
     }
-    this.config = { ...config, mcpUrl: normalized };
+    this.config = config;
   }
 
   private get timeoutMs(): number {
-    return this.config.timeoutMs ?? 20000;
+    return this.config.timeoutMs ?? 30000; // Default 30s (from env)
   }
 
-  private getTokenValue(): string {
-    return this.config.token
-      .trim()
-      .replace(/^Authorization:\s*/i, '')
-      .replace(/^(Bearer|Splunk|Basic)\s+/i, '')
-      .trim();
-  }
-
-  private getAuthorizationHeader(): string {
-    const normalized = this.config.token.trim();
-    // If token already has auth type prefix (Bearer, Splunk, Basic), use as-is
-    if (/^(Bearer|Splunk|Basic)\s+/i.test(normalized)) {
-      return normalized;
-    }
-    // Otherwise default to Bearer
-    return `Bearer ${this.getTokenValue()}`;
+  private getAuthHeader(): string {
+    const raw = this.config.token.trim().replace(/^Authorization:\s*/i, '').trim();
+    // If already a complete auth header (Basic, Bearer, Splunk), use as-is
+    if (/^(Basic|Bearer|Splunk)\s+/i.test(raw)) return raw;
+    // Otherwise treat as a raw Splunk token
+    return `Splunk ${raw}`;
   }
 
   private getBearerHeader(): string {
-    return this.getAuthorizationHeader();
+    return this.getAuthHeader();
   }
 
   private getSplunkHeader(): string {
-    const normalized = this.config.token.trim();
-    if (/^Basic\s+/i.test(normalized)) {
-      return normalized; // Preserve Basic auth
-    }
-    return `Splunk ${this.getTokenValue()}`;
+    return this.getAuthHeader();
   }
 
   private getRestBaseUrl(): string {
@@ -149,15 +132,11 @@ export class SplunkClient {
   async healthCheckFast(): Promise<{ success: boolean; latencyMs: number; error?: string }> {
     const start = Date.now();
     try {
-      const authHeader = this.getBearerHeader();
-      console.log('[SplunkClient.healthCheck] Token:', this.config.token);
-      console.log('[SplunkClient.healthCheck] Auth header:', authHeader);
       const res = await this.requestText(
         `${this.getRestBaseUrl()}/services/server/info?output_mode=json`,
         'GET',
-        { 'Authorization': authHeader }
+        { 'Authorization': this.getBearerHeader() }
       );
-      console.log('[SplunkClient.healthCheck] Response status:', res.status);
       if (!res.ok) {
         const hint =
           res.status === 401 ? 'Invalid or expired token' :

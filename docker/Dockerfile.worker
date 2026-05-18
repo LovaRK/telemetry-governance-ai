@@ -1,0 +1,19 @@
+FROM node:20-alpine
+WORKDIR /app
+
+# Copy all package manifests (root + workspace packages)
+COPY package*.json ./
+COPY core/package.json ./core/
+RUN npm install
+
+# Install worker runtime deps that workspace packages declare
+RUN npm install pg@^8.11.3 zod@^3.23.8 ollama axios
+RUN npm install --save-dev @types/node@^20.0.0 @types/pg@^8.0.0 ts-node@^10.9.2 typescript@^5.0.0 tsconfig-paths@^4.0.0
+
+COPY tsconfig*.json ./
+COPY core ./core
+COPY apps/api ./apps/api
+COPY agents ./agents
+COPY docker/worker.ts ./docker/worker.ts
+
+CMD ["./node_modules/.bin/ts-node", "-r", "tsconfig-paths/register", "--project", "tsconfig.worker.json", "docker/worker.ts"]

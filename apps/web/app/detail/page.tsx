@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import TopAppBar from '../../components/layout/TopAppBar';
-import { ExecutiveKPIs, SnapshotRow } from '../../lib/types';
 import DecisionTimeline from '../../components/DecisionTimeline';
-import SectionExplainer from '../../components/shared/SectionExplainer';
 import ReasoningDrawer, { ReasoningDrawerProps } from '../../components/shared/ReasoningDrawer';
+import { ExecutiveKPIs, SnapshotRow } from '../../lib/types';
 
 type DrawerData = Omit<ReasoningDrawerProps, 'isOpen' | 'onClose'>;
 
@@ -69,11 +68,6 @@ export default function DetailPage() {
 
   return (
     <main style={{ minHeight: '100vh', background: '#050a14' }}>
-      <ReasoningDrawer
-        isOpen={!!drawer}
-        onClose={() => setDrawer(null)}
-        {...(drawer || { title: '' })}
-      />
       <TopAppBar cacheStatus={null} />
 
       <div style={{ padding: '1.25rem', maxWidth: 1400, margin: '0 auto' }}>
@@ -96,6 +90,9 @@ export default function DetailPage() {
           <>
             {/* E1: KPI Row */}
             {kpis && <KpiRow kpis={kpis} />}
+
+            {/* Decision Pipeline Timeline */}
+            {hasAgentDecisions && <DecisionTimeline />}
 
             {/* E2: Sourcetype Health Board */}
             {snapshots.length > 0 && <HealthBoard snapshots={snapshots} />}
@@ -169,58 +166,16 @@ export default function DetailPage() {
 
                 {/* E10/E11: Search Audit */}
                 <SearchAudit rows={data.audit} hasEverRefreshed={hasEverRefreshed} />
-
-                {/* LLM Decision Timeline — shows pipeline reasoning stages */}
-                {hasAgentDecisions && data.agentReasoning && (
-                  <Section title="LLM Decision Pipeline">
-                    <SectionExplainer
-                      title="How was this section calculated?"
-                      summary="The Decision Timeline shows the multi-stage LLM reasoning process. Each stage represents a pass the agent made over the telemetry data — click a stage to see the reasoning, evidence, and confidence for that step."
-                      dataInputs={['agent_decisions', 'telemetry_snapshots', 'executive_kpis']}
-                      decisionLogic="Gemma LLM processes batches of 5 indexes at a time, assigns tier/action/confidence, and stores structured JSON decisions in PostgreSQL."
-                    />
-                    <DecisionTimeline
-                      pipelineTrace={{
-                        trace_id: data.snapshotId || 'latest',
-                        overall_confidence: (data.kpis?.avgConfidence ?? 0.7),
-                        decision_traces: [
-                          {
-                            stage: 'data-ingestion',
-                            stage_order: 1,
-                            reasoning: 'Fetched raw index metrics from Splunk REST API. Metrics include dailyAvgGb, totalEvents, retentionDays, firstEvent, lastEvent for all indexes.',
-                            evidence: [`${data.snapshots?.length ?? 0} indexes fetched`, 'Sourcetype drilldown for high-volume indexes'],
-                            confidence: 1.0,
-                            timestamp: data.snapshotDate,
-                            duration_ms: 0,
-                          },
-                          {
-                            stage: 'llm-decision',
-                            stage_order: 2,
-                            reasoning: data.agentReasoning || 'LLM agent processed telemetry inputs and assigned tier classifications, actions, confidence scores, and evidence.',
-                            evidence: [`${data.snapshots?.length ?? 0} indexes classified`, `Model: gemma4:e4b (Ollama)`],
-                            confidence: data.kpis?.avgConfidence ?? 0.7,
-                            timestamp: data.snapshotDate,
-                            duration_ms: 0,
-                          },
-                          {
-                            stage: 'persistence',
-                            stage_order: 3,
-                            reasoning: 'All decisions persisted to PostgreSQL: telemetry_snapshots, executive_kpis, agent_decisions, search_audit tables updated.',
-                            evidence: ['telemetry_snapshots updated', 'executive_kpis updated', 'search_audit updated'],
-                            confidence: 1.0,
-                            timestamp: data.snapshotDate,
-                            duration_ms: 0,
-                          },
-                        ],
-                      }}
-                    />
-                  </Section>
-                )}
               </>
             )}
           </>
         )}
       </div>
+      <ReasoningDrawer
+        isOpen={!!drawer}
+        onClose={() => setDrawer(null)}
+        {...(drawer || { title: '' })}
+      />
     </main>
   );
 }
@@ -350,7 +305,7 @@ function DuplicateCollection({ snapshots }: { snapshots: SnapshotRow[] }) {
 }
 
 // E7/E8: Security Detection Gaps
-function SecurityGaps({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer: (data: DrawerData) => void }) {
+function SecurityGaps({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer?: (data: DrawerData) => void }) {
   const gaps = snapshots.filter((s) => s.detectionGap || s.detectionScore < 50);
   const TIER_COLORS: Record<string, string> = {
     Critical: '#ef4444', Important: '#f59e0b', 'Nice-to-Have': '#3b82f6', 'Low Value': '#64748b',
@@ -375,7 +330,7 @@ function SecurityGaps({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; o
           <thead>
             <tr style={{ borderBottom: '1px solid #1e293b' }}>
               {['Index', 'Tier', 'Detection Score', 'Detection Gap', 'Action', 'Recommendation', ''].map((h) => (
-                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem', width: h === '' ? 40 : 'auto' }}>{h}</th>
+                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -407,23 +362,18 @@ function SecurityGaps({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; o
                   </td>
                   <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
                     <button
-                      onClick={() => onOpenDrawer({
+                      onClick={() => onOpenDrawer?.({
                         title: `${s.indexName} — Detection Gap`,
-                        value: `Score: ${s.detectionScore}%`,
+                        value: `Detection Score: ${s.detectionScore}%`,
                         tier: s.tier,
                         action: s.classification,
                         confidence: s.confidence * 100,
-                        howCalculated: 'Detection Score measures the breadth of security alerts and MITRE ATT&CK coverage mapped to this index. Low scores indicate missing security observability.',
-                        llmReasoning: s.reasoning || 'This index has insufficient security coverage. Consider adding alerts or mapping MITRE techniques.',
-                        evidence: [
-                          `Detection Score: ${s.detectionScore}%`,
-                          s.detectionGap ? 'Gap Detected: No active security alerts found' : 'Low MITRE coverage detected',
-                          `Tier: ${s.tier}`,
-                          `Confidence: ${(s.confidence * 100).toFixed(0)}%`,
-                        ],
-                        rawData: { detectionScore: s.detectionScore, utilizationScore: s.utilizationScore, riskScore: s.riskScore, qualityScore: s.qualityScore }
+                        howCalculated: 'Detection Score measures the coverage of security detection use cases based on sourcetype configuration and recent query activity.',
+                        llmReasoning: s.reasoning || 'LLM analysis indicates a potential detection gap in this index.',
+                        evidence: s.detectionGap ? ['Detection gap flagged'] : ['Score below 50%'],
+                        rawData: { detectionScore: s.detectionScore, detectionGap: s.detectionGap, tier: s.tier },
                       })}
-                      style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0.25rem 0.5rem' }}
                     >
                       ℹ️
                     </button>
@@ -439,7 +389,7 @@ function SecurityGaps({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; o
 }
 
 // E4/E5: Data Quality Hotspots
-function QualityHotspots({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer: (data: DrawerData) => void }) {
+function QualityHotspots({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer?: (data: DrawerData) => void }) {
   const hotspots = snapshots
     .filter((s) => s.qualityScore < 60)
     .sort((a, b) => a.qualityScore - b.qualityScore);
@@ -492,7 +442,7 @@ function QualityHotspots({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]
             <thead>
               <tr style={{ borderBottom: '1px solid #1e293b' }}>
                 {['Index', 'Tier', 'Quality', 'Confidence', 'Impact', ''].map((h) => (
-                  <th key={h} style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#64748b', fontWeight: 500, width: h === '' ? 40 : 'auto' }}>{h}</th>
+                  <th key={h} style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#64748b', fontWeight: 500 }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -515,23 +465,18 @@ function QualityHotspots({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]
                     </td>
                     <td style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>
                       <button
-                        onClick={() => onOpenDrawer({
-                          title: `${s.indexName} — Data Quality`,
-                          value: `Score: ${s.qualityScore}%`,
+                        onClick={() => onOpenDrawer?.({
+                          title: `${s.indexName} — Quality Score`,
+                          value: `Quality: ${s.qualityScore}/100`,
                           tier: s.tier,
                           action: s.classification,
                           confidence: s.confidence * 100,
-                          howCalculated: 'Quality Score measures data consistency, parsing accuracy, and schema stability. Low scores indicate potential data quality issues.',
-                          llmReasoning: s.reasoning || 'This index has data quality concerns. Consider investigating parsing errors or schema inconsistencies.',
-                          evidence: [
-                            `Quality Score: ${s.qualityScore}%`,
-                            `Confidence: ${(s.confidence * 100).toFixed(0)}%`,
-                            `Tier: ${s.tier}`,
-                            impact === 'High' ? 'High impact due to ' + (s.tier === 'Critical' ? 'Critical tier' : 'Low quality score') : 'Moderate impact'
-                          ],
-                          rawData: { qualityScore: s.qualityScore, utilizationScore: s.utilizationScore, detectionScore: s.detectionScore, confidence: s.confidence }
+                          howCalculated: 'Quality Score measures data consistency, parse error rates, and field completeness based on Splunk logs.',
+                          llmReasoning: s.reasoning || 'LLM identified quality issues in this index.',
+                          evidence: s.qualityScore < 30 ? ['High error rate detected'] : ['Moderate issues found'],
+                          rawData: { qualityScore: s.qualityScore, confidence: s.confidence, tier: s.tier },
                         })}
-                        style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0.25rem 0.5rem' }}
                       >
                         ℹ️
                       </button>
@@ -548,7 +493,7 @@ function QualityHotspots({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]
 }
 
 // E9: Operational Coverage Gaps
-function OperationalCoverage({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer: (data: DrawerData) => void }) {
+function OperationalCoverage({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer?: (data: DrawerData) => void }) {
   // Operational gaps: important/critical indexes with low utilization or flagged for elimination
   const gaps = snapshots.filter((s) => {
     if (s.tier === 'Critical' || s.tier === 'Important') {
@@ -573,7 +518,7 @@ function OperationalCoverage({ snapshots, onOpenDrawer }: { snapshots: SnapshotR
           <thead>
             <tr style={{ borderBottom: '1px solid #1e293b' }}>
               {['Index', 'Tier', 'Utilization', 'Action', 'Risk', 'Gap Reason', ''].map((h) => (
-                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem', width: h === '' ? 40 : 'auto' }}>{h}</th>
+                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -604,24 +549,18 @@ function OperationalCoverage({ snapshots, onOpenDrawer }: { snapshots: SnapshotR
                   <td style={{ padding: '0.5rem 0.75rem', color: '#64748b', fontSize: '0.72rem' }}>{gapReason}</td>
                   <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
                     <button
-                      onClick={() => onOpenDrawer({
-                        title: `${s.indexName} — Coverage Gap`,
-                        value: `Risk: ${s.riskScore.toFixed(0)}`,
+                      onClick={() => onOpenDrawer?.({
+                        title: `${s.indexName} — Operational Gap`,
+                        value: `Utilization: ${s.utilizationScore}%`,
                         tier: s.tier,
                         action: s.classification,
                         confidence: s.confidence * 100,
-                        howCalculated: 'Operational gap: Critical/Important index with low utilization or marked for archival. Indicates missing operational use case or potential risk.',
-                        llmReasoning: s.reasoning || 'This asset has operational coverage concerns. Verify business requirements and operational needs.',
-                        evidence: [
-                          `Utilization: ${s.utilizationScore}%`,
-                          `Tier: ${s.tier}`,
-                          `Action: ${s.classification}`,
-                          `Risk Score: ${s.riskScore.toFixed(0)}`,
-                          gapReason
-                        ],
-                        rawData: { utilizationScore: s.utilizationScore, riskScore: s.riskScore, tier: s.tier, classification: s.classification }
+                        howCalculated: 'Operational gaps identify critical/important indexes with low utilization or scheduled elimination, suggesting potential operational coverage issues.',
+                        llmReasoning: s.reasoning || 'LLM flagged an operational coverage gap.',
+                        evidence: s.classification === 'ELIMINATE' ? ['Marked for elimination'] : ['Low utilization for tier'],
+                        rawData: { utilizationScore: s.utilizationScore, tier: s.tier, riskScore: s.riskScore },
                       })}
-                      style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0.25rem 0.5rem' }}
                     >
                       ℹ️
                     </button>
@@ -637,7 +576,7 @@ function OperationalCoverage({ snapshots, onOpenDrawer }: { snapshots: SnapshotR
 }
 
 // E16: Under-Utilized Sourcetypes
-function UnderUtilized({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer: (data: DrawerData) => void }) {
+function UnderUtilized({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer?: (data: DrawerData) => void }) {
   const underUtil = snapshots
     .filter((s) => s.utilizationScore < 40)
     .sort((a, b) => a.utilizationScore - b.utilizationScore);
@@ -658,7 +597,7 @@ function UnderUtilized({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; 
           <thead>
             <tr style={{ borderBottom: '1px solid #1e293b' }}>
               {['Index', 'Tier', 'Utilization', 'GB/Day', 'Cost/Yr', 'Action', 'Suggested Use Case', ''].map((h) => (
-                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem', width: h === '' ? 40 : 'auto' }}>{h}</th>
+                <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: '#64748b', fontWeight: 500, fontSize: '0.72rem' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -690,24 +629,18 @@ function UnderUtilized({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; 
                   <td style={{ padding: '0.5rem 0.75rem', color: '#64748b', fontSize: '0.72rem' }}>{useCase}</td>
                   <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
                     <button
-                      onClick={() => onOpenDrawer({
+                      onClick={() => onOpenDrawer?.({
                         title: `${s.indexName} — Utilization`,
-                        value: `${s.utilizationScore}%`,
+                        value: `Utilization: ${s.utilizationScore}%`,
                         tier: s.tier,
                         action: s.classification,
                         confidence: s.confidence * 100,
-                        howCalculated: 'Utilization Score measures how frequently this index is queried. Low utilization suggests the data may be redundant or archived.',
-                        llmReasoning: s.reasoning || 'Low query activity detected. Consider archiving or eliminating.',
-                        evidence: [
-                          `Utilization: ${s.utilizationScore}%`,
-                          `Daily Ingest: ${s.dailyAvgGb.toFixed(3)} GB`,
-                          `Annual Cost: $${s.costPerYear.toFixed(2)}`,
-                          `Tier: ${s.tier}`,
-                          useCase
-                        ],
-                        rawData: { utilizationScore: s.utilizationScore, dailyAvgGb: s.dailyAvgGb, costPerYear: s.costPerYear, retentionDays: s.retentionDays }
+                        howCalculated: 'Utilization Score measures query frequency, data freshness, and active use based on Splunk query logs.',
+                        llmReasoning: s.reasoning || 'LLM assessed utilization as low, suggesting optimization opportunity.',
+                        evidence: [`${s.utilizationScore}% utilization rate`, `Cost/year: $${s.costPerYear.toFixed(2)}`],
+                        rawData: { utilizationScore: s.utilizationScore, dailyAvgGb: s.dailyAvgGb, costPerYear: s.costPerYear },
                       })}
-                      style={{ padding: '0.2rem 0.4rem', background: 'transparent', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0.25rem 0.5rem' }}
                     >
                       ℹ️
                     </button>

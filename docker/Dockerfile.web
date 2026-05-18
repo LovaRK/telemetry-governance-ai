@@ -18,7 +18,7 @@ RUN npm install
 
 WORKDIR /app
 
-# Copy all source files
+# Copy all source files (updated: 2026-05-17 18:40)
 COPY . .
 
 # Make entrypoint executable

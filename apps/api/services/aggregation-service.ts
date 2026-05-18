@@ -4,7 +4,15 @@ import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/l
 import { loadUserConfig } from './config-service';
 import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics } from './splunk-queries-service';
 import { query, transaction } from '../../../core/database/connection';
+import { enqueueJob } from './job-service';
 import { v4 as uuidv4 } from 'uuid';
+
+export interface FastAggregationResult {
+  snapshotId: string;
+  jobId: string;
+  inserted: number;
+  durationMs: number;
+}
 
 export interface AggregationConfig {
   lookbackDays: number;
@@ -81,6 +89,25 @@ export async function runAggregation(
     })),
   ];
 
+  // ── Backpressure: Enforce hard limits ──────────────────────────────────────
+  const MAX_INDEXES = parseInt(process.env.MAX_INDEXES_PER_RUN || '100', 10);
+  const MAX_SOURCETYPES = parseInt(process.env.MAX_SOURCETYPES_PER_RUN || '1000', 10);
+
+  const indexCount = indexMetrics.length;
+  const sourcetypeCount = sourcetypeMetrics.length;
+
+  if (indexCount > MAX_INDEXES) {
+    console.error('[BACKPRESSURE] Rejection:', { indexes: indexCount, max: MAX_INDEXES });
+    throw new Error(`MAX_INDEXES_PER_RUN exceeded: ${indexCount} > ${MAX_INDEXES}`);
+  }
+
+  if (sourcetypeCount > MAX_SOURCETYPES) {
+    console.error('[BACKPRESSURE] Rejection:', { sourcetypes: sourcetypeCount, max: MAX_SOURCETYPES });
+    throw new Error(`MAX_SOURCETYPES_PER_RUN exceeded: ${sourcetypeCount} > ${MAX_SOURCETYPES}`);
+  }
+
+  console.log(`[Aggregation] Backpressure check passed: ${indexCount}/${MAX_INDEXES} indexes, ${sourcetypeCount}/${MAX_SOURCETYPES} sourcetypes`);
+
   // ── Step 3: LLM agent makes ALL decisions ──────────────────────────────────
   console.log(`[Aggregation] Sending ${allInputs.length} metrics to LLM decision agent...`);
   const agentSummary = await runLLMDecisionAgent(allInputs, userConfig);
@@ -102,9 +129,8 @@ export async function runAggregation(
 
     for (let i = 0; i < decisions.length; i += BATCH_SIZE) {
       const batch = decisions.slice(i, i + BATCH_SIZE);
-      const sp = `sp_batch_${Math.floor(i / BATCH_SIZE)}`;
+      const batchNum = Math.floor(i / BATCH_SIZE);
       try {
-        await client.query(`SAVEPOINT ${sp}`);
         for (const decision of batch) {
           const input = allInputs.find(
             (inp) => inp.index === decision.index && (inp.sourcetype || null) === (decision.sourcetype || null)
@@ -119,11 +145,9 @@ export async function runAggregation(
           await upsertAgentDecision(client, decision, snapshotId, today);
           inserted++;
         }
-        await client.query(`RELEASE SAVEPOINT ${sp}`);
       } catch (e) {
-        await client.query(`ROLLBACK TO SAVEPOINT ${sp}`);
-        errors += batch.length;
-        console.error(`[Aggregation] Batch ${sp} failed:`, e instanceof Error ? e.message : e);
+        const errorMsg = e instanceof Error ? e.message : String(e);
+        throw new Error(`[Aggregation] FAIL_FAST: Batch ${batchNum} failed after ${inserted} successful inserts. Error: ${errorMsg}`);
       }
     }
 
@@ -194,9 +218,11 @@ export async function runAggregation(
 }
 
 // Sanitize decision fields: ensure all numeric fields are actual numbers (not strings)
-function sanitizeDecision(d: LLMDecision): LLMDecision {
+function sanitizeDecision(d: LLMDecision): any {
+  const confidenceMap: Record<string, number> = { 'HIGH': 0.9, 'MEDIUM': 0.5, 'LOW': 0.3 };
   return {
     ...d,
+    confidence: confidenceMap[d.confidence as string] || 0.5,
     confidenceScore: Number(d.confidenceScore) || 0.5,
     riskScore: Number(d.riskScore) || 0,
     utilizationScore: Number(d.utilizationScore) || 0,
@@ -270,7 +296,7 @@ async function upsertDecision(
       clean.confidenceScore,
       clean.recommendation,
       JSON.stringify({
-        ...clean.evidence.map((e) => ({ text: e })),
+        ...clean.evidence.map((e: string) => ({ text: e })),
         reasoning: clean.reasoning,
         tier: clean.tier,
         action: clean.action,
@@ -584,4 +610,159 @@ async function updateCacheMetadata(client: PoolClient, key: string, count: numbe
     `,
     [key, count]
   );
+}
+
+/**
+ * Phase 2 fast path: fetch Splunk metadata (<5s), write raw snapshots,
+ * enqueue LLM job for background worker. Returns immediately.
+ */
+export async function runFastAggregation(
+  splunk: SplunkClient,
+  config: AggregationConfig = DEFAULT_CONFIG
+): Promise<FastAggregationResult> {
+  const start = Date.now();
+  const snapshotId = uuidv4();
+  const today = new Date().toISOString().split('T')[0];
+
+  const userConfig = await loadUserConfig();
+  const costPerGbPerDay = config.costPerGbPerDay ?? userConfig.costPerGbPerDay;
+
+  // ── 1. Fetch index metrics from Splunk ──────────────────────────────────
+  const indexMetrics = await splunk.getIndexMetrics();
+  if (indexMetrics.length === 0) {
+    throw new Error('Splunk returned 0 indexes. Check index permissions.');
+  }
+
+  // Sourcetype drilldown for high-volume indexes
+  const highVolumeIndexes = indexMetrics
+    .filter((m) => m.dailyAvgGb >= SOURCETYPE_DRILLDOWN_GB)
+    .sort((a, b) => b.dailyAvgGb - a.dailyAvgGb)
+    .slice(0, MAX_SOURCETYPE_INDEXES)
+    .map((m) => m.index);
+
+  const sourcetypeMetrics = highVolumeIndexes.length > 0
+    ? await splunk.getBatchSourcetypeMetrics(highVolumeIndexes).catch((e) => {
+        console.warn('[FastAgg] Sourcetype batch failed:', e.message);
+        return [];
+      })
+    : [];
+
+  // ── 2. Write raw snapshots with tier=PENDING ────────────────────────────
+  let inserted = 0;
+  await transaction(async (client) => {
+    await client.query(`DELETE FROM telemetry_snapshots WHERE snapshot_date = $1`, [today]);
+
+    for (const m of indexMetrics) {
+      const annualCost = m.dailyAvgGb * costPerGbPerDay * 365;
+      await client.query(`
+        INSERT INTO telemetry_snapshots (
+          snapshot_id, snapshot_date, granularity, index_name, sourcetype,
+          total_events, daily_avg_gb, retention_days,
+          utilization_pct, cost_per_year, risk_score,
+          classification, confidence, recommendation, evidence, raw_metadata
+        ) VALUES ($1,$2,'index',$3,NULL,$4,$5,$6,0,$7,0,'INVESTIGATE',0.5,'Pending AI analysis','[]','{}')
+      `, [snapshotId, today, m.index, m.totalEvents, m.dailyAvgGb, m.retentionDays, annualCost]);
+      inserted++;
+    }
+
+    // Write search audit (deterministic, no LLM needed)
+    try {
+      const savedSearches = await splunk.getSavedSearches();
+      if (savedSearches.length > 0) {
+        await client.query(`DELETE FROM search_audit WHERE snapshot_date = $1`, [today]);
+        for (const s of savedSearches) {
+          const isOrphan = s.isScheduled && !s.lastRun;
+          const isUnused = !s.isScheduled && !s.isAlert && !s.lastRun;
+          const confidenceScore = isOrphan ? 0.3 : isUnused ? 0.4 : s.isAlert ? 0.8 : 0.6;
+          const reason = isOrphan ? 'Scheduled search with no recorded execution'
+            : isUnused ? 'Not scheduled, not an alert, never run'
+            : s.isAlert ? 'Active alert' : 'Saved search';
+          const riskLevel = isOrphan ? 'HIGH' : isUnused ? 'HIGH' : s.isAlert ? 'LOW' : 'MEDIUM';
+          await client.query(
+            `INSERT INTO search_audit (snapshot_date, search_name, search_type, app, schedule, confidence_score, reason, risk_level, is_unused)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
+            [today, s.name, s.isAlert ? 'alert' : 'scheduled', s.app, s.schedule,
+             confidenceScore, reason, riskLevel, isUnused]
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('[FastAgg] Search audit skipped:', e instanceof Error ? e.message : e);
+    }
+
+    // Write baseline KPIs (volume/cost only, LLM scores will come from worker)
+    await client.query(`
+      INSERT INTO executive_kpis (snapshot_date, snapshot_id, total_license_spend)
+      VALUES ($1, $2, (SELECT COALESCE(SUM(cost_per_year),0) FROM telemetry_snapshots WHERE snapshot_date=$1))
+      ON CONFLICT (snapshot_date) DO UPDATE SET
+        snapshot_id = EXCLUDED.snapshot_id,
+        total_license_spend = EXCLUDED.total_license_spend,
+        updated_at = NOW()
+    `, [today, snapshotId]);
+
+    // Mark cache as fast_complete
+    await client.query(`
+      INSERT INTO cache_metadata (cache_key, last_refresh_at, next_refresh_at, status, record_count)
+      VALUES ('index_metrics', NOW(), NOW() + INTERVAL '24 hours', 'fast_complete', $1)
+      ON CONFLICT (cache_key) DO UPDATE SET
+        last_refresh_at = NOW(),
+        status = 'fast_complete',
+        record_count = EXCLUDED.record_count,
+        updated_at = NOW()
+    `, [inserted]);
+  });
+
+  // ── 3. Build candidate list for LLM (heuristic filter) ─────────────────
+  const MAX_INDEXES = parseInt(process.env.MAX_INDEXES_PER_RUN || '100', 10);
+  const allInputs: RawTelemetryInput[] = [
+    ...indexMetrics.map((m) => ({
+      index: m.index,
+      sourcetype: undefined,
+      dailyAvgGb: m.dailyAvgGb,
+      totalEvents: m.totalEvents,
+      retentionDays: m.retentionDays,
+      firstEvent: m.firstEvent,
+      lastEvent: m.lastEvent,
+    })),
+    ...sourcetypeMetrics.map((m) => ({
+      index: m.index,
+      sourcetype: m.sourcetype,
+      dailyAvgGb: m.dailyAvgGb,
+      totalEvents: m.totalEvents,
+      retentionDays: m.retentionDays,
+      firstEvent: m.firstEvent,
+      lastEvent: m.lastEvent,
+    })),
+  ];
+
+  // Smart candidate filter: only send high-cost/low-use/stale items to LLM
+  const now = new Date();
+  const candidates = allInputs.filter((inp) => {
+    const daysSinceLast = inp.lastEvent
+      ? (now.getTime() - new Date(inp.lastEvent).getTime()) / 86400000
+      : 999;
+    return (
+      inp.dailyAvgGb > 1 ||
+      inp.retentionDays > 365 ||
+      daysSinceLast > 30
+    );
+  }).slice(0, MAX_INDEXES);
+
+  console.log(`[FastAgg] ${allInputs.length} total inputs → ${candidates.length} candidates for LLM`);
+
+  // ── 4. Enqueue LLM job ──────────────────────────────────────────────────
+  const jobId = await enqueueJob({
+    jobType: 'llm_analysis',
+    snapshotId,
+    payload: {
+      inputs: candidates.length > 0 ? candidates : allInputs.slice(0, MAX_INDEXES),
+      config: { lookbackDays: config.lookbackDays, costPerGbPerDay },
+      checkpoint: 0,
+      snapshotId,
+    },
+  });
+
+  console.log(`[FastAgg] Done in ${Date.now() - start}ms. Snapshot ${snapshotId}, job ${jobId}, ${inserted} snapshots written.`);
+
+  return { snapshotId, jobId, inserted, durationMs: Date.now() - start };
 }

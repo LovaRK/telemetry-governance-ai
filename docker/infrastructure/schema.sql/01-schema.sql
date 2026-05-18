@@ -245,3 +245,25 @@ CREATE TRIGGER update_user_config_updated_at
 
 -- Initialize default config
 INSERT INTO user_config (config_key, cost_per_gb_per_day) VALUES ('default', 0.50) ON CONFLICT DO NOTHING;
+
+-- ============================================
+-- Decision Metrics (observability: LLM inference tracking)
+-- ============================================
+CREATE TABLE IF NOT EXISTS decision_metrics (
+    id                  SERIAL PRIMARY KEY,
+    snapshot_id         UUID NOT NULL,
+    snapshot_date       DATE NOT NULL,
+    batch_id            VARCHAR(100) NOT NULL,
+    batch_size          INTEGER NOT NULL,
+    inference_time_ms   INTEGER NOT NULL DEFAULT 0,
+    tokens_in           INTEGER NOT NULL DEFAULT 0,
+    tokens_out          INTEGER NOT NULL DEFAULT 0,
+    retries             INTEGER NOT NULL DEFAULT 0,
+    error_message       TEXT,
+    model_used          VARCHAR(50) NOT NULL DEFAULT 'gemma2:9b',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_decision_metrics_snapshot_date ON decision_metrics(snapshot_date DESC);
+CREATE INDEX IF NOT EXISTS idx_decision_metrics_batch_id ON decision_metrics(batch_id);
+CREATE INDEX IF NOT EXISTS idx_decision_metrics_model ON decision_metrics(model_used);

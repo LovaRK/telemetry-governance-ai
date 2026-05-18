@@ -14,24 +14,26 @@ CREATE TABLE IF NOT EXISTS decision_history (
     confidence_changed  BOOLEAN DEFAULT FALSE,
     score_delta         NUMERIC(6, 2),
     change_reason       TEXT,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    INDEX idx_snapshot_date (snapshot_id, snapshot_date),
-    INDEX idx_index_name (index_name),
-    INDEX idx_created_at (created_at)
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_decision_snapshot_date ON decision_history(snapshot_id, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_decision_index_name ON decision_history(index_name);
+CREATE INDEX IF NOT EXISTS idx_decision_created_at ON decision_history(created_at);
 
 CREATE TABLE IF NOT EXISTS config_audit_log (
     id                  SERIAL PRIMARY KEY,
     config_key          VARCHAR(100) NOT NULL REFERENCES user_config(config_key) ON DELETE CASCADE,
-    change_type         VARCHAR(50) NOT NULL, -- 'cost_model', 'retention_policy', 'decision_weights'
+    change_type         VARCHAR(50) NOT NULL,
     old_value           JSONB,
     new_value           JSONB NOT NULL,
-    changed_by          VARCHAR(256), -- User or 'system' for automated changes
+    changed_by          VARCHAR(256),
     change_reason       TEXT,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    INDEX idx_config_key (config_key),
-    INDEX idx_created_at (created_at)
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_config_audit_key ON config_audit_log(config_key);
+CREATE INDEX IF NOT EXISTS idx_config_audit_created_at ON config_audit_log(created_at);
 
 CREATE TABLE IF NOT EXISTS llm_prompt_versions (
     id                  SERIAL PRIMARY KEY,

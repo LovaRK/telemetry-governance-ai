@@ -3,117 +3,92 @@
 import React from 'react';
 
 interface SparklineProps {
-  data: number[];
-  color?: string;
-  width?: number;
-  height?: number;
+  data: number[];          // Array of values (e.g., last 7 days)
+  color?: string;          // Hex color (default: #3b82f6)
+  width?: number;          // SVG width in pixels (default: 100)
+  height?: number;         // SVG height in pixels (default: 40)
+  showGradient?: boolean;  // Show gradient fill under line (default: true)
 }
 
 export default function Sparkline({
   data,
-  color = '#00d9ff',
+  color = '#3b82f6',
   width = 100,
-  height = 32,
+  height = 40,
+  showGradient = true,
 }: SparklineProps) {
   if (!data || data.length === 0) {
+    return null;
+  }
+
+  // Handle single data point
+  if (data.length === 1) {
     return (
-      <div
-        style={{
-          width,
-          height,
-          backgroundColor: 'rgba(51, 65, 85, 0.3)',
-          borderRadius: '4px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '11px',
-          color: '#64748b',
-        }}
-      >
-        No data
-      </div>
+      <svg width={width} height={height} style={{ display: 'block' }}>
+        <circle cx={width / 2} cy={height / 2} r="2" fill={color} />
+      </svg>
     );
   }
 
-  // Calculate min/max for scaling
+  // Find min and max
   const min = Math.min(...data);
   const max = Math.max(...data);
-  const range = max - min || 1; // Prevent division by zero
+  const range = max - min || 1; // Avoid division by zero
 
-  // Create SVG polyline points
-  const pointsArray = data.map((value, index) => {
-    const x = (index / (data.length - 1)) * width;
-    const y = height - ((value - min) / range) * (height - 4) - 2;
-    return `${x},${y}`;
+  // Map data to SVG coordinates
+  const padding = 4;
+  const svgWidth = width - 2 * padding;
+  const svgHeight = height - 2 * padding;
+
+  const points = data.map((value, i) => {
+    const x = padding + (i / (data.length - 1)) * svgWidth;
+    const y = padding + ((max - value) / range) * svgHeight;
+    return { x, y, value };
   });
 
-  const points = pointsArray.join(' ');
+  // Create polyline path string
+  const polylinePoints = points.map((p) => `${p.x},${p.y}`).join(' ');
 
-  // Calculate trend: up/down/flat
-  const trend = data[data.length - 1] - data[0];
-  const trendColor = trend > 0 ? '#10b981' : trend < 0 ? '#ef4444' : '#94a3b8';
+  // Create gradient path for fill
+  const fillPoints = [
+    ...points.map((p) => `${p.x},${p.y}`),
+    `${points[points.length - 1].x},${height}`,
+    `${points[0].x},${height}`,
+  ].join(' ');
+
+  const gradientId = `sparkline-gradient-${Math.random().toString(36).substr(2, 9)}`;
 
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
-      <svg
-        width={width}
-        height={height}
-        style={{
-          overflow: 'visible',
-          display: 'block',
-        }}
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
-      >
-        {/* Gradient definition */}
+    <svg width={width} height={height} style={{ display: 'block' }}>
+      {showGradient && (
         <defs>
-          <linearGradient id="sparklineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.05" />
+          <linearGradient id={gradientId} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" style={{ stopColor: color, stopOpacity: 0.3 }} />
+            <stop offset="100%" style={{ stopColor: color, stopOpacity: 0 }} />
           </linearGradient>
         </defs>
+      )}
 
-        {/* Fill area under curve */}
-        <polygon
-          points={`0,${height} ${points} ${width},${height}`}
-          fill="url(#sparklineGradient)"
-        />
+      {/* Gradient fill */}
+      {showGradient && (
+        <polygon points={fillPoints} fill={`url(#${gradientId})`} />
+      )}
 
-        {/* Line */}
-        <polyline
-          points={points}
-          fill="none"
-          stroke={color}
-          strokeWidth="1.5"
-          vectorEffect="non-scaling-stroke"
-        />
+      {/* Line */}
+      <polyline
+        points={polylinePoints}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
 
-        {/* Start point */}
-        <circle cx={0} cy={height - ((data[0] - min) / range) * (height - 4) - 2} r="1.5" fill={color} />
-
-        {/* End point */}
-        <circle
-          cx={width}
-          cy={height - ((data[data.length - 1] - min) / range) * (height - 4) - 2}
-          r="1.5"
-          fill={trendColor}
-        />
-      </svg>
-
-      {/* Trend indicator */}
-      <div
-        style={{
-          position: 'absolute',
-          right: -16,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          fontSize: '11px',
-          fontWeight: 600,
-          color: trendColor,
-        }}
-      >
-        {trend > 0 ? '↑' : trend < 0 ? '↓' : '→'}
-      </div>
-    </div>
+      {/* Data points */}
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r="1.5" fill={color} />
+      ))}
+    </svg>
   );
 }

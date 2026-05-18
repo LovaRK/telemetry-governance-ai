@@ -2,7 +2,7 @@ import { query } from '../../../core/database/connection';
 
 export interface CacheStatus {
   cacheKey: string;
-  status: 'fresh' | 'stale' | 'refreshing' | 'error';
+  status: 'fresh' | 'stale' | 'refreshing' | 'error' | 'fast_complete';
   lastRefreshAt: Date | null;
   nextRefreshAt: Date | null;
   recordCount: number;
@@ -77,6 +77,18 @@ export async function setCacheRefreshing(cacheKey: string): Promise<void> {
     DO UPDATE SET status = 'refreshing', updated_at = NOW()
     `,
     [cacheKey]
+  );
+}
+
+export async function setCacheFresh(cacheKey: string, recordCount?: number): Promise<void> {
+  await query(
+    `
+    INSERT INTO cache_metadata (cache_key, status, last_refresh_at, updated_at, record_count)
+    VALUES ($1, 'fresh', NOW(), NOW(), COALESCE($2, 0))
+    ON CONFLICT (cache_key)
+    DO UPDATE SET status = 'fresh', last_refresh_at = NOW(), updated_at = NOW(), record_count = COALESCE($2, cache_metadata.record_count)
+    `,
+    [cacheKey, recordCount || 0]
   );
 }
 

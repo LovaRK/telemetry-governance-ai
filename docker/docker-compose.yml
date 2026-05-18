@@ -6,16 +6,36 @@ services:
     ports:
       - "3002:3000"
     environment:
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - DATABASE_URL=postgresql://telemetry:telemetry@postgres:5432/telemetry_os
       - NODE_ENV=development
       - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - NEXT_PUBLIC_SPLUNK_MCP_URL=https://144.202.48.85:8089
+      - NEXT_PUBLIC_SPLUNK_TOKEN=Basic cmFtOlJhbWFAMTk4OA==
+      - NEXT_PUBLIC_SPLUNK_DISABLE_SSL_VERIFY=true
+      - LLM_MODEL=gemma2:9b
     depends_on:
       postgres:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      - DATABASE_URL=postgresql://telemetry:telemetry@postgres:5432/telemetry_os
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - LLM_MODEL=gemma2:9b
+      - WORKER_POLL_INTERVAL_MS=5000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine

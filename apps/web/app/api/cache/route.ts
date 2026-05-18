@@ -1,21 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCacheStatus, listCacheStatuses, setCacheRefreshing, setCacheError, isRefreshing } from '@api/services/cache-service';
-import { runAggregation } from '@api/services/aggregation-service';
+import { getCacheStatus, listCacheStatuses, setCacheRefreshing, setCacheFresh, setCacheError, isRefreshing } from '@api/services/cache-service';
+import { runFastAggregation } from '@api/services/aggregation-service';
 import { SplunkClient } from '@api/services/splunk-client';
-import { query } from '@core/database/connection';
-
-// Blocking refresh — no polling, no background jobs.
-// POST /api/cache awaits the full pipeline and returns when done.
-const REFRESH_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (LLM scoring adds time)
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error(`Refresh timed out after ${Math.round(timeoutMs / 1000)}s. The LLM agent is processing data — try again.`));
-    }, timeoutMs);
-    promise.then(resolve).catch(reject).finally(() => clearTimeout(timeout));
-  });
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -43,10 +29,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'mcpUrl is required' }, { status: 400 });
     }
 
-    // Auth priority: token > username/password
     let authToken = body.token;
     if (!authToken && body.username && body.password) {
-      // Fallback to Basic Auth if token not provided
       const credentials = Buffer.from(`${body.username}:${body.password}`).toString('base64');
       authToken = `Basic ${credentials}`;
     }
@@ -89,33 +73,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Blocking: await full pipeline including LLM agent scoring
-    const result = await withTimeout(
-      runAggregation(splunk, { lookbackDays: 30, costPerGbPerDay }),
-      REFRESH_TIMEOUT_MS
-    );
+    // Fast path: fetch Splunk metadata (<5s) and enqueue LLM job
+    const result = await runFastAggregation(splunk, { lookbackDays: 30, costPerGbPerDay });
 
-    if (result.errors > 0) {
-      await setCacheError(cacheKey, `Partial failure: ${result.errors} records failed`);
-    }
-
-    const countResult = await query(`SELECT COUNT(*) as count FROM telemetry_snapshots`);
-    const recordCount = parseInt(countResult.rows[0]?.count || '0', 10);
-    if (recordCount === 0) {
-      await setCacheError(cacheKey, 'No data stored after refresh');
-      return NextResponse.json(
-        { error: 'No data returned from Splunk', hint: 'Check index permissions and time range' },
-        { status: 500 }
-      );
-    }
-
+    // Cache is fast_complete — worker will call setCacheFresh when LLM finishes
     return NextResponse.json({
       success: true,
+      phase: 'fast_complete',
       snapshotId: result.snapshotId,
+      jobId: result.jobId,
       inserted: result.inserted,
-      errors: result.errors,
       durationMs: Date.now() - started,
-      agentReasoning: result.agentReasoning,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Refresh failed';
@@ -124,7 +92,6 @@ export async function POST(request: NextRequest) {
     let hint = 'Check MCP URL, token, and network connectivity';
     if (message.includes('Ollama')) hint = 'Start Ollama: run "ollama serve" in a terminal';
     else if (message.includes('ECONNREFUSED') || message.includes('ECONNRESET')) hint = 'Port 8089 refused — ensure Splunk management API is running';
-    else if (message.includes('timed out')) hint = 'Refresh timed out — the LLM agent may need more time. Try again.';
     else if (message.includes('401')) hint = 'Token rejected. Verify your Splunk token is valid.';
 
     return NextResponse.json({ error: 'Refresh failed', reason: message, hint }, { status: 500 });
