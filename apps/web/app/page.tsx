@@ -7,10 +7,13 @@ import AgentIntelligencePanel from '../components/dashboard/AgentIntelligencePan
 import SourceIntelligenceGrid from '../components/dashboard/SourceIntelligenceGrid';
 import ConnectionGatedUI from '../components/shared/ConnectionGatedUI';
 import ConfigPanel from '../components/dashboard/ConfigPanel';
+import { DecisionReviewQueue } from '../components/DecisionReviewQueue';
+import { QueueHealthMetrics } from '../components/QueueHealthMetrics';
+import { UserProvider } from '../lib/user-context';
 import { ExecutiveSummary, CacheStatus } from '../lib/types';
 import JobStatusToast from '../components/shared/JobStatusToast';
 
-type Tab = 'overview' | 'telemetry';
+type Tab = 'overview' | 'telemetry' | 'governance';
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
@@ -29,6 +32,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [configPanelOpen, setConfigPanelOpen] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [pendingDecisionCount, setPendingDecisionCount] = useState(0);
 
   const fetchSummary = async () => {
     try {
@@ -57,6 +61,18 @@ export default function Home() {
     }
   };
 
+  const fetchPendingDecisionsCount = async () => {
+    try {
+      const res = await fetch('/api/decision-lineage?limit=1');
+      const result = await res.json();
+      if (result.mode === 'FULL_STACK' && Array.isArray(result.data)) {
+        setPendingDecisionCount(result.data.length);
+      }
+    } catch (e) {
+      console.error('Failed to fetch pending decisions count:', e);
+    }
+  };
+
   useEffect(() => {
     // Load config from localStorage
     const savedConfig = localStorage.getItem('splunk_config');
@@ -76,6 +92,7 @@ export default function Home() {
       }
     }
     fetchSummary().finally(() => setLoading(false));
+    fetchPendingDecisionsCount();
   }, []);
 
   const canRefresh = formData.mcp_url &&
@@ -122,6 +139,7 @@ export default function Home() {
       const result = await res.json();
       if (result.jobId) setActiveJobId(result.jobId);
       await fetchSummary();
+      await fetchPendingDecisionsCount();
     } catch (e: any) {
       setError(e.message || 'Refresh failed');
     } finally {
@@ -274,10 +292,15 @@ export default function Home() {
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {(['overview', 'telemetry'] as Tab[]).map((tab) => (
+                {(['overview', 'telemetry', 'governance'] as Tab[]).map((tab) => (
                   <button key={tab} onClick={() => setActiveTab(tab)}
-                    style={{ padding: '0.5rem 1.25rem', background: activeTab === tab ? '#3b82f6' : 'transparent', color: activeTab === tab ? '#fff' : '#64748b', border: activeTab === tab ? 'none' : '1px solid #1e293b', borderRadius: 8, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    {tab === 'overview' ? 'Executive Overview' : 'Telemetry Detail'}
+                    style={{ padding: '0.5rem 1.25rem', background: activeTab === tab ? '#3b82f6' : 'transparent', color: activeTab === tab ? '#fff' : '#64748b', border: activeTab === tab ? 'none' : '1px solid #1e293b', borderRadius: 8, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', position: 'relative' }}>
+                    {tab === 'overview' ? 'Executive Overview' : tab === 'telemetry' ? 'Telemetry Detail' : 'Governance'}
+                    {tab === 'governance' && pendingDecisionCount > 0 && (
+                      <span style={{ position: 'absolute', top: -8, right: -8, background: '#ef4444', color: '#fff', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 800 }}>
+                        {Math.min(pendingDecisionCount, 9)}
+                      </span>
+                    )}
                   </button>
                 ))}
                 <a href="/detail" style={{ padding: '0.5rem 1.25rem', background: 'transparent', color: '#334155', border: '1px solid #1e293b', borderRadius: 8, fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
@@ -299,6 +322,19 @@ export default function Home() {
             {activeTab === 'telemetry' && (
               <SourceIntelligenceGrid snapshots={summary.snapshots} hasAgentDecisions={hasAgentDecisions} />
             )}
+
+            {activeTab === 'governance' && (
+              <div style={{ display: 'grid', gap: '1.5rem' }}>
+                <div>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '1rem' }}>Queue Health</h3>
+                  <QueueHealthMetrics />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '1rem' }}>Decision Review Queue</h3>
+                  <DecisionReviewQueue />
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -308,7 +344,7 @@ export default function Home() {
 
   // Wrap dashboard with connection gating
   return (
-    <>
+    <UserProvider>
       <ConnectionGatedUI>
         {loading ? (
           <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: '#64748b' }}>
@@ -333,7 +369,7 @@ export default function Home() {
           }}
         />
       )}
-    </>
+    </UserProvider>
   );
 }
 

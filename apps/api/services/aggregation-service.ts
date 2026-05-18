@@ -242,6 +242,7 @@ export async function runAggregation(
               reasoning: finalDecision.reasoning,
               inference_tokens: 0,
               latency_ms: 0,
+              signal_source: 'AI' as const,
             };
 
             await recordDecisionLineage(client, {
@@ -251,6 +252,7 @@ export async function runAggregation(
               deterministic_signals: deterministic,
               cognitive_signals: cognitive,
               decision_status: 'PROPOSED',
+              fingerprint_version: versions.heuristicVersion, // Track fingerprinting schema version
             });
           }
 

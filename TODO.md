@@ -307,7 +307,7 @@
 
 ---
 
-### ✅ Week 2: Decision Review Queue & Dashboard Alerts (IN PROGRESS)
+### ✅ Week 2: Decision Review Queue & Dashboard Alerts (COMPLETE — May 18, 2026)
 
 **Objective:** Human approval workflow + observability alarms
 
@@ -333,15 +333,20 @@
   - [x] Alert box when reuse_ratio < 75% (broken fingerprinting indicator)
   - [x] Metrics history table (last 30 snapshots)
 
-**Integration (PENDING)**
-- [ ] Wire DecisionReviewQueue into dashboard:
-  - [ ] New route: /decisions/review-queue or modal in main dashboard
-  - [ ] Add "Review Queue" button to header with pending count badge
-  - [ ] User context for reviewedBy tracking (currently hardcoded)
-- [ ] Wire QueueHealthMetrics into observability dashboard:
-  - [ ] New route: /observability/queue-health
-  - [ ] Auto-refresh every 5 minutes
-  - [ ] Add dashboard cards for at-a-glance metrics
+**Integration (COMPLETE)**
+- [x] Wire DecisionReviewQueue into dashboard:
+  - [x] New "Governance" tab on main dashboard
+  - [x] Add "Governance" tab with pending decision count badge
+  - [x] Implement user context via UserProvider (localStorage-based)
+- [x] Wire QueueHealthMetrics into observability dashboard:
+  - [x] QueueHealthMetrics rendered in Governance tab
+  - [x] Auto-fetches queue health metrics
+  - [x] Displays alerts, KPI cards, and historical metrics table
+- [x] User Settings:
+  - [x] Add User Settings tab to /settings page
+  - [x] Allow users to set their full name for governance reviews
+  - [x] Name persisted to localStorage and used in decision approval/rejection audit trail
+  - [x] Default name: "Human Reviewer"
 
 ---
 

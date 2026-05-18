@@ -1,5 +1,6 @@
 import { PoolClient } from 'pg';
 import { RawTelemetryInput } from '../agents/llm-decision-agent';
+import { validateDeterministicSignals, validateCognitiveSignals } from './governance-constants';
 
 export interface DeterministicSignals {
   daily_avg_gb_change_pct: number;
@@ -11,6 +12,7 @@ export interface DeterministicSignals {
   volume_bucket: string;
   utilization_bucket: string;
   freshness_bucket: string;
+  signal_source: 'DETERMINISTIC'; // Always deterministic for this type
 }
 
 export interface CognitiveSignals {
@@ -22,6 +24,7 @@ export interface CognitiveSignals {
   reasoning: string;
   inference_tokens: number;
   latency_ms: number;
+  signal_source: 'AI'; // Always AI for this type
 }
 
 export interface DecisionLineageRecord {
@@ -36,6 +39,7 @@ export interface DecisionLineageRecord {
   reviewed_at?: Date;
   applied_at?: Date;
   dismissal_reason?: string;
+  fingerprint_version?: string; // Track fingerprinting schema version to detect drift
 }
 
 // Compute deterministic signals from input metadata
@@ -76,6 +80,7 @@ export function computeDeterministicSignals(
     volume_bucket: volumeBucket,
     utilization_bucket: utilizationBucket,
     freshness_bucket: freshnessBucket,
+    signal_source: 'DETERMINISTIC',
   };
 }
 
@@ -105,6 +110,12 @@ export async function recordDecisionLineage(
   client: PoolClient,
   record: DecisionLineageRecord
 ): Promise<string> {
+  // Validate provenance: ensure signals are properly tagged
+  validateDeterministicSignals(record.deterministic_signals);
+  if (record.cognitive_signals) {
+    validateCognitiveSignals(record.cognitive_signals);
+  }
+
   const result = await client.query(
     `INSERT INTO decision_lineage (
       snapshot_id, index_name, sourcetype,

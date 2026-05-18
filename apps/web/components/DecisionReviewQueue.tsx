@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useUser } from '../lib/user-context';
 
 interface DeterministicSignals {
   daily_avg_gb_change_pct: number;
@@ -40,6 +41,7 @@ interface Decision {
 }
 
 export function DecisionReviewQueue() {
+  const { userName } = useUser();
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export function DecisionReviewQueue() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'approve',
-          reviewedBy: 'human-reviewer' // TODO: get from user context
+          reviewedBy: userName
         })
       });
 
@@ -103,7 +105,7 @@ export function DecisionReviewQueue() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'reject',
-          reviewedBy: 'human-reviewer',
+          reviewedBy: userName,
           dismissalReason: reason
         })
       });
@@ -216,9 +218,21 @@ export function DecisionReviewQueue() {
               <div style={{ padding: '16px', backgroundColor: 'white' }}>
                 {/* Deterministic Signals */}
                 <div style={{ marginBottom: '16px' }}>
-                  <h4 style={{ marginBottom: '8px', color: '#333', fontSize: '14px' }}>
-                    📊 Deterministic Signals (Splunk Facts)
-                  </h4>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <h4 style={{ margin: 0, color: '#333', fontSize: '14px' }}>
+                      📊 Deterministic Signals
+                    </h4>
+                    <span style={{
+                      fontSize: '11px',
+                      backgroundColor: '#4caf50',
+                      color: 'white',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontWeight: '500'
+                    }}>
+                      Direct Splunk Metrics
+                    </span>
+                  </div>
                   <div
                     style={{
                       display: 'grid',
@@ -261,9 +275,21 @@ export function DecisionReviewQueue() {
                 {/* Cognitive Signals */}
                 {decision.cognitiveSignals && (
                   <div style={{ marginBottom: '16px' }}>
-                    <h4 style={{ marginBottom: '8px', color: '#333', fontSize: '14px' }}>
-                      🤖 Cognitive Signals (LLM Reasoning)
-                    </h4>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <h4 style={{ margin: 0, color: '#333', fontSize: '14px' }}>
+                        🤖 Cognitive Signals
+                      </h4>
+                      <span style={{
+                        fontSize: '11px',
+                        backgroundColor: '#2196f3',
+                        color: 'white',
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        fontWeight: '500'
+                      }}>
+                        AI-Enhanced Insight
+                      </span>
+                    </div>
                     <div style={{ fontSize: '13px', color: '#666' }}>
                       <div style={{ marginBottom: '8px' }}>
                         <strong>Confidence Score:</strong> {decision.cognitiveSignals.confidence_score.toFixed(2)} / 1.0

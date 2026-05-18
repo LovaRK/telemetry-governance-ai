@@ -2,11 +2,13 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { UserProvider, useUser } from '../../lib/user-context';
 
 function SettingsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeTab = searchParams.get('tab') || 'splunk';
+  const { userName } = useUser();
 
   const [mcpUrl, setMcpUrl] = useState('');
   const [token, setToken] = useState('');
@@ -14,6 +16,8 @@ function SettingsPageContent() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [saved, setSaved] = useState(false);
+  const [userFullName, setUserFullName] = useState('');
+  const [userSaved, setUserSaved] = useState(false);
 
   useEffect(() => {
     const config = localStorage.getItem('splunk_config');
@@ -23,6 +27,16 @@ function SettingsPageContent() {
         setMcpUrl(parsed.mcpUrl || '');
         setToken(parsed.token || '');
         setDisableSslVerify(parsed.disableSslVerify || false);
+      } catch {
+        // Invalid config, ignore
+      }
+    }
+
+    const userConfig = localStorage.getItem('datasensai_user');
+    if (userConfig) {
+      try {
+        const parsed = JSON.parse(userConfig);
+        setUserFullName(parsed.name || '');
       } catch {
         // Invalid config, ignore
       }
@@ -79,6 +93,17 @@ function SettingsPageContent() {
     }, 1500);
   };
 
+  const handleSaveUserSettings = () => {
+    localStorage.setItem(
+      'datasensai_user',
+      JSON.stringify({ name: userFullName || 'Human Reviewer' })
+    );
+    setUserSaved(true);
+    setTimeout(() => {
+      setUserSaved(false);
+    }, 1500);
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: '#0f172a', padding: '2rem' }}>
       <div style={{ maxWidth: '800px', margin: '0 auto' }}>
@@ -103,6 +128,20 @@ function SettingsPageContent() {
             }}
           >
             Splunk Configuration
+          </button>
+          <button
+            onClick={() => router.push('/settings?tab=user')}
+            style={{
+              padding: '0.5rem 1rem',
+              background: activeTab === 'user' ? '#1e293b' : 'transparent',
+              color: activeTab === 'user' ? '#f8fafc' : '#64748b',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontWeight: 500,
+            }}
+          >
+            User Settings
           </button>
         </div>
 
@@ -277,6 +316,88 @@ function SettingsPageContent() {
             </div>
           </div>
         )}
+
+        {/* User Settings Tab */}
+        {activeTab === 'user' && (
+          <div
+            style={{
+              background: '#1e293b',
+              border: '1px solid #334155',
+              borderRadius: 8,
+              padding: '2rem',
+            }}
+          >
+            {/* Full Name Field */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  color: '#cbd5e1',
+                  marginBottom: '0.5rem',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Full Name
+              </label>
+              <input
+                type="text"
+                value={userFullName}
+                onChange={(e) => setUserFullName(e.target.value)}
+                placeholder="Enter your full name"
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  background: '#0f172a',
+                  border: '1px solid #334155',
+                  borderRadius: 6,
+                  color: '#f8fafc',
+                  fontSize: '0.875rem',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.5rem 0 0 0' }}>
+                Your name will be recorded when you approve or reject governance decisions.
+              </p>
+            </div>
+
+            {/* Saved Notification */}
+            {userSaved && (
+              <div
+                style={{
+                  padding: '1rem',
+                  background: '#22c55e20',
+                  border: '1px solid #22c55e',
+                  borderRadius: 6,
+                  marginBottom: '1.5rem',
+                  color: '#22c55e',
+                  fontSize: '0.875rem',
+                }}
+              >
+                ✓ User settings saved.
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={handleSaveUserSettings}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  background: '#22c55e',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                Save User Settings
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -284,8 +405,10 @@ function SettingsPageContent() {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center' }}>Loading settings...</div>}>
-      <SettingsPageContent />
-    </Suspense>
+    <UserProvider>
+      <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center' }}>Loading settings...</div>}>
+        <SettingsPageContent />
+      </Suspense>
+    </UserProvider>
   );
 }

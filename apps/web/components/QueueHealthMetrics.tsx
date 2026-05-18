@@ -114,7 +114,7 @@ export function QueueHealthMetrics() {
         >
           <strong>⚠️ Alert: Low Reuse Ratio</strong>
           <p style={{ margin: '8px 0 0 0', fontSize: '14px' }}>
-            Reuse ratio is {(latestMetrics.reuseRatio * 100).toFixed(1)}% (target: >90%). This indicates potentially unstable metadata fingerprinting or significant index changes.
+            Reuse ratio is {(latestMetrics.reuseRatio * 100).toFixed(1)}% (target: {'>'} 90%). This indicates potentially unstable metadata fingerprinting or significant index changes.
           </p>
         </div>
       )}
@@ -129,7 +129,7 @@ export function QueueHealthMetrics() {
           backgroundColor: '#fafafa'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ color: '#666', fontSize: '14px' }}>Reuse Ratio (target: >0.90)</span>
+            <span style={{ color: '#666', fontSize: '14px' }}>Reuse Ratio (target: {'>'} 0.90)</span>
             <span style={{
               fontSize: '28px',
               fontWeight: 'bold',
@@ -162,7 +162,7 @@ export function QueueHealthMetrics() {
           backgroundColor: '#fafafa'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ color: '#666', fontSize: '14px' }}>Filtering Efficiency (target: <10%)</span>
+            <span style={{ color: '#666', fontSize: '14px' }}>Filtering Efficiency (target: {'<'} 10%)</span>
             <span style={{
               fontSize: '28px',
               fontWeight: 'bold',
@@ -195,7 +195,7 @@ export function QueueHealthMetrics() {
           backgroundColor: '#fafafa'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ color: '#666', fontSize: '14px' }}>Decision Flip Rate (target: <5%)</span>
+            <span style={{ color: '#666', fontSize: '14px' }}>Decision Flip Rate (target: {'<'} 5%)</span>
             <span style={{
               fontSize: '28px',
               fontWeight: 'bold',
@@ -253,7 +253,7 @@ export function QueueHealthMetrics() {
               {latestMetrics.lowConfidenceProposals}
             </div>
             <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
-              Low Confidence (<0.70)
+              Low Confidence ({'<'} 0.70)
             </div>
           </div>
         </div>
