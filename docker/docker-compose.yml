@@ -4,7 +4,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.web
     ports:
-      - "3002:3000"
+      - "${WEB_PORT:-3002}:3000"  # HOST:CONTAINER - mapped from .env WEB_PORT
     environment:
       - DATABASE_URL=postgresql://telemetry:telemetry@postgres:5432/telemetry_os
       - NODE_ENV=development
@@ -13,9 +13,16 @@ services:
       - NEXT_PUBLIC_SPLUNK_TOKEN=Basic cmFtOlJhbWFAMTk4OA==
       - NEXT_PUBLIC_SPLUNK_DISABLE_SSL_VERIFY=true
       - LLM_MODEL=gemma2:9b
+      - WEB_PORT=${WEB_PORT:-3002}  # Pass to container for health checks
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health || exit 1"]
+      interval: ${HEALTH_CHECK_INTERVAL:-10s}
+      timeout: ${HEALTH_CHECK_TIMEOUT:-5s}
+      retries: ${HEALTH_CHECK_RETRIES:-5}
+      start_period: 30s
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -40,7 +47,7 @@ services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT:-5433}:5432"  # HOST:CONTAINER - mapped from .env POSTGRES_PORT
     environment:
       - POSTGRES_USER=telemetry
       - POSTGRES_PASSWORD=telemetry
@@ -49,9 +56,10 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U telemetry -d telemetry_os"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      interval: ${HEALTH_CHECK_INTERVAL:-10s}
+      timeout: ${HEALTH_CHECK_TIMEOUT:-5s}
+      retries: ${HEALTH_CHECK_RETRIES:-5}
+      start_period: 15s
 
 volumes:
   postgres_data:
