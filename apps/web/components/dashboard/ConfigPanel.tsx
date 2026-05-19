@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '../../lib/api-client';
 
 import React, { useState, useEffect } from 'react';
 import type { UserConfig } from '../../app/api/config/route';
@@ -32,7 +33,7 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/config');
+      const response = await apiFetch('/api/config');
       if (!response.ok) throw new Error('Failed to load configuration');
       const data = await response.json();
       setConfig(data);
@@ -53,7 +54,7 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch('/api/config', {
+      const response = await apiFetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formState),

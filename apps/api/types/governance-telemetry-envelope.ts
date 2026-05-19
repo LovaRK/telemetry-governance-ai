@@ -218,9 +218,11 @@ export function envelopeToDTO(env: GovernanceTelemetryEnvelopeV1): GovernanceTel
 
 /**
  * Compute raw HMAC-SHA256 digest for envelope using canonical JSON serialization.
- * CRITICAL: Uses canonicalize() for deterministic serialization (not JSON.stringify).
- * Includes context binding (tenantId, route, topologyEpoch, issuedAt, nonce) to prevent
- * cross-context and cross-tenant replay attacks.
+ * CRITICAL: Uses EnvelopeNormalizationService to normalize before canonicalization.
+ * Ensures semantically identical envelopes always produce identical signatures
+ * regardless of float precision, timestamp format, casing, or field ordering.
+ * Also includes context binding (tenantId, route, topologyEpoch, issuedAt, nonce)
+ * to prevent cross-context and cross-tenant replay attacks.
  * Returns hex digest of HMAC-SHA256 (algorithm independent).
  */
 export function computeEnvelopeHMACDigest(
@@ -229,9 +231,14 @@ export function computeEnvelopeHMACDigest(
 ): string {
   const { createHmac } = require('crypto');
   const canonicalize = require('canonicalize');
+  const { EnvelopeNormalizationService } = require('../services/envelope-normalization');
 
   // Create a copy without the signature field for hashing
   const { envelopeSignature, ...envelopeWithoutSignature } = envelope as any;
+
+  // STEP 1: Normalize envelope to ensure semantic equivalence
+  // This prevents signature drift from float precision, timestamp format, casing, etc.
+  const normalizedEnvelope = EnvelopeNormalizationService.normalizeForSigning(envelopeWithoutSignature);
 
   // Build context binding to prevent cross-context/cross-tenant replay
   const contextBinding = {
@@ -241,6 +248,7 @@ export function computeEnvelopeHMACDigest(
     route: (envelope as any).executionContext?.route,
     // Deployment binding: cannot replay across deployments
     topologyEpoch: (envelope as any).topologyEpoch?.epoch,
+    topologySignatureEpoch: (envelope as any).topologyEpoch?.signatureEpoch,
     // Time binding: includes issued and expiration times
     issuedAt: (envelope as any).issuedAt,
     expiresAt: (envelope as any).expiresAt,
@@ -248,13 +256,16 @@ export function computeEnvelopeHMACDigest(
     envelopeNonce: (envelope as any).envelopeNonce,
   };
 
-  // Create signing payload: context binding + envelope
+  // STEP 2: Normalize context binding as well
+  const normalizedContext = EnvelopeNormalizationService.normalizeForSigning(contextBinding);
+
+  // Create signing payload: normalized context binding + normalized envelope
   const signingPayload = {
-    context: contextBinding,
-    envelope: envelopeWithoutSignature,
+    context: normalizedContext,
+    envelope: normalizedEnvelope,
   };
 
-  // Use canonical JSON serialization to ensure deterministic hash
+  // STEP 3: Use canonical JSON serialization to ensure deterministic hash
   const canonicalPayload = canonicalize(signingPayload);
 
   if (!canonicalPayload) {

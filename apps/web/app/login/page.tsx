@@ -1,14 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  const searchParams = useSearchParams();
+  const [email, setEmail] = useState('admin@bitsio.com');
   const [password, setPassword] = useState('');
-  const [tenantSlug, setTenantSlug] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -18,153 +18,127 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/auth?action=login', {
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          tenant_slug: tenantSlug,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        setError(errorData.error || 'Login failed');
-        setLoading(false);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || 'Login failed');
         return;
       }
 
-      const data = await response.json();
+      // Store access token — used by all API calls
+      localStorage.setItem('access_token', data.accessToken);
+      localStorage.setItem('user', JSON.stringify(data.user));
 
-      // Store user info in localStorage for quick access
-      localStorage.setItem(
-        'user',
-        JSON.stringify({
-          user_id: data.user_id,
-          email: data.email,
-          name: data.name,
-          role: data.role,
-          tenant_id: data.tenant_id,
-        })
-      );
-
-      // Redirect to dashboard
-      router.push('/');
-    } catch (err) {
-      setError('An error occurred. Please try again.');
+      const next = searchParams.get('next') || '/';
+      router.push(next);
+    } catch {
+      setError('Network error. Check server is running.');
+    } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-lg shadow-xl p-8">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-slate-900 mb-2">
-              Teja Governance Dashboard
-            </h1>
-            <p className="text-slate-600">Sign in to your account</p>
+    <div style={{
+      minHeight: '100vh', background: '#0f172a',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <div style={{
+        background: '#1e293b', borderRadius: 12, padding: '2.5rem',
+        width: '100%', maxWidth: 400, border: '1px solid #334155',
+      }}>
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: 12,
+            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            margin: '0 auto 1rem', fontSize: 22, fontWeight: 700, color: '#fff',
+          }}>d</div>
+          <h1 style={{ color: '#f1f5f9', fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>datasensAI</h1>
+          <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: '0.5rem 0 0' }}>Sign in to continue</p>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: '1rem' }}>
+            <label style={{ display: 'block', color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, fontWeight: 500 }}>
+              EMAIL
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              style={{
+                width: '100%', padding: '0.625rem 0.75rem',
+                background: '#0f172a', border: '1px solid #334155',
+                borderRadius: 6, color: '#f1f5f9', fontSize: '0.9rem',
+                outline: 'none', boxSizing: 'border-box',
+              }}
+            />
           </div>
 
-          {/* Error Message */}
+          <div style={{ marginBottom: '1.5rem' }}>
+            <label style={{ display: 'block', color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, fontWeight: 500 }}>
+              PASSWORD
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              placeholder="Enter password"
+              style={{
+                width: '100%', padding: '0.625rem 0.75rem',
+                background: '#0f172a', border: '1px solid #334155',
+                borderRadius: 6, color: '#f1f5f9', fontSize: '0.9rem',
+                outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
           {error && (
-            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+            <div style={{
+              padding: '0.625rem 0.75rem', background: '#ef444420',
+              border: '1px solid #ef4444', borderRadius: 6,
+              color: '#fca5a5', fontSize: '0.875rem', marginBottom: '1rem',
+            }}>
               {error}
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Tenant Slug */}
-            <div>
-              <label htmlFor="tenant_slug" className="block text-sm font-medium text-slate-700 mb-1">
-                Organization / Tenant
-              </label>
-              <input
-                id="tenant_slug"
-                type="text"
-                placeholder="e.g., acme-corp"
-                value={tenantSlug}
-                onChange={(e) => setTenantSlug(e.target.value)}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                Your organization slug provided by your administrator
-              </p>
-            </div>
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: '100%', padding: '0.75rem',
+              background: loading ? '#4c1d95' : '#6366f1',
+              color: '#fff', border: 'none', borderRadius: 6,
+              fontSize: '0.9rem', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer',
+              transition: 'background 0.2s',
+            }}
+          >
+            {loading ? 'Signing in...' : 'Sign In'}
+          </button>
+        </form>
 
-            {/* Email */}
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1">
-                Email Address
-              </label>
-              <input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              />
-            </div>
-
-            {/* Password */}
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              />
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white font-medium py-2 px-4 rounded-lg transition duration-200"
-            >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
-
-          {/* Footer */}
-          <div className="mt-8 pt-6 border-t border-slate-200 text-center">
-            <p className="text-sm text-slate-600">
-              Don't have an account?{' '}
-              <a href="#" className="text-blue-600 hover:underline">
-                Contact your administrator
-              </a>
-            </p>
-          </div>
-
-          {/* Demo Info */}
-          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
-            <p className="font-medium mb-2">Demo Credentials</p>
-            <p>Organization: demo</p>
-            <p>Email: admin@demo.local</p>
-            <p>Password: Demo@12345</p>
-          </div>
-        </div>
-
-        {/* Version Info */}
-        <div className="text-center mt-4 text-slate-400 text-xs">
-          <p>Teja Governance Dashboard v1.0</p>
-        </div>
+        <p style={{ color: '#475569', fontSize: '0.75rem', textAlign: 'center', marginTop: '1.5rem' }}>
+          Default: admin@bitsio.com / Admin@1234
+        </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   );
 }

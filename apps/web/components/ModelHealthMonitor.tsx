@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '../lib/api-client';
 
 import { useState, useEffect } from 'react';
 
@@ -26,7 +27,7 @@ export function ModelHealthMonitor() {
   const fetchModelHealth = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/model-health');
+      const res = await apiFetch('/api/model-health');
       const data = await res.json();
 
       if (res.ok && data.data) {

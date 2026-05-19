@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { SnapshotRow } from '../../lib/types';
 
 interface Props { snapshots: SnapshotRow[]; hasAgentDecisions?: boolean; }
@@ -25,6 +26,26 @@ function fmt$(v: number): string {
 function ScorePip({ value }: { value: number }) {
   const color = value >= 70 ? '#22c55e' : value >= 40 ? '#f59e0b' : '#ef4444';
   return <span style={{ fontWeight: 700, color }}>{value.toFixed(0)}</span>;
+}
+
+/** Mini 4-bar sparkline showing Util/Detect/Quality/Composite scores */
+function ScoreSparkline({ util, detect, quality, composite }: { util: number; detect: number; quality: number; composite: number }) {
+  const bars = [
+    { label: 'U', value: util,      color: util >= 70 ? '#22c55e' : util >= 40 ? '#f59e0b' : '#ef4444' },
+    { label: 'D', value: detect,    color: detect >= 70 ? '#22c55e' : detect >= 40 ? '#f59e0b' : '#ef4444' },
+    { label: 'Q', value: quality,   color: quality >= 70 ? '#22c55e' : quality >= 40 ? '#f59e0b' : '#ef4444' },
+    { label: 'C', value: composite, color: composite >= 70 ? '#22c55e' : composite >= 40 ? '#f59e0b' : '#ef4444' },
+  ];
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 28, padding: '2px 0' }} title={`Util: ${util.toFixed(0)}  Detect: ${detect.toFixed(0)}  Quality: ${quality.toFixed(0)}  Composite: ${composite.toFixed(0)}`}>
+      {bars.map((b, i) => (
+        <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+          <div style={{ width: 8, height: Math.max(3, (b.value / 100) * 20), background: b.color, borderRadius: 2, opacity: 0.85 }} />
+          <span style={{ fontSize: '0.42rem', color: '#475569', fontWeight: 700 }}>{b.label}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function SourceIntelligenceGrid({ snapshots, hasAgentDecisions = false }: Props) {
@@ -124,7 +145,13 @@ export default function SourceIntelligenceGrid({ snapshots, hasAgentDecisions = 
                     style={{ borderBottom: '1px solid #1e293b', cursor: 'pointer', background: isExpanded ? '#0f1f35' : 'transparent' }}
                     onClick={() => setExpanded(isExpanded ? null : rowKey)}
                   >
-                    <td style={{ padding: '0.625rem 0.75rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
+                    <td style={{ padding: '0.625rem 0.75rem' }}>
+                      <Link href={`/index/${encodeURIComponent(s.indexName)}`} style={{ color: '#f8fafc', fontWeight: 600, textDecoration: 'none', fontSize: '0.85rem' }}
+                        onMouseEnter={e => (e.currentTarget.style.color = '#3b82f6')}
+                        onMouseLeave={e => (e.currentTarget.style.color = '#f8fafc')}>
+                        {s.indexName}
+                      </Link>
+                    </td>
                     <td style={{ padding: '0.625rem 0.75rem' }}>
                       <span style={{ padding: '0.15rem 0.5rem', borderRadius: 4, fontSize: '0.7rem', background: `${tierColor}20`, color: tierColor, fontWeight: 600, whiteSpace: 'nowrap' }}>
                         {s.tier}
@@ -137,7 +164,12 @@ export default function SourceIntelligenceGrid({ snapshots, hasAgentDecisions = 
                     </td>
                     <td style={{ padding: '0.625rem 0.75rem', color: '#94a3b8' }}>{s.dailyAvgGb.toFixed(3)}</td>
                     <td style={{ padding: '0.625rem 0.75rem', color: '#94a3b8' }}>{fmt$(s.costPerYear)}</td>
-                    <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.compositeScore} /></td>
+                    <td style={{ padding: '0.5rem 0.75rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <ScoreSparkline util={s.utilizationScore} detect={s.detectionScore} quality={s.qualityScore} composite={s.compositeScore} />
+                        <ScorePip value={s.compositeScore} />
+                      </div>
+                    </td>
                     <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.utilizationScore} /></td>
                     <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.detectionScore} /></td>
                     <td style={{ padding: '0.625rem 0.75rem' }}><ScorePip value={s.qualityScore} /></td>

@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "datasensai-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3003,
+      "env": {
+        "DATABASE_URL": "postgresql://telemetry:telemetry@localhost:5433/telemetry_os",
+        "NODE_TLS_REJECT_UNAUTHORIZED": "0"
+      }
+    }
+  ]
+}

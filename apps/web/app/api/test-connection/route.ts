@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SplunkClient } from '@api/services/splunk-client';
 
 /**
  * Test Splunk Connection Endpoint
@@ -11,20 +10,44 @@ import { SplunkClient } from '@api/services/splunk-client';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { mcpUrl, token, disableSslVerify = false } = body;
+    // Support both old (mcpUrl+token) and new (splunkUrl+username/password) formats
+    const {
+      mcpUrl, token,
+      splunkUrl, authType, username, password, bearerToken,
+      disableSslVerify = false, disable_ssl_verify = false,
+    } = body;
 
-    if (!mcpUrl || !token) {
+    const url = splunkUrl || mcpUrl;
+    if (!url) {
       return NextResponse.json(
-        { error: 'mcpUrl and token are required' },
+        { error: 'Splunk URL is required' },
         { status: 400 }
       );
     }
 
+    // Build auth header
+    let authHeader: string;
+    if (authType === 'basic' && username && password) {
+      authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+    } else if (authType === 'token' && bearerToken) {
+      authHeader = `Bearer ${bearerToken}`;
+    } else if (token) {
+      authHeader = token.startsWith('Bearer ') || token.startsWith('Splunk ') || token.startsWith('Basic ')
+        ? token
+        : `Bearer ${token}`;
+    } else {
+      return NextResponse.json(
+        { error: 'Authentication credentials are required' },
+        { status: 400 }
+      );
+    }
+
+    const { SplunkClient } = require('@api/services/splunk-client');
     const splunk = new SplunkClient({
-      mcpUrl,
-      token,
-      allowInsecureTls: !!disableSslVerify,
-      timeoutMs: 10000, // 10s for health check (faster than query timeout)
+      mcpUrl: url,
+      token: authHeader,
+      allowInsecureTls: !!(disableSslVerify || disable_ssl_verify),
+      timeoutMs: 10000,
     });
 
     // Fast health check (no heavy queries)

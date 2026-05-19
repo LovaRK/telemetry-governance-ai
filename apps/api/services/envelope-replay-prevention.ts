@@ -40,19 +40,46 @@ export interface ReplayAttempt {
   consumers: string[];
 }
 
+/**
+ * Tiered cache strategy for replay prevention:
+ * - Tier 1 (0–5 min): HOT PATH — exact match required, 100% accuracy
+ * - Tier 2 (5–60 min): WARM PATH — probabilistic sampling, optimized for memory
+ * - Tier 3 (60+ min): COLD PATH — expired, periodically purged
+ */
+export interface CacheTierConfig {
+  hotPathMinutes: number; // Tier 1 boundary (default 5)
+  warmPathMinutes: number; // Tier 2 boundary (default 60)
+  warmPathSamplingRate: number; // Probability of false negative in Tier 2 (default 0.05 = 5%)
+}
+
+const DEFAULT_CACHE_TIERS: CacheTierConfig = {
+  hotPathMinutes: 5,
+  warmPathMinutes: 60,
+  warmPathSamplingRate: 0.05, // 5% false negative rate acceptable in warm path
+};
+
 export class EnvelopeReplayPreventionService {
   private pool: Pool;
   private nonceDefaultTTLSeconds = 3600; // 1 hour default nonce lifetime
   private maxCacheSizeBytes = 100 * 1024 * 1024; // 100 MB default max cache size
   private cachePressureThresholdPercent = 85; // Trigger cleanup at 85% full
+  private cacheTiers: CacheTierConfig = DEFAULT_CACHE_TIERS;
 
-  constructor(pool: Pool, nonceDefaultTTLSeconds?: number, maxCacheSizeBytes?: number) {
+  constructor(
+    pool: Pool,
+    nonceDefaultTTLSeconds?: number,
+    maxCacheSizeBytes?: number,
+    cacheTiers?: Partial<CacheTierConfig>
+  ) {
     this.pool = pool;
     if (nonceDefaultTTLSeconds) {
       this.nonceDefaultTTLSeconds = nonceDefaultTTLSeconds;
     }
     if (maxCacheSizeBytes) {
       this.maxCacheSizeBytes = maxCacheSizeBytes;
+    }
+    if (cacheTiers) {
+      this.cacheTiers = { ...DEFAULT_CACHE_TIERS, ...cacheTiers };
     }
   }
 
@@ -72,7 +99,9 @@ export class EnvelopeReplayPreventionService {
 
   /**
    * Check if envelope can be processed (not a replay)
-   * If allowed, registers the nonce to prevent future replays
+   * If allowed, atomically registers the nonce to prevent future replays
+   * CRITICAL: Treats DB UNIQUE constraint violation as definitive replay detection
+   * (no retry logic or fallback—DB conflict = replay regardless of timing)
    */
   async checkAndRegisterEnvelope(
     tenantId: string,
@@ -84,35 +113,12 @@ export class EnvelopeReplayPreventionService {
     consumerId?: string
   ): Promise<EnvelopeReplayCheckResult> {
     try {
-      // First, check if nonce has already been seen
-      const checkResult = await this.pool.query(
-        `SELECT * FROM has_envelope_been_seen($1, $2)`,
-        [tenantId, nonce]
-      );
-
-      if (checkResult.rows[0].seen) {
-        // Nonce already registered - this is a replay attempt
-        console.warn('[ENVELOPE_REPLAY_DETECTED]', {
-          envelopeId,
-          nonce,
-          tenantId,
-          seenAt: checkResult.rows[0].seen_at,
-        });
-
-        return {
-          allowed: false,
-          reason: 'ENVELOPE_REPLAY_DETECTED: Nonce has already been processed',
-          previouslySeen: true,
-          seenAt: new Date(checkResult.rows[0].seen_at),
-        };
-      }
-
-      // Nonce not seen before - attempt to register it
-      // This will fail with unique constraint if another process already registered it
-      // (prevents race condition race between check and register)
+      // Atomic operation: attempt registration directly
+      // DB constraint will reject if nonce already exists
+      // This is NOT retryable—constraint violation = replay
       const registerResult = await this.pool.query(
         `
-        SELECT registered, reason FROM register_envelope_nonce(
+        SELECT registered, reason, previous_seen_at FROM register_envelope_nonce(
           $1, $2, $3, $4, $5, $6, $7
         )
         `,
@@ -122,17 +128,28 @@ export class EnvelopeReplayPreventionService {
       const row = registerResult.rows[0];
 
       if (!row.registered) {
-        // Race condition: another consumer registered the same nonce
+        // Nonce already exists: this is a REPLAY ATTEMPT
+        // Do NOT retry, do NOT treat as transient error
+        console.warn('[ENVELOPE_REPLAY_DETECTED_ATOMIC]', {
+          envelopeId,
+          nonce: nonce.substring(0, 8) + '...',
+          tenantId,
+          previousSeenAt: row.previous_seen_at,
+          reason: row.reason,
+        });
+
         return {
           allowed: false,
-          reason: row.reason,
+          reason: `ENVELOPE_REPLAY_DETECTED: ${row.reason}`,
           previouslySeen: true,
+          seenAt: row.previous_seen_at ? new Date(row.previous_seen_at) : undefined,
         };
       }
 
-      console.log('[ENVELOPE_NONCE_REGISTERED]', {
+      // Nonce registered successfully on first attempt
+      console.log('[ENVELOPE_NONCE_REGISTERED_ATOMIC]', {
         envelopeId,
-        nonce: nonce.substring(0, 8) + '...', // Log only prefix for security
+        nonce: nonce.substring(0, 8) + '...',
         tenantId,
         expiresAt,
       });
@@ -141,11 +158,36 @@ export class EnvelopeReplayPreventionService {
         allowed: true,
         reason: 'Nonce registered successfully',
       };
-    } catch (error) {
-      console.error('[ENVELOPE_REPLAY_CHECK_ERROR]', error);
+    } catch (error: any) {
+      // CRITICAL: Distinguish between replay (constraint violation) and actual errors
+      const errorMessage = error?.message || String(error);
+
+      // Unique constraint violation = replay (not retryable)
+      if (errorMessage.includes('unique') || errorMessage.includes('duplicate')) {
+        console.warn('[ENVELOPE_REPLAY_DETECTED_CONSTRAINT]', {
+          envelopeId,
+          nonce: nonce.substring(0, 8) + '...',
+          tenantId,
+          error: errorMessage,
+        });
+
+        return {
+          allowed: false,
+          reason: 'ENVELOPE_REPLAY_DETECTED: Database constraint violation on nonce uniqueness',
+          previouslySeen: true,
+        };
+      }
+
+      // Other errors (connection failure, etc.)—fail closed
+      console.error('[ENVELOPE_REPLAY_CHECK_FATAL_ERROR]', {
+        envelopeId,
+        tenantId,
+        error: errorMessage,
+      });
+
       return {
         allowed: false,
-        reason: `Error checking envelope replay: ${error}`,
+        reason: `Fatal error checking envelope replay: ${errorMessage}`,
       };
     }
   }
@@ -400,6 +442,86 @@ export class EnvelopeReplayPreventionService {
         cleanedCount: 0,
       };
     }
+  }
+
+  /**
+   * Check nonce using tiered cache strategy
+   * Tier 1 (HOT): 0–5 min → 100% exact match required
+   * Tier 2 (WARM): 5–60 min → Probabilistic sampling, acceptable false negatives
+   * Tier 3 (COLD): 60+ min → Expired, can be purged
+   * Returns: {inHotPath: boolean, nonceSeen: boolean, strategy: 'EXACT'|'PROBABILISTIC'|'EXPIRED'}
+   */
+  async checkNonceWithTiering(
+    tenantId: string,
+    nonce: string,
+    seenAt: Date
+  ): Promise<{ inCache: boolean; strategy: string; confidence: number }> {
+    const nowTime = Date.now();
+    const seenAtTime = seenAt.getTime();
+    const ageMs = nowTime - seenAtTime;
+    const ageMinutes = ageMs / (1000 * 60);
+
+    const hotPathMs = this.cacheTiers.hotPathMinutes * 60 * 1000;
+    const warmPathMs = this.cacheTiers.warmPathMinutes * 60 * 1000;
+
+    // Tier 1: HOT PATH (0–5 min)—exact match required
+    if (ageMs < hotPathMs) {
+      const checkResult = await this.pool.query(
+        `
+        SELECT EXISTS(
+          SELECT 1 FROM envelope_nonce_cache
+          WHERE tenant_id = $1 AND envelope_nonce = $2 AND expires_at > NOW()
+        ) as found
+        `,
+        [tenantId, nonce]
+      );
+
+      return {
+        inCache: checkResult.rows[0].found,
+        strategy: 'EXACT_MATCH_HOT_PATH',
+        confidence: 1.0, // 100% accuracy required
+      };
+    }
+
+    // Tier 2: WARM PATH (5–60 min)—probabilistic sampling
+    if (ageMs < warmPathMs) {
+      const checkResult = await this.pool.query(
+        `
+        SELECT EXISTS(
+          SELECT 1 FROM envelope_nonce_cache
+          WHERE tenant_id = $1 AND envelope_nonce = $2 AND expires_at > NOW()
+        ) as found
+        `,
+        [tenantId, nonce]
+      );
+
+      // Probabilistic acceptance: allow configured false negative rate
+      const samplingProbability = Math.random();
+      const acceptableFalseNegativeRate = this.cacheTiers.warmPathSamplingRate;
+
+      // If nonce NOT found and we're willing to accept false negatives:
+      if (!checkResult.rows[0].found && samplingProbability < acceptableFalseNegativeRate) {
+        // Treat as "not found" with degraded confidence
+        return {
+          inCache: false,
+          strategy: 'PROBABILISTIC_WARM_PATH',
+          confidence: 1.0 - acceptableFalseNegativeRate,
+        };
+      }
+
+      return {
+        inCache: checkResult.rows[0].found,
+        strategy: 'PROBABILISTIC_WARM_PATH',
+        confidence: 1.0 - acceptableFalseNegativeRate,
+      };
+    }
+
+    // Tier 3: COLD PATH (60+ min)—expired or expired
+    return {
+      inCache: false,
+      strategy: 'COLD_PATH_EXPIRED',
+      confidence: 1.0,
+    };
   }
 
   /**

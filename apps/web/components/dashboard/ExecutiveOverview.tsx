@@ -4,19 +4,23 @@ import React, { useState } from 'react';
 import { ExecutiveSummary } from '../../lib/types';
 import ReasoningDrawer from '../shared/ReasoningDrawer';
 import KPITrendChart from '../KPITrendChart';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ResponsiveContainer } from 'recharts';
 
-function fmt$(v: number): string {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}k`;
-  if (v >= 1) return `$${v.toFixed(0)}`;
-  if (v > 0) return `$${v.toFixed(2)}`;
+function fmt$(v: number | string | null | undefined): string {
+  const n = Number(v);
+  if (!isFinite(n)) return '$0';
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}k`;
+  if (n >= 1) return `$${n.toFixed(0)}`;
+  if (n > 0) return `$${n.toFixed(2)}`;
   return '$0';
 }
 
-function fmtGB(v: number): string {
-  if (v < 0.001) return '< 0.001 GB';
-  if (v < 1) return `${(v * 1024).toFixed(1)} MB`;
-  return `${v.toFixed(1)} GB`;
+function fmtGB(v: number | string | null | undefined): string {
+  const n = Number(v);
+  if (!isFinite(n) || n < 0.001) return '< 0.001 GB';
+  if (n < 1) return `${(n * 1024).toFixed(1)} MB`;
+  return `${n.toFixed(1)} GB`;
 }
 
 interface Props { summary: ExecutiveSummary; hasAgentDecisions?: boolean; }
@@ -277,6 +281,38 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         </div>
       </div>
 
+      {/* Action required strip — shows per-action counts */}
+      {hasAgentDecisions && snapshots.length > 0 && (() => {
+        const actionCounts: Record<string, number> = {};
+        const actionSavings: Record<string, number> = {};
+        for (const s of snapshots) {
+          if (s.classification) {
+            actionCounts[s.classification] = (actionCounts[s.classification] || 0) + 1;
+            actionSavings[s.classification] = (actionSavings[s.classification] || 0) + (s.estimatedSavings || 0);
+          }
+        }
+        const entries = Object.entries(actionCounts).sort((a, b) => {
+          const order = ['ELIMINATE', 'ARCHIVE', 'OPTIMIZE', 'INVESTIGATE', 'KEEP'];
+          return order.indexOf(a[0]) - order.indexOf(b[0]);
+        });
+        if (entries.length === 0) return null;
+        return (
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            {entries.map(([action, count]) => {
+              const color = ACTION_COLORS[action] || '#64748b';
+              const savings = actionSavings[action] || 0;
+              return (
+                <div key={action} style={{ flex: 1, minWidth: 100, padding: '0.75rem 1rem', background: `${color}10`, border: `1px solid ${color}35`, borderRadius: 8, cursor: 'default' }}>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color, lineHeight: 1 }}>{count}</div>
+                  <div style={{ fontSize: '0.68rem', color, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>{action}</div>
+                  {savings > 0 && <div style={{ fontSize: '0.65rem', color: '#22c55e', marginTop: 3 }}>~{fmt$(savings)}</div>}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {/* Row 1 — Gauges + KPI Cards (gated by LLM decisions) */}
       {!hasAgentDecisions ? (
         <div style={{ padding: '1.25rem 1.5rem', background: '#0f1a23', border: '1px solid #334155', borderRadius: 12, color: '#94a3b8', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -474,29 +510,63 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         </div>
       </div>
 
-      {/* Trend Charts — Historical KPI Tracking with Period Selection */}
-      <div style={{ marginTop: '2rem' }}>
-        <div style={{ marginBottom: '1rem' }}>
-          <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f8fafc', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            📈 KPI Trends
-          </h2>
-          <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '0.25rem 0 0 0' }}>Track how key metrics are changing over time (select 7, 30, or 90-day periods)</p>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-          <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
-            <KPITrendChart metric="roi" days={7} height={250} title="ROI Score Trend" showPeriodToggle={true} />
+      {/* Trend Charts — Historical KPI Tracking with synced period selector */}
+      {(() => {
+        const [trendDays, setTrendDays] = React.useState<7|30|90>(7);
+        return (
+          <div style={{ marginTop: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div>
+                <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f8fafc', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  📈 KPI Trends
+                </h2>
+                <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.2rem 0 0 0' }}>Historical tracking across all key metrics</p>
+              </div>
+              {/* Global period selector */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                {([7, 30, 90] as const).map(d => (
+                  <button key={d} onClick={() => setTrendDays(d)} style={{
+                    padding: '0.35rem 0.75rem', fontSize: '0.72rem', fontWeight: 700,
+                    background: trendDays === d ? '#3b82f6' : '#1e293b',
+                    color: trendDays === d ? '#fff' : '#64748b',
+                    border: `1px solid ${trendDays === d ? '#3b82f6' : '#334155'}`,
+                    borderRadius: 5, cursor: 'pointer',
+                  }}>{d}d</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Row 1 — Business KPIs */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+              {[
+                { metric: 'roi'       as const, title: '🏆 ROI Score' },
+                { metric: 'gainscope' as const, title: '🎯 GainScope %' },
+                { metric: 'savings'   as const, title: '💰 Savings Potential' },
+                { metric: 'ingest'    as const, title: '📦 Daily Ingest (GB)' },
+              ].map(({ metric, title }) => (
+                <div key={metric} style={{ padding: '1rem 1.25rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10 }}>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{title}</div>
+                  <KPITrendChart metric={metric} days={trendDays} height={200} showPeriodToggle={false} />
+                </div>
+              ))}
+            </div>
+
+            {/* Row 2 — Score dimensions */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+              {[
+                { metric: 'utilization' as const, title: '⚡ Avg Utilization' },
+                { metric: 'quality'     as const, title: '✅ Avg Data Quality' },
+                { metric: 'confidence'  as const, title: '🤖 Avg AI Confidence' },
+              ].map(({ metric, title }) => (
+                <div key={metric} style={{ padding: '1rem 1.25rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10 }}>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{title}</div>
+                  <KPITrendChart metric={metric} days={trendDays} height={160} showPeriodToggle={false} />
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
-            <KPITrendChart metric="gainscope" days={7} height={250} title="GainScope Score Trend" showPeriodToggle={true} />
-          </div>
-          <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
-            <KPITrendChart metric="savings" days={7} height={250} title="Storage Savings Potential Trend" showPeriodToggle={true} />
-          </div>
-          <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12 }}>
-            <KPITrendChart metric="ingest" days={7} height={250} title="Daily Ingest Trend" showPeriodToggle={true} />
-          </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Row 2 — Tier Distribution + Score Averages + Agent Actions (requires LLM decisions) */}
       {!hasAgentDecisions ? (
@@ -708,117 +778,204 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
                 <div style={{ fontSize: '0.7rem', color: '#475569', fontStyle: 'italic' }}>No cost reduction projected — all tiers at current spend level</div>
               </div>
             )
-            : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {staircase.map((step, i) => {
-                  const widthPct = Math.max(4, (step.cumulative / maxStairSavings) * 100);
-                  const color = ACTION_COLORS[step.action] || '#3b82f6';
-                  const actionCount = snapshots.filter(s => s.action === step.action).length;
-                  return (
-                    <div key={i} style={{ cursor: 'pointer' }} onClick={() => setDrawer({
-                      isOpen: true,
-                      metric: `${step.action.toLowerCase()}_savings`,
-                      value: step.savings,
-                      title: `${step.label} Savings: ${fmt$(step.savings)}`,
-                      howCalculated: `${step.label} Savings = Sum of cost reduction from ${step.action.toLowerCase()} actions\n\nAction count: ${actionCount} indexes\nPer-action avg savings: ${fmt$(step.savings / Math.max(actionCount, 1))}\nCumulative total: ${fmt$(step.cumulative)}`,
-                      llmReasoning: agentReasoning,
-                      evidence: [
-                        `${actionCount} indexes classified for ${step.action.toLowerCase()}`,
-                        `Estimated savings: ${fmt$(step.savings)}`,
-                        `${step.action} indexes in this tier: ${actionCount}`,
-                        `Recommendation: Prioritize by confidence and impact`,
-                      ],
-                      confidence: kpis.avgConfidence * 100,
-                      action: step.action,
-                      rawData: {
-                        action: step.action,
-                        savings: step.savings,
-                        cumulative: step.cumulative,
-                        count: actionCount,
-                      },
-                    })}>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.2rem' }}>
-                          <span style={{ color: '#94a3b8' }}>{step.label}</span>
-                          <span style={{ color: step.savings > 0 ? '#22c55e' : '#f8fafc', fontWeight: 600 }}>
-                            {step.savings > 0 ? `−${fmt$(step.savings)}` : fmt$(step.cumulative)}
-                          </span>
+            : (() => {
+                const chartData = staircase.map((step, i) => ({
+                  label: step.label,
+                  action: step.action,
+                  savings: step.savings,
+                  cumulative: step.cumulative,
+                  index: i,
+                }));
+                return (
+                  <div>
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart
+                        data={chartData}
+                        margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
+                        onClick={(d) => {
+                          if (!d || !d.activePayload) return;
+                          const step = d.activePayload[0]?.payload;
+                          if (!step) return;
+                          const actionCount = snapshots.filter(s => s.action === step.action).length;
+                          setDrawer({
+                            isOpen: true,
+                            metric: `${step.action.toLowerCase()}_savings`,
+                            value: step.savings,
+                            title: `${step.label} Savings: ${fmt$(step.savings)}`,
+                            howCalculated: `${step.label} Savings = Sum of cost reduction from ${step.action.toLowerCase()} actions\n\nAction count: ${actionCount} indexes\nPer-action avg savings: ${fmt$(step.savings / Math.max(actionCount, 1))}\nCumulative total: ${fmt$(step.cumulative)}`,
+                            llmReasoning: agentReasoning,
+                            evidence: [
+                              `${actionCount} indexes classified for ${step.action.toLowerCase()}`,
+                              `Estimated savings: ${fmt$(step.savings)}`,
+                              `${step.action} indexes in this tier: ${actionCount}`,
+                              `Recommendation: Prioritize by confidence and impact`,
+                            ],
+                            confidence: kpis.avgConfidence * 100,
+                            action: step.action,
+                            rawData: { action: step.action, savings: step.savings, cumulative: step.cumulative, count: actionCount },
+                          });
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 10 }} stroke="#334155" />
+                        <YAxis tickFormatter={(v: number) => v >= 1000 ? `$${(v/1000).toFixed(0)}k` : `$${v}`} tick={{ fill: '#64748b', fontSize: 10 }} stroke="#334155" />
+                        <Tooltip
+                          contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 4, fontSize: '0.75rem' }}
+                          labelStyle={{ color: '#cbd5e1' }}
+                          formatter={(value: number, name: string) => [
+                            name === 'cumulative' ? `Cumulative: ${fmt$(value)}` : `Savings: ${fmt$(value)}`,
+                            name === 'cumulative' ? 'Cumulative' : 'Phase Savings',
+                          ]}
+                        />
+                        <Bar dataKey="savings" isAnimationActive={false} radius={[3, 3, 0, 0]}>
+                          {chartData.map((entry, i) => (
+                            <Cell key={i} fill={ACTION_COLORS[entry.action] || '#3b82f6'} fillOpacity={0.85} />
+                          ))}
+                        </Bar>
+                        <Bar dataKey="cumulative" isAnimationActive={false} radius={[3, 3, 0, 0]} fillOpacity={0.25}>
+                          {chartData.map((entry, i) => (
+                            <Cell key={i} fill={ACTION_COLORS[entry.action] || '#3b82f6'} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
+                      {chartData.map((step, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.68rem' }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 2, background: ACTION_COLORS[step.action] || '#3b82f6' }} />
+                          <span style={{ color: '#64748b' }}>{step.label}</span>
+                          <span style={{ color: '#22c55e', fontWeight: 600 }}>{fmt$(step.savings)}</span>
                         </div>
-                        <div style={{ height: 20, background: '#1e293b', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
-                          <div style={{ height: '100%', width: `${widthPct}%`, background: `${color}30`, borderRadius: 4 }} />
-                          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', paddingLeft: 8, fontSize: '0.65rem', color: '#64748b' }}>
-                            {fmt$(step.cumulative)}
-                          </div>
-                        </div>
-                      </div>
+                      ))}
                     </div>
-                  );
-                })}
-              </div>
-            )
+                  </div>
+                );
+              })()
           }
         </div>
 
-        <div style={{ ...card(), position: 'relative' }}>
-          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
-          <div style={cardTitle}>Quick Wins</div>
-          {(() => {
-            const wins = quickWins.length > 0
-              ? quickWins.slice(0, 5).map(qw => ({ indexName: qw.indexName, action: qw.action, savings: qw.savings, tier: qw.tier, reasoning: qw.reasoning }))
-              : snapshots.filter(s => s.isQuickWin).slice(0, 5).map(s => ({ indexName: s.indexName, action: s.action, savings: s.estimatedSavings, tier: s.tier, reasoning: s.reasoning }));
-            if (wins.length === 0) return <div style={{ color: '#475569', fontSize: '0.875rem' }}>No quick wins identified</div>;
-            return (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #1e293b' }}>
-                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#475569', fontWeight: 500, width: 28 }}>#</th>
-                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#475569', fontWeight: 500 }}>Index</th>
-                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'right', color: '#475569', fontWeight: 500, whiteSpace: 'nowrap' }}>Est. Impact</th>
-                    <th style={{ padding: '0.4rem 0.5rem', textAlign: 'left', color: '#475569', fontWeight: 500 }}>Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {wins.map((qw, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #0f172a', cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={(e) => e.currentTarget.style.background = '#ffffff03'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'} onClick={() => setDrawer({
-                      isOpen: true,
-                      metric: 'quick_win',
-                      value: qw.savings,
-                      title: `Quick Win: ${qw.indexName}`,
-                      howCalculated: `Action: ${qw.action}\nTier: ${qw.tier}\nEstimated Savings: ${fmt$(qw.savings)}\n\nThis index was flagged as a quick win by the LLM because it has high savings potential with low implementation risk.`,
-                      llmReasoning: qw.reasoning || 'No detailed reasoning provided',
-                      evidence: [
-                        `Index: ${qw.indexName}`,
-                        `Action: ${qw.action}`,
-                        `Tier: ${qw.tier}`,
-                        `Estimated savings: ${fmt$(qw.savings)}`,
-                        'Quick implementation potential',
-                      ],
-                      confidence: kpis.avgConfidence * 100,
-                      action: qw.action,
-                      tier: qw.tier,
-                      rawData: {
-                        indexName: qw.indexName,
-                        action: qw.action,
-                        tier: qw.tier,
-                        savings: qw.savings,
-                      },
-                    })}>
-                      <td style={{ padding: '0.5rem 0.5rem', color: '#475569', fontWeight: 700 }}>{i + 1}</td>
-                      <td style={{ padding: '0.5rem 0.5rem' }}>
-                        <div style={{ fontWeight: 600, color: '#f8fafc', marginBottom: '0.2rem' }}>{qw.indexName}</div>
-                        <span style={{ padding: '0.1rem 0.35rem', borderRadius: 3, fontSize: '0.62rem', background: `${ACTION_COLORS[qw.action] || '#3b82f6'}20`, color: ACTION_COLORS[qw.action] || '#3b82f6', fontWeight: 600 }}>{qw.action}</span>
-                      </td>
-                      <td style={{ padding: '0.5rem 0.5rem', color: '#22c55e', fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap' }}>{qw.savings > 0 ? fmt$(qw.savings) : '—'}</td>
-                      <td style={{ padding: '0.5rem 0.5rem', color: '#64748b', fontSize: '0.72rem', maxWidth: 160 }}>
-                        {qw.reasoning ? qw.reasoning.slice(0, 80) + (qw.reasoning.length > 80 ? '…' : '') : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            );
-          })()}
-        </div>
+        {/* Quick Wins — one-click governance panel */}
+        {(() => {
+          const [approvedWins, setApprovedWins] = React.useState<Set<string>>(new Set());
+          const [approvingWin, setApprovingWin] = React.useState<string | null>(null);
+
+          const wins = quickWins.length > 0
+            ? quickWins.slice(0, 5).map(qw => ({ indexName: qw.indexName, action: qw.action, savings: qw.savings, tier: qw.tier, reasoning: qw.reasoning }))
+            : snapshots.filter(s => s.isQuickWin).slice(0, 5).map(s => ({ indexName: s.indexName, action: s.action, savings: s.estimatedSavings, tier: s.tier, reasoning: s.reasoning }));
+
+          const approveWin = async (qw: typeof wins[0]) => {
+            const key = `${qw.indexName}::${qw.action}`;
+            if (approvedWins.has(key) || approvingWin === key) return;
+            setApprovingWin(key);
+            try {
+              await fetch('/api/governance/mutations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  mutationType: 'APPROVE',
+                  indexName: qw.indexName,
+                  sourcetype: qw.tier || 'unknown',
+                  actorEmail: 'admin@bitsio.com',
+                  actionNote: `Quick-win approved: ${qw.action} — estimated savings ${fmt$(qw.savings)}`,
+                  idempotencyKey: `quickwin-approve-${qw.indexName}-${qw.action}-${Date.now()}`,
+                }),
+              });
+              setApprovedWins(prev => { const n = new Set(Array.from(prev)); n.add(key); return n; });
+            } catch { /* silently ignore */ }
+            finally { setApprovingWin(null); }
+          };
+
+          const approveAll = async () => {
+            const pending = wins.filter(qw => !approvedWins.has(`${qw.indexName}::${qw.action}`));
+            for (const qw of pending) { await approveWin(qw); }
+          };
+
+          return (
+            <div style={{ ...card(), position: 'relative' }}>
+              <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <div style={cardTitle}>Quick Wins</div>
+                {wins.length > 1 && approvedWins.size < wins.length && (
+                  <button onClick={approveAll} style={{ padding: '0.25rem 0.7rem', background: '#22c55e20', color: '#22c55e', border: '1px solid #22c55e40', borderRadius: 5, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
+                    ✓ Approve All
+                  </button>
+                )}
+              </div>
+              {wins.length === 0
+                ? <div style={{ color: '#475569', fontSize: '0.875rem' }}>No quick wins identified</div>
+                : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {wins.map((qw, i) => {
+                      const key = `${qw.indexName}::${qw.action}`;
+                      const approved = approvedWins.has(key);
+                      const approving = approvingWin === key;
+                      const color = ACTION_COLORS[qw.action] || '#3b82f6';
+                      return (
+                        <div key={i} style={{ background: '#0f172a', borderRadius: 6, padding: '0.6rem 0.75rem', border: `1px solid ${approved ? '#22c55e40' : '#1e293b'}`, transition: 'border-color 0.3s' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                            <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setDrawer({
+                              isOpen: true,
+                              metric: 'quick_win',
+                              value: qw.savings,
+                              title: `Quick Win: ${qw.indexName}`,
+                              howCalculated: `Action: ${qw.action}\nTier: ${qw.tier}\nEstimated Savings: ${fmt$(qw.savings)}\n\nFlagged as quick win by LLM: high savings, low risk.`,
+                              llmReasoning: qw.reasoning || 'No detailed reasoning provided',
+                              evidence: [`Index: ${qw.indexName}`, `Action: ${qw.action}`, `Tier: ${qw.tier}`, `Savings: ${fmt$(qw.savings)}`],
+                              confidence: kpis.avgConfidence * 100,
+                              action: qw.action,
+                              tier: qw.tier,
+                              rawData: { indexName: qw.indexName, action: qw.action, tier: qw.tier, savings: qw.savings },
+                            })}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>#{i + 1}</span>
+                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{qw.indexName}</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ padding: '0.1rem 0.35rem', borderRadius: 3, fontSize: '0.62rem', background: `${color}20`, color, fontWeight: 600 }}>{qw.action}</span>
+                                {qw.tier && <span style={{ fontSize: '0.62rem', color: '#475569' }}>{qw.tier}</span>}
+                                <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 700, marginLeft: 'auto' }}>{qw.savings > 0 ? fmt$(qw.savings) : '—'}</span>
+                              </div>
+                              {qw.reasoning && (
+                                <div style={{ fontSize: '0.65rem', color: '#475569', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {qw.reasoning.slice(0, 90)}{qw.reasoning.length > 90 ? '…' : ''}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => approveWin(qw)}
+                              disabled={approved || approving}
+                              style={{
+                                flexShrink: 0,
+                                padding: '0.3rem 0.65rem',
+                                borderRadius: 5,
+                                fontSize: '0.68rem',
+                                fontWeight: 700,
+                                cursor: approved ? 'default' : 'pointer',
+                                border: 'none',
+                                background: approved ? '#22c55e20' : approving ? '#1e293b' : '#22c55e',
+                                color: approved ? '#22c55e' : approving ? '#64748b' : '#0f172a',
+                                transition: 'all 0.2s',
+                                letterSpacing: '0.02em',
+                              }}
+                            >
+                              {approved ? '✓ Approved' : approving ? '…' : '✓ Approve'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {approvedWins.size > 0 && (
+                      <div style={{ fontSize: '0.7rem', color: '#22c55e', textAlign: 'center', marginTop: 2 }}>
+                        {approvedWins.size} quick win{approvedWins.size > 1 ? 's' : ''} approved this session
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+            </div>
+          );
+        })()}
       </div>
 
       {/* Row 5 — D11 Utilization×Detection Scatter + D8 Top Indexes by Volume */}

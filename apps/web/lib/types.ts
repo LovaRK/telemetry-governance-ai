@@ -114,6 +114,7 @@ export interface ExecutiveSummary {
   agentReasoning: string;
   snapshotDate: string;
   snapshots: SnapshotRow[];
+  decisions: AgentDecision[];
 }
 
 export interface CacheStatus {

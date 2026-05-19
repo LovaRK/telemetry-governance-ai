@@ -1,20 +1,37 @@
 /**
  * LLM Decision Agent
  *
- * The agent receives raw Splunk telemetry and makes ALL decisions:
- * - Tier classification (Critical / Important / Nice-to-Have / Low-Value)
- * - ROI score (0-100)
- * - Composite score (utilization × detection × quality weighted)
- * - Recommended action (KEEP / OPTIMIZE / ARCHIVE / ELIMINATE / S3_CANDIDATE)
- * - Savings estimate
- * - Reasoning (why this decision was made)
+ * Architecture (updated — deterministic-first):
  *
- * NO hardcoded thresholds. NO if/else rule trees.
- * The LLM looks at all signals holistically and decides.
+ *   Splunk metadata → Deterministic Scoring Engine → LLM Reasoning Layer
+ *
+ * The deterministic engine computes:
+ *   - Utilization Score  (weighted_sum / max × 100)
+ *   - Detection Score    (0.40 × potential + 0.60 × realized)
+ *   - Quality Score      (max(0, 100 − issue_density × 2000))
+ *   - Composite Score    (weighted average with configurable weights)
+ *   - Tier Assignment    (hard thresholds: ≥65 Critical, ≥40 Important, ≥20 Nice-to-Have)
+ *   - ROI Score          (avg composite across portfolio)
+ *   - GainScope %        (Tier1+2 GB / Total GB × 100)
+ *
+ * The LLM receives pre-computed scores and generates ONLY:
+ *   - Action (KEEP/OPTIMIZE/ARCHIVE/ELIMINATE/S3_CANDIDATE)
+ *   - Plain-English reasoning (why)
+ *   - Evidence signals
+ *   - Estimated savings
+ *   - Quick win flag
+ *   - Confidence score
+ *   - Executive summary (agentReasoning)
+ *   - Savings staircase (waterfall projection)
+ *   - Quick wins list
+ *
+ * This ensures scores are reproducible and auditable while AI provides
+ * the operational intelligence layer on top.
  */
 
 import { LLMRouter } from '../../../agents/reasoning/llm-router';
 import { UserConfig } from '../services/config-service';
+import type { ScoredSourcetype } from '../services/deterministic-scoring-engine';
 
 export interface RawTelemetryInput {
   index: string;
@@ -24,6 +41,17 @@ export interface RawTelemetryInput {
   retentionDays: number;
   firstEvent: string;
   lastEvent: string;
+  // Pre-computed deterministic scores (injected by aggregation-service)
+  // If provided, LLM uses these directly instead of estimating
+  precomputedScores?: {
+    utilizationScore: number;
+    detectionScore: number;
+    qualityScore: number;
+    compositeScore: number;
+    tier: string;
+    detectionGap: boolean;
+    operationalGap: boolean;
+  };
 }
 
 export interface LLMDecision {
@@ -72,37 +100,56 @@ export interface AgentDecisionSummary {
 const SYSTEM_PROMPT = `You are a Splunk FinOps and Security intelligence agent.
 STRICT OUTPUT MODE: Output ONLY valid JSON. No explanations, no markdown, no text before or after.
 
-For each index/sourcetype you must evaluate:
-1. BUSINESS VALUE: Is this data being searched/used? When was it last accessed? What is its event volume?
-2. COST: How much does it cost annually? Is that cost justified by usage?
-3. SECURITY COVERAGE: Does this sourcetype contribute to threat detection?
-4. RETENTION: Is the retention policy appropriate for the data type and usage?
-5. OPTIMIZATION OPPORTUNITY: Can cost be reduced without losing value?
+IMPORTANT: Each index entry below already contains PRE-COMPUTED deterministic scores:
+  - utilization_score: computed from alerts × 3, scheduled × 3, dashboards × 2, users × 2, ad-hoc × 1
+  - detection_score: computed from MITRE ATT&CK potential (40%) + realized alert coverage (60%)
+  - quality_score: computed from parsing issue density
+  - composite_score: weighted average (default: util 35%, detection 40%, quality 25%)
+  - tier: already assigned via hard thresholds (≥65 Critical, ≥40 Important, ≥20 Nice-to-Have, <20 Low-Value)
 
-Tier definitions:
-- Critical: Active, high-value, frequently searched, security/compliance critical
-- Important: Regularly used, moderate value, supports operational processes
-- Nice-to-Have: Occasionally useful, low-to-moderate cost, can be trimmed
-- Low-Value: Rarely or never searched, high cost relative to value, prime for elimination
+YOUR ROLE: Accept these scores as authoritative. DO NOT change the tier or scores.
+You must provide:
+1. ACTION: Best operational decision (KEEP/OPTIMIZE/ARCHIVE/ELIMINATE/S3_CANDIDATE)
+2. REASONING: 2-3 sentences explaining WHY given the scores and context
+3. EVIDENCE: 2-4 specific signals from the data that drove the decision
+4. ESTIMATED SAVINGS: Dollar amount recoverable by acting on this recommendation
+5. RECOMMENDATION: One clear action sentence for the operator
+6. FLAGS: isQuickWin (can be done this week), isS3Candidate, confidence level
 
 Action definitions:
-- KEEP: Data is valuable, retention and ingestion rate are appropriate
-- OPTIMIZE: Reduce retention or field indexing to cut cost while keeping data
-- ARCHIVE: Move to cold/cheap storage (S3), reduce hot retention to 7-14 days
-- ELIMINATE: Stop ingesting, high cost zero value
-- S3_CANDIDATE: Route to Federated Search / S3, keep queryable but remove from hot tier`;
+- KEEP: Composite ≥ 65 or security-critical; cost is justified
+- OPTIMIZE: Good data, wrong settings (retention too long, fields not pruned)
+- ARCHIVE: Some value but rarely queried; route to cold/S3 storage
+- ELIMINATE: Low-Value tier (composite < 20), zero detection, minimal use
+- S3_CANDIDATE: High volume, low utilization, Lantern use cases exist but unused`;
 
 function buildDecisionPrompt(inputs: RawTelemetryInput[], config: UserConfig): string {
-  const dataJson = JSON.stringify(inputs.map((i) => ({
-    index: i.index,
-    sourcetype: i.sourcetype || null,
-    daily_gb: i.dailyAvgGb,
-    total_events: i.totalEvents,
-    retention_days: i.retentionDays,
-    first_event: i.firstEvent,
-    last_event: i.lastEvent,
-    annual_cost_usd: Math.round(i.dailyAvgGb * 365 * config.costPerGbPerDay * 100) / 100,
-  })), null, 2);
+  const dataJson = JSON.stringify(inputs.map((i) => {
+    const base = {
+      index: i.index,
+      sourcetype: i.sourcetype || null,
+      daily_gb: i.dailyAvgGb,
+      total_events: i.totalEvents,
+      retention_days: i.retentionDays,
+      first_event: i.firstEvent,
+      last_event: i.lastEvent,
+      annual_cost_usd: Math.round(i.dailyAvgGb * 365 * config.costPerGbPerDay * 100) / 100,
+    };
+    // Attach pre-computed deterministic scores if available
+    if (i.precomputedScores) {
+      return {
+        ...base,
+        utilization_score: i.precomputedScores.utilizationScore,
+        detection_score:   i.precomputedScores.detectionScore,
+        quality_score:     i.precomputedScores.qualityScore,
+        composite_score:   i.precomputedScores.compositeScore,
+        tier:              i.precomputedScores.tier,
+        detection_gap:     i.precomputedScores.detectionGap,
+        operational_gap:   i.precomputedScores.operationalGap,
+      };
+    }
+    return base;
+  }), null, 2);
 
   const retentionPolicyStr = Object.entries(config.retentionPolicy || {})
     .map(([tier, days]) => `${tier}: ${days} days`)
@@ -127,25 +174,25 @@ Analyze every index above and return ONLY a valid JSON object in this exact sche
       "sourcetype": "string or null",
       "tier": "Critical|Important|Nice-to-Have|Low-Value",
       "action": "KEEP|OPTIMIZE|ARCHIVE|ELIMINATE|S3_CANDIDATE",
-      "compositeScore": 0-100,
-      "utilizationScore": 0-100,
-      "detectionScore": 0-100,
-      "qualityScore": 0-100,
+      "compositeScore": number (use pre-computed value from input, do not change),
+      "utilizationScore": number (use pre-computed value from input, do not change),
+      "detectionScore": number (use pre-computed value from input, do not change),
+      "qualityScore": number (use pre-computed value from input, do not change),
       "riskScore": 0-100,
       "annualLicenseCost": number,
       "estimatedSavings": number,
       "confidence": "HIGH|MEDIUM|LOW",
       "confidenceScore": 0.0-1.0,
       "recommendation": "one clear action sentence",
-      "reasoning": "2-3 sentences explaining why this decision was made",
+      "reasoning": "2-3 sentences explaining why this decision was made based on the scores",
       "evidence": ["signal 1", "signal 2"],
       "isQuickWin": true|false,
       "isS3Candidate": true|false,
       "detectionGap": true|false
     }
   ],
-  "roiScore": 0-100,
-  "gainScopeScore": 0-100,
+  "roiScore": null,
+  "gainScopeScore": null,
   "totalLicenseSpend": number,
   "licenseSpendLowValue": number,
   "storageSavingsPotential": number,
@@ -401,26 +448,22 @@ export async function runLLMDecisionAgent(
 
   console.log(`[LLMDecisionAgent] Complete — ${allDecisions.length} valid decisions, $${totalLicenseSpend.toFixed(2)} total spend`);
 
-  if (!p?.roiScore || p.roiScore < 0 || p.roiScore > 100) {
-    throw new Error(`LLM must return roiScore (0-100). Got: ${p?.roiScore}`);
-  }
-  if (!p?.gainScopeScore || p.gainScopeScore < 0 || p.gainScopeScore > 100) {
-    throw new Error(`LLM must return gainScopeScore (0-100). Got: ${p?.gainScopeScore}`);
-  }
-  if (typeof p?.storageSavingsPotential !== 'number' || p.storageSavingsPotential < 0) {
-    throw new Error(`LLM must return storageSavingsPotential (>=0). Got: ${p?.storageSavingsPotential}`);
-  }
-  if (!Array.isArray(p?.savingsStaircase) || p.savingsStaircase.length === 0) {
-    throw new Error(`LLM must return savingsStaircase (non-empty array). Got: ${JSON.stringify(p?.savingsStaircase)}`);
-  }
+  // roiScore and gainScopeScore are NOW computed deterministically in aggregation-service.
+  // The LLM returns null for these — we accept that and override below.
+  // storageSavingsPotential still comes from LLM (requires reasoning about excess retention).
+  const storageSavings = typeof p?.storageSavingsPotential === 'number' && p.storageSavingsPotential >= 0
+    ? p.storageSavingsPotential
+    : allDecisions
+        .filter(d => d.action === 'ELIMINATE' || d.action === 'ARCHIVE' || d.action === 'OPTIMIZE')
+        .reduce((s, d) => s + (d.estimatedSavings || 0), 0);
 
   return {
     decisions: allDecisions,
-    roiScore: p.roiScore,
-    gainScopeScore: p.gainScopeScore,
+    roiScore: 0,           // overridden by aggregation-service with deterministic avg(composite)
+    gainScopeScore: 0,     // overridden by aggregation-service with Tier1+2 GB / Total GB × 100
     totalLicenseSpend,
-    licenseSpendLowValue: p.licenseSpendLowValue || lowValueSpend,
-    storageSavingsPotential: p.storageSavingsPotential,
+    licenseSpendLowValue: p?.licenseSpendLowValue || lowValueSpend,
+    storageSavingsPotential: storageSavings,
     totalDailyGb: inputs.reduce((s, inp) => s + inp.dailyAvgGb, 0),
     totalSourcetypes: inputs.length,
     tierCounts,

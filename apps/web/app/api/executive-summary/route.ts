@@ -1,17 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { query } from '@core/database/connection';
 
-let query: any = null;
-try {
-  const conn = require('@core/database/connection');
-  query = conn.query;
-} catch {
-  // Database module not available in web-only mode
-}
-
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const tenantId = request.headers.get('x-tenant-id');
+  const userId = request.headers.get('x-user-id');
   try {
     // Check if database is available
-    if (!query || !process.env.DATABASE_URL) {
+    if (!query) {
       return NextResponse.json({
         mode: 'DEMO_MODE',
         error: 'Database not available',
@@ -26,9 +21,12 @@ export async function GET() {
       }, { status: 503 });
     }
 
-    // Fetch latest snapshot and KPIs from PostgreSQL
+    // Fetch latest snapshot and KPIs from PostgreSQL (tenant-scoped via migration 107)
     const snapshotResult = await query(
-      `SELECT * FROM telemetry_snapshots ORDER BY snapshot_date DESC LIMIT 1`
+      tenantId
+        ? `SELECT * FROM telemetry_snapshots WHERE tenant_id = $1 ORDER BY snapshot_date DESC LIMIT 1`
+        : `SELECT * FROM telemetry_snapshots ORDER BY snapshot_date DESC LIMIT 1`,
+      tenantId ? [tenantId] : []
     );
 
     if (snapshotResult.rows.length === 0) {
@@ -56,9 +54,24 @@ export async function GET() {
     );
     const kpi = kpisResult.rows[0];
 
-    // Fetch decisions for this snapshot
+    // Fetch decisions for this snapshot — LEFT JOIN governance status
     const decisionsResult = await query(
-      `SELECT * FROM agent_decisions WHERE snapshot_id = $1 ORDER BY composite_score DESC`,
+      `SELECT ad.*,
+              ra.status        AS gov_status,
+              ra.action_note   AS gov_note,
+              ra.actor_email   AS gov_actor,
+              ra.updated_at    AS gov_updated_at
+       FROM agent_decisions ad
+       LEFT JOIN LATERAL (
+         SELECT status, action_note, actor_email, updated_at
+         FROM recommendation_actions
+         WHERE index_name = ad.index_name
+           AND (sourcetype = ad.sourcetype OR (sourcetype IS NULL AND ad.sourcetype IS NULL))
+         ORDER BY updated_at DESC
+         LIMIT 1
+       ) ra ON true
+       WHERE ad.snapshot_id = $1
+       ORDER BY ad.composite_score DESC`,
       [snapshotId]
     );
     const decisions = decisionsResult.rows;
@@ -186,8 +199,17 @@ export async function GET() {
         risk: d.risk_score,
         savings: d.estimated_savings,
         reasoning: d.reasoning,
+        recommendation: d.recommendation,
         evidence: d.evidence,
         candidateReason: d.candidate_reason || [],
+        isQuickWin: d.is_quick_win,
+        isS3Candidate: d.is_s3_candidate,
+        detectionGap: d.detection_gap,
+        // Governance lifecycle status
+        governanceStatus: d.gov_status || 'NEW',
+        governanceNote: d.gov_note || null,
+        governanceActor: d.gov_actor || null,
+        governanceUpdatedAt: d.gov_updated_at || null,
       })),
       savingsStaircase: staircase,
       quickWins,

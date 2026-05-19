@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '../lib/api-client';
 
 import { useState, useEffect } from 'react';
 import { useUser } from '../lib/user-context';
@@ -69,7 +70,7 @@ export function DecisionReviewQueue() {
   const fetchPendingDecisions = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/decision-lineage?limit=100');
+      const res = await apiFetch('/api/decision-lineage?limit=100');
       const result = await res.json();
 
       if (result.mode === 'DEMO_MODE') {
@@ -91,7 +92,7 @@ export function DecisionReviewQueue() {
   const handleApprove = async (id: string, factId?: string) => {
     try {
       setProcessingId(id);
-      const res = await fetch(`/api/decision-lineage/${id}`, {
+      const res = await apiFetch(`/api/decision-lineage/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -115,7 +116,7 @@ export function DecisionReviewQueue() {
   const handleReject = async (id: string, reason: string, factId?: string) => {
     try {
       setProcessingId(id);
-      const res = await fetch(`/api/decision-lineage/${id}`, {
+      const res = await apiFetch(`/api/decision-lineage/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

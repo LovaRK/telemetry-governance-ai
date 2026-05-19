@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { apiFetch } from '../lib/api-client';
 
 interface KPIHistoryPoint {
   date: string;
@@ -38,7 +39,7 @@ export default function KPITrendChart({
     const loadHistory = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`/api/kpi-history?days=${days}`);
+        const res = await apiFetch(`/api/kpi-history?days=${days}`);
         const result = await res.json();
 
         if (result.mode === 'DEMO_MODE') {
@@ -60,6 +61,19 @@ export default function KPITrendChart({
     loadHistory();
   }, [days]);
 
+  const getMetricConfig = () => {
+    switch (metric) {
+      case 'roi':        return { key: 'roiScore',                name: 'ROI Score',                  color: '#10b981', yAxisDomain: [0, 100] as [number,number] };
+      case 'gainscope':  return { key: 'gainScopeScore',          name: 'GainScope Score',            color: '#3b82f6', yAxisDomain: [0, 100] as [number,number] };
+      case 'savings':    return { key: 'storageSavingsPotential', name: 'Storage Savings ($)',        color: '#8b5cf6', yAxisDomain: 'auto' as const, formatter: (v: number) => `$${(v/1000).toFixed(0)}k` };
+      case 'ingest':     return { key: 'totalDailyGb',            name: 'Daily Ingest (GB)',          color: '#f59e0b', yAxisDomain: 'auto' as const, formatter: (v: number) => `${v.toFixed(1)}GB` };
+      case 'utilization':return { key: 'avgUtilization',          name: 'Avg Utilization',            color: '#06b6d4', yAxisDomain: [0, 100] as [number,number], formatter: (v: number) => `${v.toFixed(0)}%` };
+      case 'quality':    return { key: 'avgQuality',              name: 'Avg Quality Score',          color: '#ec4899', yAxisDomain: [0, 100] as [number,number], formatter: (v: number) => `${v.toFixed(0)}%` };
+      case 'confidence': return { key: 'avgConfidence',           name: 'Avg Confidence',             color: '#14b8a6', yAxisDomain: [0, 100] as [number,number], formatter: (v: number) => `${v.toFixed(0)}%` };
+      default:           return { key: 'roiScore',                name: 'ROI Score',                  color: '#10b981', yAxisDomain: [0, 100] as [number,number] };
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
@@ -68,79 +82,40 @@ export default function KPITrendChart({
     );
   }
 
-  if (error || data.length === 0) {
+  if (error) {
     return (
-      <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-        {error || 'No historical data available'}
+      <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: '0.8rem' }}>
+        {error}
       </div>
     );
   }
 
-  const getMetricConfig = () => {
-    switch (metric) {
-      case 'roi':
-        return {
-          key: 'roiScore',
-          name: 'ROI Score',
-          color: '#10b981',
-          yAxisDomain: [0, 100],
-        };
-      case 'gainscope':
-        return {
-          key: 'gainScopeScore',
-          name: 'GainScope Score',
-          color: '#3b82f6',
-          yAxisDomain: [0, 100],
-        };
-      case 'savings':
-        return {
-          key: 'storageSavingsPotential',
-          name: 'Storage Savings Potential ($)',
-          color: '#8b5cf6',
-          yAxisDomain: 'auto',
-          formatter: (value: number) => `$${(value / 1000).toFixed(0)}k`,
-        };
-      case 'ingest':
-        return {
-          key: 'totalDailyGb',
-          name: 'Daily Ingest (GB)',
-          color: '#f59e0b',
-          yAxisDomain: 'auto',
-          formatter: (value: number) => `${value.toFixed(1)}GB`,
-        };
-      case 'utilization':
-        return {
-          key: 'avgUtilization',
-          name: 'Avg Utilization',
-          color: '#06b6d4',
-          yAxisDomain: [0, 100],
-          formatter: (value: number) => `${value.toFixed(0)}%`,
-        };
-      case 'quality':
-        return {
-          key: 'avgQuality',
-          name: 'Avg Quality Score',
-          color: '#ec4899',
-          yAxisDomain: [0, 100],
-          formatter: (value: number) => `${value.toFixed(0)}%`,
-        };
-      case 'confidence':
-        return {
-          key: 'avgConfidence',
-          name: 'Avg Confidence',
-          color: '#14b8a6',
-          yAxisDomain: [0, 100],
-          formatter: (value: number) => `${value.toFixed(0)}%`,
-        };
-      default:
-        return {
-          key: 'roiScore',
-          name: 'ROI Score',
-          color: '#10b981',
-          yAxisDomain: [0, 100],
-        };
-    }
-  };
+  // Single data point — show a "current value" card instead of an empty chart
+  if (data.length === 1) {
+    const point = data[0];
+    const config = getMetricConfig();
+    const val = point[config.key as keyof KPIHistoryPoint] as number;
+    const display = config.formatter ? config.formatter(val) : val.toFixed(1);
+    return (
+      <div style={{ height, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <div style={{ fontSize: '2.5rem', fontWeight: 800, color: config.color }}>{display}</div>
+        <div style={{ fontSize: '0.72rem', color: '#64748b', textAlign: 'center' }}>
+          Current snapshot · {new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+        </div>
+        <div style={{ fontSize: '0.65rem', color: '#334155', textAlign: 'center', fontStyle: 'italic' }}>
+          Trend chart available after multiple refreshes
+        </div>
+      </div>
+    );
+  }
+
+  if (data.length === 0) {
+    return (
+      <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: '0.8rem' }}>
+        No historical data yet
+      </div>
+    );
+  }
 
   const config = getMetricConfig();
   const chartData = data.map((point) => ({

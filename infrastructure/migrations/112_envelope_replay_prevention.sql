@@ -85,10 +85,13 @@ CREATE OR REPLACE FUNCTION register_envelope_nonce(
 )
 RETURNS TABLE (
   registered BOOLEAN,
-  reason VARCHAR
+  reason VARCHAR,
+  previous_seen_at TIMESTAMPTZ
 ) AS $$
+DECLARE
+  v_previous_seen_at TIMESTAMPTZ;
 BEGIN
-  -- Attempt to insert the nonce
+  -- Attempt to insert the nonce atomically
   INSERT INTO envelope_nonce_cache (
     tenant_id, envelope_id, envelope_nonce, signature_key_id,
     expires_at, source_service, consumer_id
@@ -97,13 +100,18 @@ BEGIN
     p_expires_at, p_source_service, p_consumer_id
   );
 
-  RETURN QUERY SELECT TRUE, 'Nonce registered successfully';
+  RETURN QUERY SELECT TRUE, 'Nonce registered successfully'::VARCHAR, NULL::TIMESTAMPTZ;
 EXCEPTION
   WHEN unique_violation THEN
-    -- Nonce already exists (replay attempt)
-    RETURN QUERY SELECT FALSE, 'REPLAY_DETECTED: Nonce has already been processed';
+    -- Nonce already exists (replay attempt)—retrieve when it was first seen
+    SELECT seen_at INTO v_previous_seen_at
+    FROM envelope_nonce_cache
+    WHERE tenant_id = p_tenant_id AND envelope_nonce = p_envelope_nonce
+    LIMIT 1;
+
+    RETURN QUERY SELECT FALSE, 'REPLAY_DETECTED: Nonce has already been processed'::VARCHAR, v_previous_seen_at;
   WHEN OTHERS THEN
-    RETURN QUERY SELECT FALSE, 'Error registering nonce: ' || SQLERRM;
+    RETURN QUERY SELECT FALSE, ('Error registering nonce: ' || SQLERRM)::VARCHAR, NULL::TIMESTAMPTZ;
 END;
 $$ LANGUAGE plpgsql;
 

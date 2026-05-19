@@ -12,11 +12,23 @@ import { QueueHealthMetrics } from '../components/QueueHealthMetrics';
 import { ModelHealthMonitor } from '../components/ModelHealthMonitor';
 import { UserProvider } from '../lib/user-context';
 import { ExecutiveSummary, CacheStatus } from '../lib/types';
+import { apiFetch } from '../lib/api-client';
+import { useAuthGuard } from '../lib/use-auth-guard';
+import DecisionExplainabilityPanel from '../components/dashboard/DecisionExplainabilityPanel';
+import GovernanceWorkflowPanel from '../components/dashboard/GovernanceWorkflowPanel';
+import DriftAlertFeed from '../components/dashboard/DriftAlertFeed';
+import SourcetypeRiskHeatmap from '../components/dashboard/SourcetypeRiskHeatmap';
+import LiveCacheCoherenceMonitor from '../components/dashboard/LiveCacheCoherenceMonitor';
+import MutationLifecycleTimeline from '../components/dashboard/MutationLifecycleTimeline';
 import JobStatusToast from '../components/shared/JobStatusToast';
+import { useGovernanceStream } from '../lib/use-governance-stream';
+import { GovernanceToastNotification, useGovernanceToastManager } from '../components/dashboard/GovernanceToastNotification';
+import { ToastProvider } from '../lib/toast-context';
 
 type Tab = 'overview' | 'telemetry' | 'governance';
 
-export default function Home() {
+function Home() {
+  useAuthGuard();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [summary, setSummary] = useState<ExecutiveSummary | null>(null);
@@ -35,6 +47,30 @@ export default function Home() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [pendingDecisionCount, setPendingDecisionCount] = useState(0);
 
+  // Toast notification manager
+  const toastManager = useGovernanceToastManager();
+
+  // SSE live stream — auto-refresh summary when governance events arrive
+  const { connected: streamConnected, lastHeartbeat } = useGovernanceStream({
+    enabled: !loading,
+    onGovernance: (e) => {
+      // A recommendation was approved/rejected — refresh summary to sync badges
+      fetchSummary();
+      // Show toast notification
+      toastManager.onGovernanceEvent(e);
+    },
+    onDecision: (e) => {
+      // New LLM decisions from a fresh aggregation run
+      fetchSummary();
+      // Show toast notification
+      toastManager.onDecisionEvent(e);
+    },
+    onDrift: (e) => {
+      // Drift detected — show toast
+      toastManager.onDriftEvent(e);
+    },
+  });
+
   const fetchSummary = async () => {
     try {
       const statusRes = await fetch('/api/cache-status');
@@ -47,7 +83,7 @@ export default function Home() {
         return;
       }
 
-      const summaryRes = await fetch('/api/executive-summary');
+      const summaryRes = await apiFetch('/api/executive-summary');
       if (!summaryRes.ok) { setSummary(null); return; }
 
       const data = await summaryRes.json();
@@ -64,7 +100,7 @@ export default function Home() {
 
   const fetchPendingDecisionsCount = async () => {
     try {
-      const res = await fetch('/api/decision-lineage?limit=1');
+      const res = await apiFetch('/api/decision-lineage?limit=1');
       const result = await res.json();
       if (result.mode === 'FULL_STACK' && Array.isArray(result.data)) {
         setPendingDecisionCount(result.data.length);
@@ -126,7 +162,7 @@ export default function Home() {
     }
 
     try {
-      const res = await fetch('/api/cache', {
+      const res = await apiFetch('/api/cache', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -149,6 +185,24 @@ export default function Home() {
   };
 
   const hasData = summary !== null && summary.snapshots.length > 0;
+
+  // ── CSV export ────────────────────────────────────────────────────────────
+  const downloadCSV = (type: 'snapshots' | 'decisions') => {
+    if (!summary) return;
+    let csv = '';
+    if (type === 'snapshots') {
+      const cols = ['indexName', 'sourcetype', 'tier', 'action', 'dailyGb', 'utilizationScore', 'detectionScore', 'qualityScore', 'compositeScore', 'estimatedSavings', 'isQuickWin', 'confidenceScore'];
+      csv = [cols.join(','), ...summary.snapshots.map(r => cols.map(c => JSON.stringify((r as any)[c] ?? '')).join(','))].join('\n');
+    } else {
+      const cols = ['indexName', 'sourcetype', 'tier', 'action', 'compositeScore', 'confidenceScore', 'reasoning', 'governanceStatus'];
+      csv = [cols.join(','), ...(summary.decisions || []).map(r => cols.map(c => JSON.stringify((r as any)[c] ?? '')).join(','))].join('\n');
+    }
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `datasensai-${type}-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
   const hasAgentDecisions = cacheStatus?.hasAgentDecisions ?? false;
   const isStale = cacheStatus?.status === 'stale';
 
@@ -254,6 +308,18 @@ export default function Home() {
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+            {/* SSE live indicator */}
+            <div title={streamConnected ? `Live stream connected${lastHeartbeat ? ' · ' + new Date(lastHeartbeat).toLocaleTimeString() : ''}` : 'Stream disconnected'} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{
+                width: 7, height: 7, borderRadius: '50%',
+                background: streamConnected ? '#22c55e' : '#475569',
+                boxShadow: streamConnected ? '0 0 6px #22c55e80' : 'none',
+                display: 'inline-block',
+              }} />
+              <span style={{ fontSize: '0.62rem', color: streamConnected ? '#22c55e' : '#475569', fontWeight: 600 }}>
+                {streamConnected ? 'LIVE' : 'OFFLINE'}
+              </span>
+            </div>
             {refreshing && <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Running LLM pipeline…</span>}
             <button onClick={handleRefresh} disabled={refreshing || !canRefresh}
               style={{ padding: '0.375rem 0.875rem', background: refreshing ? '#1e293b' : '#3b82f6', color: refreshing ? '#64748b' : '#fff', border: 'none', borderRadius: 6, cursor: refreshing || !canRefresh ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: 600 }}>
@@ -308,8 +374,40 @@ export default function Home() {
                   Enhanced Viz ↗
                 </a>
               </div>
-              <div style={{ fontSize: '0.7rem', color: '#334155' }}>
-                {summary.snapshots.length} indexes · {summary.snapshotDate ? new Date(summary.snapshotDate).toLocaleDateString() : ''}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  {/* Data freshness indicator */}
+                  {(() => {
+                    const snapDate = summary.snapshotDate ? new Date(summary.snapshotDate) : null;
+                    const ageMs = snapDate ? Date.now() - snapDate.getTime() : null;
+                    const ageHrs = ageMs != null ? Math.floor(ageMs / 3_600_000) : null;
+                    const fresh = ageHrs != null && ageHrs < 24;
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: fresh ? '#22c55e' : '#f59e0b', boxShadow: fresh ? '0 0 5px #22c55e80' : 'none' }} />
+                        <span style={{ fontSize: '0.68rem', color: fresh ? '#22c55e' : '#f59e0b', fontWeight: 600 }}>
+                          {ageHrs == null ? 'Unknown age' : ageHrs < 1 ? 'Fresh' : ageHrs < 24 ? `${ageHrs}h ago` : `${Math.floor(ageHrs/24)}d ago`}
+                        </span>
+                      </div>
+                    );
+                  })()}
+                  <span style={{ color: '#1e293b' }}>·</span>
+                  <span style={{ fontSize: '0.7rem', color: '#334155' }}>{summary.snapshots.length} indexes</span>
+                </div>
+                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                  <button onClick={() => downloadCSV('snapshots')}
+                    title="Export snapshot data as CSV"
+                    style={{ padding: '0.3rem 0.6rem', background: 'transparent', color: '#475569', border: '1px solid #1e293b', borderRadius: 6, cursor: 'pointer', fontSize: '0.68rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    ↓ Snapshots
+                  </button>
+                  {(summary.decisions?.length ?? 0) > 0 && (
+                    <button onClick={() => downloadCSV('decisions')}
+                      title="Export LLM decisions as CSV"
+                      style={{ padding: '0.3rem 0.6rem', background: 'transparent', color: '#475569', border: '1px solid #1e293b', borderRadius: 6, cursor: 'pointer', fontSize: '0.68rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      ↓ Decisions
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -317,6 +415,11 @@ export default function Home() {
               <>
                 <AgentIntelligencePanel snapshots={summary.snapshots} kpis={summary.kpis} hasAgentDecisions={hasAgentDecisions} />
                 <ExecutiveOverview summary={summary} hasAgentDecisions={hasAgentDecisions} />
+                {hasAgentDecisions && summary.decisions && summary.decisions.length > 0 && (
+                  <div style={{ marginTop: '1.5rem' }}>
+                    <DecisionExplainabilityPanel decisions={summary.decisions} />
+                  </div>
+                )}
               </>
             )}
 
@@ -326,6 +429,21 @@ export default function Home() {
 
             {activeTab === 'governance' && (
               <div style={{ display: 'grid', gap: '1.5rem' }}>
+                {/* Live Cache Coherence Monitor */}
+                <LiveCacheCoherenceMonitor />
+
+                {/* Drift & Governance Alert Feed */}
+                <DriftAlertFeed />
+
+                {/* Sourcetype Risk Heatmap */}
+                <SourcetypeRiskHeatmap snapshots={summary.snapshots} />
+
+                {/* Mutation Lifecycle Timeline */}
+                <MutationLifecycleTimeline />
+
+                {/* Human Governance Workflow — primary governance surface */}
+                <GovernanceWorkflowPanel snapshotId={summary?.snapshots?.[0]?.snapshotId} />
+
                 <div style={{ backgroundColor: '#0f172a', borderRadius: '8px', padding: '1rem', border: '1px solid #1e293b' }}>
                   <ModelHealthMonitor />
                 </div>
@@ -375,9 +493,21 @@ export default function Home() {
           }}
         />
       )}
+      <GovernanceToastNotification position="top-right" maxVisible={3} />
     </>
   );
 }
+
+// Wrap the main app with providers
+const PageWithProviders = () => {
+  return (
+    <ToastProvider>
+      <Home />
+    </ToastProvider>
+  );
+}
+
+export default PageWithProviders;
 
 const inputStyle: React.CSSProperties = {
   flex: 1,

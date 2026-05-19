@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '../../../lib/api-client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -33,7 +34,7 @@ export default function SplunkSettingsPage() {
 
   const loadStatus = async () => {
     try {
-      const response = await fetch('/api/splunk/status');
+      const response = await apiFetch('/api/splunk/status');
       if (response.ok) {
         const data = await response.json();
         setStatus(data);
@@ -45,7 +46,7 @@ export default function SplunkSettingsPage() {
 
   const loadConfig = async () => {
     try {
-      const response = await fetch('/api/splunk/config');
+      const response = await apiFetch('/api/splunk/config');
       if (response.ok) {
         const data = await response.json();
         setFormData((prev) => ({
@@ -76,7 +77,7 @@ export default function SplunkSettingsPage() {
     setMessage('');
 
     try {
-      const response = await fetch('/api/splunk/test-connection', {
+      const response = await apiFetch('/api/splunk/test-connection', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -109,7 +110,7 @@ export default function SplunkSettingsPage() {
     setMessage('');
 
     try {
-      const response = await fetch('/api/splunk/config', {
+      const response = await apiFetch('/api/splunk/config', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

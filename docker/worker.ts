@@ -154,7 +154,7 @@ async function writeDecisionToDb(client: any, decision: any, snapshotId: string,
     WHERE snapshot_id = $1 AND index_name = $2 AND (sourcetype IS NOT DISTINCT FROM $3)
   `, [snapshotId, decision.index, decision.sourcetype || null]);
 
-  // Insert agent_decisions
+  // Insert agent_decisions — idempotent: ON CONFLICT updates in place
   await client.query(`
     INSERT INTO agent_decisions (
       snapshot_id, snapshot_date, index_name, sourcetype,
@@ -163,6 +163,24 @@ async function writeDecisionToDb(client: any, decision: any, snapshotId: string,
       confidence, confidence_score, recommendation, reasoning, evidence,
       is_quick_win, is_s3_candidate, detection_gap, candidate_reason
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+    ON CONFLICT (snapshot_id, index_name, sourcetype) DO UPDATE SET
+      tier              = EXCLUDED.tier,
+      action            = EXCLUDED.action,
+      composite_score   = EXCLUDED.composite_score,
+      utilization_score = EXCLUDED.utilization_score,
+      detection_score   = EXCLUDED.detection_score,
+      quality_score     = EXCLUDED.quality_score,
+      risk_score        = EXCLUDED.risk_score,
+      estimated_savings = EXCLUDED.estimated_savings,
+      confidence        = EXCLUDED.confidence,
+      confidence_score  = EXCLUDED.confidence_score,
+      recommendation    = EXCLUDED.recommendation,
+      reasoning         = EXCLUDED.reasoning,
+      evidence          = EXCLUDED.evidence,
+      is_quick_win      = EXCLUDED.is_quick_win,
+      is_s3_candidate   = EXCLUDED.is_s3_candidate,
+      detection_gap     = EXCLUDED.detection_gap,
+      candidate_reason  = EXCLUDED.candidate_reason
   `, [
     snapshotId, today, decision.index, decision.sourcetype || null,
     decision.tier, decision.action,
@@ -181,7 +199,7 @@ async function writeDecisionToDb(client: any, decision: any, snapshotId: string,
     Boolean(decision.isQuickWin),
     Boolean(decision.isS3Candidate),
     Boolean(decision.detectionGap),
-    JSON.stringify(candidateReason),
+    candidateReason,
   ]);
 }
 

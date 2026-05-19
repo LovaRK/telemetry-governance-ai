@@ -6,12 +6,14 @@ export async function GET() {
   try {
     // Check cache metadata status
     const cacheMetadata = await getCacheStatus('index_metrics');
-    const hasEverRefreshed = cacheMetadata.status === 'fresh' || cacheMetadata.status === 'stale';
-
-    // Check if there's data in the database
+    // Check if there's data in the database FIRST
     const countResult = await query(`SELECT COUNT(*) as count FROM telemetry_snapshots`);
     const recordCount = parseInt(countResult.rows[0]?.count || '0', 10);
     const hasData = recordCount > 0;
+
+    // hasEverRefreshed requires BOTH a prior refresh status AND actual data existing
+    // getCacheStatus returns 'stale' for empty cache — that must not count as refreshed
+    const hasEverRefreshed = hasData && (cacheMetadata.status === 'fresh' || cacheMetadata.status === 'stale' || cacheMetadata.status === 'fast_complete');
 
     // Check if there are agent decisions
     const decisionsResult = await query(`SELECT COUNT(*) as count FROM agent_decisions`);

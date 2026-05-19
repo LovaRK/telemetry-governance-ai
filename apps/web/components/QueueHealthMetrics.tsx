@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '../lib/api-client';
 
 import { useState, useEffect } from 'react';
 
@@ -25,7 +26,7 @@ export function QueueHealthMetrics() {
   const fetchQueueMetrics = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/queue-health?limit=30');
+      const res = await apiFetch('/api/queue-health?limit=30');
       const result = await res.json();
 
       if (result.mode === 'DEMO_MODE') {

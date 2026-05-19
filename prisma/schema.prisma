@@ -1,0 +1,73 @@
+// This is a partial schema showing the ExecutionJournal model
+// Merge this into your existing prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Decision {
+  id                    String    @id @default(uuid())
+  tenantId              String
+  snapshotId            String
+  index                 String
+  decision              String    // ELIMINATE, RETAIN, MONITOR, REBALANCE, ESCALATE
+  status                String    @default("UNDER_REVIEW") // UNDER_REVIEW, APPROVED, EXECUTED, REJECTED_FINAL, DEFERRED
+  compositeScore        Float
+  annualCostUsd         Float
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  executedAt            DateTime?
+  approvedAt            DateTime?
+  rejectedAt            DateTime?
+  deferredAt            DateTime?
+  deferredUntil         DateTime?
+  deferredReason        String?
+  reawokenAt            DateTime?
+  reawokenCount         Int       @default(0)
+  approverAccountId     String?
+  rejectionReason       String?
+  executionJournals     ExecutionJournal[]
+  auditEvents           AuditEvent[]
+
+  @@unique([tenantId, snapshotId, index])
+  @@index([status])
+  @@index([tenantId, status])
+  @@index([deferredUntil]) // For sweeper query
+}
+
+model ExecutionJournal {
+  id              String    @id @default(uuid())
+  decisionId      String
+  decision        Decision  @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  tenantId        String
+  idempotencyKey  String    @unique
+  status          String    @default("STARTED") // STARTED, COMPLETED, FAILED, ROLLED_BACK
+  externalState   Json?     // { status: 'success' | 'failed' | 'unknown', externalId?, error? }
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status])
+  @@index([decisionId])
+  @@index([tenantId, status]) // For reconciliation queries
+  @@map("execution_journal")
+}
+
+model AuditEvent {
+  id            String    @id @default(uuid())
+  decisionId    String
+  decision      Decision  @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  tenantId      String
+  actorId       String
+  eventType     String    // execution.completed, execution.success, execution.failed, etc.
+  payload       Json
+  createdAt     DateTime  @default(now())
+
+  @@index([decisionId])
+  @@index([tenantId, createdAt])
+  @@map("audit_events")
+}

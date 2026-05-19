@@ -29,12 +29,19 @@ export interface TopologyManifest {
   };
 }
 
+export interface SignerIdentity {
+  id: string; // Signer UUID (not self-generated)
+  name: string; // Human-readable signer name (e.g., 'CI/CD Pipeline' or 'Deployment Operator')
+  type: 'CI_CD_SYSTEM' | 'DEPLOYMENT_OPERATOR' | 'CONTROL_PLANE' | 'EXTERNAL_AUTHORITY'; // Signer category
+  trusted: boolean; // Is this signer explicitly trusted?
+  kmsKeyId?: string; // Reference to external signing key in KMS (not app-level)
+}
+
 export interface TopologyAttestation {
   manifest: TopologyManifest;
   signer: {
-    id: string; // Signer identity (deployment operator, CI/CD system)
+    identity: SignerIdentity; // CRITICAL: Must be pre-registered, not self-generated
     algorithm: 'HMAC_SHA256' | 'RSA_SHA256' | 'ECDSA_SHA256';
-    keyId?: string; // Reference to key in key management service
   };
   signature: string; // Hex-encoded signature over canonical manifest
   signedAt: string; // ISO8601 when attestation was signed
@@ -45,6 +52,7 @@ export class TopologyAttestationService {
   private pool: Pool;
   private signingKeyMaterial: string; // HMAC key material for signing attestations
   private verificationKeyMaterial: string; // Key material for verification
+  private trustedSigners: Map<string, SignerIdentity> = new Map(); // Pre-registered trusted signers
 
   constructor(pool: Pool, signingKeyMaterial: string, verificationKeyMaterial?: string) {
     this.pool = pool;
@@ -53,14 +61,56 @@ export class TopologyAttestationService {
   }
 
   /**
+   * Register a trusted signer (must be done via secure channel, e.g., operator approval)
+   * CRITICAL: Prevents self-signed topology attestations
+   */
+  registerTrustedSigner(identity: SignerIdentity): void {
+    if (!identity.id) {
+      throw new Error('Signer identity must have an ID');
+    }
+
+    if (!identity.trusted) {
+      throw new Error('Cannot register untrusted signer—must explicitly set trusted=true via approval');
+    }
+
+    this.trustedSigners.set(identity.id, identity);
+    console.log('[TRUSTED_SIGNER_REGISTERED]', {
+      signerId: identity.id,
+      signerName: identity.name,
+      signerType: identity.type,
+    });
+  }
+
+  /**
+   * Verify signer identity is trusted (not self-generated)
+   */
+  private _verifySignerIsTrusted(signerId: string): SignerIdentity {
+    const signer = this.trustedSigners.get(signerId);
+
+    if (!signer) {
+      throw new Error(`SIGNER_NOT_TRUSTED: ${signerId} is not a pre-registered trusted signer`);
+    }
+
+    if (!signer.trusted) {
+      throw new Error(`SIGNER_UNTRUSTED: ${signerId} is registered but not marked as trusted`);
+    }
+
+    return signer;
+  }
+
+  /**
    * Create and sign a topology attestation
-   * Prevents subsequent modification of topology claims
+   * CRITICAL: Requires signer to be pre-registered and trusted
+   * Prevents self-signed topology claims
    */
   createAttestation(
     manifest: TopologyManifest,
     signerId: string,
     ttlSeconds: number = 3600
   ): TopologyAttestation {
+    // Verify signer identity FIRST
+    const signerIdentity = this._verifySignerIsTrusted(signerId);
+
     const signedAt = new Date();
     const expiresAt = new Date(signedAt.getTime() + ttlSeconds * 1000);
 
@@ -78,7 +128,7 @@ export class TopologyAttestationService {
     return {
       manifest,
       signer: {
-        id: signerId,
+        identity: signerIdentity,
         algorithm: 'HMAC_SHA256',
       },
       signature: hmac,
@@ -90,12 +140,29 @@ export class TopologyAttestationService {
   /**
    * Verify a topology attestation
    * Checks:
+   * - Signer is trusted (pre-registered, not self-signed)
    * - Signature is valid (manifest hasn't been tampered with)
    * - Attestation hasn't expired
    * - Manifest contains expected services
    */
-  verifyAttestation(attestation: TopologyAttestation): { valid: boolean; errors: string[] } {
+  verifyAttestation(attestation: TopologyAttestation): { valid: boolean; errors: string[]; signerTrusted?: boolean } {
     const errors: string[] = [];
+    let signerTrusted = false;
+
+    // CRITICAL: Verify signer is trusted FIRST (prevents self-signed topology)
+    if (!attestation.signer.identity) {
+      errors.push('SIGNER_IDENTITY_MISSING: Topology attestation must include signer identity');
+    } else {
+      const trustedSigner = this.trustedSigners.get(attestation.signer.identity.id);
+
+      if (!trustedSigner) {
+        errors.push(`SIGNER_NOT_TRUSTED: ${attestation.signer.identity.id} is not a pre-registered trusted signer`);
+      } else if (!trustedSigner.trusted) {
+        errors.push(`SIGNER_UNTRUSTED: ${attestation.signer.identity.id} is registered but not marked trusted`);
+      } else {
+        signerTrusted = true;
+      }
+    }
 
     // Check expiration
     const now = Date.now();
@@ -104,27 +171,29 @@ export class TopologyAttestationService {
       errors.push(`Topology attestation has expired: expires at ${attestation.expiresAt}`);
     }
 
-    // Verify signature
-    try {
-      const canonicalManifest = canonicalize(attestation.manifest);
-      if (!canonicalManifest) {
-        errors.push('MANIFEST_CANONICALIZATION_FAILED during verification');
-      } else {
-        const expectedSignature = createHmac('sha256', this.verificationKeyMaterial)
-          .update(canonicalManifest)
-          .digest('hex');
+    // Verify signature (only if signer is trusted)
+    if (signerTrusted) {
+      try {
+        const canonicalManifest = canonicalize(attestation.manifest);
+        if (!canonicalManifest) {
+          errors.push('MANIFEST_CANONICALIZATION_FAILED during verification');
+        } else {
+          const expectedSignature = createHmac('sha256', this.verificationKeyMaterial)
+            .update(canonicalManifest)
+            .digest('hex');
 
-        // Constant-time comparison
-        const { timingSafeEqual } = require('crypto');
-        const expectedBuffer = Buffer.from(expectedSignature, 'hex');
-        const signatureBuffer = Buffer.from(attestation.signature, 'hex');
+          // Constant-time comparison
+          const { timingSafeEqual } = require('crypto');
+          const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+          const signatureBuffer = Buffer.from(attestation.signature, 'hex');
 
-        if (!timingSafeEqual(expectedBuffer, signatureBuffer)) {
-          errors.push('Topology attestation signature verification failed: manifest may have been tampered with');
+          if (!timingSafeEqual(expectedBuffer, signatureBuffer)) {
+            errors.push('Topology attestation signature verification failed: manifest may have been tampered with');
+          }
         }
+      } catch (error) {
+        errors.push(`Topology signature verification error: ${error}`);
       }
-    } catch (error) {
-      errors.push(`Topology signature verification error: ${error}`);
     }
 
     // Verify manifest sanity
@@ -139,6 +208,7 @@ export class TopologyAttestationService {
     return {
       valid: errors.length === 0,
       errors,
+      signerTrusted,
     };
   }
 

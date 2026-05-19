@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '../../lib/api-client';
 
 import React, { useState, useEffect } from 'react';
 
@@ -61,7 +62,7 @@ export default function DecisionHistoryViewer({ indexName, maxRecords = 20 }: Pr
         });
         if (indexName) params.append('index', indexName);
 
-        const res = await fetch(`/api/decision-history?${params}`);
+        const res = await apiFetch(`/api/decision-history?${params}`);
         if (!res.ok) throw new Error('Failed to fetch history');
 
         const data = await res.json();

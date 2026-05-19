@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '../../lib/api-client';
 
 import { useEffect, useState } from 'react';
 import { TrustInspectionModal } from './TrustInspectionModal';
@@ -44,7 +45,7 @@ export function DriftMonitor({ limit = 50 }: DriftMonitorProps) {
     const fetchDriftEvents = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/drift-monitor?limit=${limit}`);
+        const response = await apiFetch(`/api/drift-monitor?limit=${limit}`);
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);

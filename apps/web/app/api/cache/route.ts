@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCacheStatus, listCacheStatuses, setCacheRefreshing, setCacheFresh, setCacheError, isRefreshing } from '@api/services/cache-service';
-import { runFastAggregation } from '@api/services/aggregation-service';
-import { SplunkClient } from '@api/services/splunk-client';
 
 export async function GET(request: NextRequest) {
   try {
+    const { getCacheStatus, listCacheStatuses } = require('@api/services/cache-service');
     const { searchParams } = new URL(request.url);
     const key = searchParams.get('key');
     if (key) {
@@ -24,6 +22,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const started = Date.now();
   try {
+    const { setCacheRefreshing, setCacheFresh, setCacheError, isRefreshing } = require('@api/services/cache-service');
+    const { runFastAggregation } = require('@api/services/aggregation-service');
+    const { SplunkClient } = require('@api/services/splunk-client');
+
     const body = await request.json();
     if (!body?.mcpUrl) {
       return NextResponse.json({ error: 'mcpUrl is required' }, { status: 400 });
@@ -76,7 +78,6 @@ export async function POST(request: NextRequest) {
     // Fast path: fetch Splunk metadata (<5s) and enqueue LLM job
     const result = await runFastAggregation(splunk, { lookbackDays: 30, costPerGbPerDay });
 
-    // Cache is fast_complete — worker will call setCacheFresh when LLM finishes
     return NextResponse.json({
       success: true,
       phase: 'fast_complete',
@@ -86,6 +87,7 @@ export async function POST(request: NextRequest) {
       durationMs: Date.now() - started,
     });
   } catch (error) {
+    const { setCacheError } = require('@api/services/cache-service');
     const message = error instanceof Error ? error.message : 'Refresh failed';
     await setCacheError('index_metrics', message).catch(() => {});
 

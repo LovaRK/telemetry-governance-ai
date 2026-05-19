@@ -2,7 +2,20 @@ import { PoolClient } from 'pg';
 import { SplunkClient } from './splunk-client';
 import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/llm-decision-agent';
 import { loadUserConfig } from './config-service';
-import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics } from './splunk-queries-service';
+import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics, querySavedSearchInventory, queryParsingErrors, buildUtilizationInputs, buildDetectionInputs, buildQualityInputs } from './splunk-queries-service';
+import {
+  computeUtilizationScores,
+  computeDetectionScores,
+  computeQualityScore,
+  computeCompositeScore,
+  computeROIScore,
+  computeGainScope,
+  computeLowValueSpend,
+  extractWeightsFromConfig,
+  assignTier,
+  DEFAULT_WEIGHTS,
+  type ScoredSourcetype,
+} from './deterministic-scoring-engine';
 import { diffSnapshots, reuseDecisionsForUnchanged, persistDiffStats, persistMetadataHistory } from './snapshot-diff-service';
 import { computeDecisionStability } from './decision-stability-service';
 import { computeMetadataFingerprint } from './fingerprint-service';
@@ -15,6 +28,7 @@ import { getRiskWeightedSamplingService } from './risk-weighted-sampling-service
 import { enqueueReanalysisJob } from './reanalysis-budget-service';
 import { query, transaction } from '../../../core/database/connection';
 import { enqueueJob } from './job-service';
+import { applyGuardrailsToBatch } from './llm-output-guardrails';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 
@@ -152,13 +166,125 @@ export async function runAggregation(
   console.log(`[Aggregation]   Changed: ${diffResult.summaryStats.changedCount} (will re-analyze)`);
   console.log(`[Aggregation]   New: ${diffResult.summaryStats.newCount} (will analyze)`);
 
+  // ── Step 3.5: Deterministic Scoring Engine ─────────────────────────────────
+  // Compute Utilization / Detection / Quality / Composite scores using PDF formulas.
+  // These scores are injected into the LLM prompt so the agent reasons over
+  // verified numbers rather than estimating from raw metadata.
+  console.log(`[Aggregation] Running deterministic scoring engine...`);
+
+  const weights = extractWeightsFromConfig(userConfig.decisionWeights || {});
+  console.log(`[Aggregation] Score weights: util=${weights.utilization}, det=${weights.detection}, qual=${weights.quality}`);
+
+  // Fetch knowledge object inventory (alerts, scheduled searches, dashboards, users)
+  const indexNames = [...new Set(allInputs.map(i => i.index))];
+  const koInventory = await querySavedSearchInventory(splunk, indexNames).catch(e => {
+    console.warn('[Aggregation] KO inventory unavailable, using zeros:', e.message);
+    return indexNames.map(idx => ({
+      key: `${idx}::_`, index: idx, sourcetype: null,
+      alertCount: 0, scheduledSearchCount: 0, dashboardPanelCount: 0,
+      adHocSearchCount: 0, distinctUserCount: 0,
+    }));
+  });
+
+  const rawMeta = allInputs.map(i => ({
+    index: i.index, sourcetype: i.sourcetype || null,
+    dailyAvgGb: i.dailyAvgGb, totalEvents: i.totalEvents, retentionDays: i.retentionDays,
+  }));
+
+  // Fetch real parsing error signals from Splunk _internal for quality scoring.
+  // Falls back to empty Map (quality=100) if _internal is inaccessible.
+  const parsingErrors = await queryParsingErrors(splunk, 7).catch(e => {
+    console.warn('[Aggregation] Parsing error query failed, defaulting quality=100:', (e as Error).message);
+    return new Map<string, number>();
+  });
+
+  const utilInputs  = buildUtilizationInputs(rawMeta, koInventory);
+  const detInputs   = buildDetectionInputs(rawMeta, koInventory);
+  const qualInputs  = buildQualityInputs(rawMeta, parsingErrors);
+
+  const utilScores  = computeUtilizationScores(utilInputs);
+  const detResults  = computeDetectionScores(detInputs);
+
+  // Build scored map for all inputs
+  const scoredMap = new Map<string, ScoredSourcetype>();
+  for (const inp of allInputs) {
+    const key       = `${inp.index}::${inp.sourcetype || '_'}`;
+    const utilScore = utilScores.get(key) ?? 0;
+    const detResult = detResults.get(key) ?? { score: 0, detectionGap: false, operationalGap: false };
+    const qualInp   = qualInputs.find(q => q.index === inp.index && (q.sourcetype || null) === (inp.sourcetype || null));
+    const qualScore = qualInp ? computeQualityScore(qualInp) : 100;
+    const composite = computeCompositeScore(utilScore, detResult.score, qualScore, weights);
+    const tier      = assignTier(composite);
+    const annualCost = inp.dailyAvgGb * 365 * costPerGbPerDay;
+
+    scoredMap.set(key, {
+      index: inp.index, sourcetype: inp.sourcetype || null,
+      utilizationScore: utilScore,
+      detectionScore: detResult.score,
+      qualityScore: qualScore,
+      compositeScore: composite,
+      tier,
+      dailyGb: inp.dailyAvgGb,
+      annualCostUsd: annualCost,
+      detectionGap: detResult.detectionGap,
+      operationalGap: detResult.operationalGap,
+    });
+  }
+
+  // Inject pre-computed scores into inputs for LLM prompt context
+  const allInputsWithScores: RawTelemetryInput[] = allInputs.map(inp => {
+    const key    = `${inp.index}::${inp.sourcetype || '_'}`;
+    const scored = scoredMap.get(key);
+    return scored ? { ...inp, precomputedScores: {
+      utilizationScore: scored.utilizationScore,
+      detectionScore:   scored.detectionScore,
+      qualityScore:     scored.qualityScore,
+      compositeScore:   scored.compositeScore,
+      tier:             scored.tier,
+      detectionGap:     scored.detectionGap,
+      operationalGap:   scored.operationalGap,
+    } } : inp;
+  });
+
+  // Portfolio-level deterministic KPIs
+  const allScored = Array.from(scoredMap.values());
+  const deterministicROI      = computeROIScore(allScored);
+  const deterministicGainScope = computeGainScope(allScored);
+  const deterministicLowValue  = computeLowValueSpend(allScored);
+  const securityGapCount       = allScored.filter(s => s.detectionGap).length;
+  const operationalGapCount    = allScored.filter(s => s.operationalGap).length;
+
+  console.log(`[Aggregation] Deterministic scoring complete:`);
+  console.log(`  ROI Score: ${deterministicROI}`);
+  console.log(`  GainScope: ${deterministicGainScope}%`);
+  console.log(`  Low-Value Spend: $${deterministicLowValue.toFixed(2)}/yr`);
+  console.log(`  Security Gaps: ${securityGapCount}, Operational Gaps: ${operationalGapCount}`);
+
   // ── Step 4: LLM agent makes decisions for changed/new only ──────────────────
   let agentSummary: any = { decisions: [], agentReasoning: 'No LLM processing needed' };
 
   if (toProcess.length > 0) {
+    // Use inputs WITH pre-computed scores for LLM context
+    const toProcessWithScores = toProcess.map(inp => {
+      const key = `${inp.index}::${inp.sourcetype || '_'}`;
+      const match = allInputsWithScores.find(x =>
+        `${x.index}::${x.sourcetype || '_'}` === key
+      );
+      return match || inp;
+    });
+
     console.log(`[Aggregation] Sending ${toProcess.length} changed/new indexes to LLM decision agent...`);
-    agentSummary = await runLLMDecisionAgent(toProcess, userConfig);
+    agentSummary = await runLLMDecisionAgent(toProcessWithScores, userConfig);
     console.log(`[Aggregation] LLM agent completed. ${agentSummary.decisions.length} decisions received.`);
+
+    // ── Guardrail pass: clamp LLM-generated savings / quickWin / confidence ──
+    const guardrailResult = applyGuardrailsToBatch(
+      agentSummary.decisions,
+      scoredMap,
+      costPerGbPerDay
+    );
+    agentSummary.decisions = guardrailResult.decisions;
+    console.log(`[Aggregation] Guardrails applied:`, guardrailResult.stats);
   } else {
     console.log(`[Aggregation] All indexes unchanged - skipping LLM processing`);
   }
@@ -269,14 +395,45 @@ export async function runAggregation(
       }
     }
 
-    // Persist executive KPIs
-    await upsertExecutiveKpis(client, agentSummary, snapshotId, today);
+    // Persist executive KPIs — use deterministic scores where available
+    // Override tier counts from deterministic engine (more accurate than LLM estimates)
+    const deterministicTierCounts = {
+      critical:   allScored.filter(s => s.tier === 'Critical').length,
+      important:  allScored.filter(s => s.tier === 'Important').length,
+      niceToHave: allScored.filter(s => s.tier === 'Nice-to-Have').length,
+      lowValue:   allScored.filter(s => s.tier === 'Low-Value').length,
+    };
+    const deterministicAvgUtil = allScored.length > 0
+      ? Math.round(allScored.reduce((s, x) => s + x.utilizationScore, 0) / allScored.length * 10) / 10
+      : 0;
+    const deterministicAvgDet = allScored.length > 0
+      ? Math.round(allScored.reduce((s, x) => s + x.detectionScore, 0) / allScored.length * 10) / 10
+      : 0;
+    const deterministicAvgQual = allScored.length > 0
+      ? Math.round(allScored.reduce((s, x) => s + x.qualityScore, 0) / allScored.length * 10) / 10
+      : 0;
+
+    // Patch agentSummary tier counts and avg scores with deterministic values
+    if (allScored.length > 0) {
+      agentSummary.tierCounts    = deterministicTierCounts;
+      agentSummary.avgUtilization = deterministicAvgUtil;
+      agentSummary.avgDetection   = deterministicAvgDet;
+      agentSummary.avgQuality     = deterministicAvgQual;
+    }
+
+    await upsertExecutiveKpis(client, agentSummary, snapshotId, today, {
+      roiScore:            deterministicROI,
+      gainScopeScore:      deterministicGainScope,
+      licenseSpendLowValue: deterministicLowValue,
+      securityGaps:        securityGapCount,
+      operationalGaps:     operationalGapCount,
+    });
 
     // Persist queue health metrics (platform observability)
-    const decisions = agentSummary.decisions || [];
-    const highConfidence = decisions.filter((d: any) => Number(d.confidenceScore) >= 0.95).length;
-    const mediumConfidence = decisions.filter((d: any) => Number(d.confidenceScore) >= 0.70 && Number(d.confidenceScore) < 0.95).length;
-    const lowConfidence = decisions.filter((d: any) => Number(d.confidenceScore) < 0.70).length;
+    const allDecisions = agentSummary.decisions || [];
+    const highConfidence = allDecisions.filter((d: any) => Number(d.confidenceScore) >= 0.95).length;
+    const mediumConfidence = allDecisions.filter((d: any) => Number(d.confidenceScore) >= 0.70 && Number(d.confidenceScore) < 0.95).length;
+    const lowConfidence = allDecisions.filter((d: any) => Number(d.confidenceScore) < 0.70).length;
 
     await persistQueueHealthMetrics(client, snapshotId, today, {
       unchangedIndexes: diffResult.summaryStats.unchangedCount,
@@ -484,7 +641,14 @@ async function upsertExecutiveKpis(
   client: PoolClient,
   summary: Awaited<ReturnType<typeof runLLMDecisionAgent>>,
   snapshotId: string,
-  today: string
+  today: string,
+  overrides?: {
+    roiScore: number;
+    gainScopeScore: number;
+    licenseSpendLowValue: number;
+    securityGaps: number;
+    operationalGaps: number;
+  }
 ): Promise<void> {
   await client.query(
     `
@@ -524,12 +688,16 @@ async function upsertExecutiveKpis(
     `,
     [
       snapshotId, today,
-      summary.roiScore, summary.gainScopeScore,
-      summary.totalLicenseSpend, summary.licenseSpendLowValue, summary.storageSavingsPotential,
+      overrides?.roiScore          ?? summary.roiScore,
+      overrides?.gainScopeScore    ?? summary.gainScopeScore,
+      summary.totalLicenseSpend,
+      overrides?.licenseSpendLowValue ?? summary.licenseSpendLowValue,
+      summary.storageSavingsPotential,
       summary.totalDailyGb, summary.totalSourcetypes,
       summary.tierCounts.critical, summary.tierCounts.important,
       summary.tierCounts.niceToHave, summary.tierCounts.lowValue,
-      summary.securityGaps, summary.operationalGaps,
+      overrides?.securityGaps      ?? summary.securityGaps,
+      overrides?.operationalGaps   ?? summary.operationalGaps,
       summary.avgUtilization, summary.avgDetection, summary.avgQuality, summary.avgConfidence,
       JSON.stringify(summary.quickWins),
       JSON.stringify(summary.savingsStaircase),
@@ -1131,9 +1299,7 @@ async function evaluateDriftForSnapshot(
                   'CRITICAL',
                   {
                     sourcetype: decision.sourcetype,
-                    previousSnapshotDate: prevSnap.snapshot_date,
                     driftSeverity: driftResult.driftSeverity,
-                    confidencePenalty: driftResult.confidencePenalty,
                   }
                 );
               }

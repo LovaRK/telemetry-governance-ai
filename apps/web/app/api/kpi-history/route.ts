@@ -1,38 +1,23 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { query } from '@core/database/connection';
 
-let query: any = null;
-try {
-  const conn = require('@core/database/connection');
-  query = conn.query;
-} catch {
-  // Database module not available in web-only mode
-}
+const VALID_DAYS = [7, 30, 90] as const;
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    if (!query || !process.env.DATABASE_URL) {
-      return NextResponse.json({
-        mode: 'DEMO_MODE',
-        error: 'Database not available',
-        data: []
-      }, { status: 503 });
-    }
-
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '7', 10);
 
-    // Validate days parameter
-    if (![7, 30, 90].includes(days)) {
-      return NextResponse.json({
-        error: 'Invalid days parameter. Use 7, 30, or 90.',
-        data: []
-      }, { status: 400 });
+    if (!VALID_DAYS.includes(days as 7 | 30 | 90)) {
+      return NextResponse.json(
+        { error: 'Invalid days parameter. Use 7, 30, or 90.', data: [] },
+        { status: 400 }
+      );
     }
 
-    // Fetch KPI history for the specified number of days
-    const res = await query(
-      `
-      SELECT
+    // Use parameterized interval to avoid injection and driver issues
+    const res = await query<any>(
+      `SELECT
         snapshot_date,
         roi_score,
         gainscope_score,
@@ -52,9 +37,9 @@ export async function GET(request: Request) {
         avg_quality,
         avg_confidence
       FROM executive_kpis
-      WHERE snapshot_date >= CURRENT_DATE - INTERVAL '${days} days'
-      ORDER BY snapshot_date ASC
-      `
+      WHERE snapshot_date >= CURRENT_DATE - ($1 || ' days')::INTERVAL
+      ORDER BY snapshot_date ASC`,
+      [days]
     );
 
     const history = (res.rows || []).map((row: any) => ({
@@ -82,14 +67,13 @@ export async function GET(request: Request) {
       mode: 'FULL_STACK',
       days,
       data: history,
-      count: history.length
+      count: history.length,
     });
   } catch (e) {
-    console.error('[kpi-history] Error:', e);
-    return NextResponse.json({
-      mode: 'DEMO_MODE',
-      error: 'Database query failed',
-      data: []
-    }, { status: 503 });
+    console.error('[kpi-history]', e);
+    return NextResponse.json(
+      { error: 'Failed to fetch KPI history', data: [] },
+      { status: 500 }
+    );
   }
 }

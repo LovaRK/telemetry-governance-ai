@@ -6,10 +6,13 @@ import DecisionTimeline from '../../components/DecisionTimeline';
 import ReasoningDrawer, { ReasoningDrawerProps } from '../../components/shared/ReasoningDrawer';
 import BulkActionsPanel from '../../components/BulkActionsPanel';
 import { ExecutiveKPIs, SnapshotRow } from '../../lib/types';
+import { apiFetch } from '../../lib/api-client';
+import { useAuthGuard } from '../../lib/use-auth-guard';
 
 type DrawerData = Omit<ReasoningDrawerProps, 'isOpen' | 'onClose'>;
 
 export default function DetailPage() {
+  useAuthGuard();
   const [data, setData] = useState<any>(null);
   const [kpis, setKpis] = useState<ExecutiveKPIs | null>(null);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
@@ -38,12 +41,12 @@ export default function DetailPage() {
 
       const safeJson = (r: Response) => r.ok ? r.json() : Promise.resolve({ data: [] });
       const [summaryRes, decisions, fields, security, quality, audit] = await Promise.all([
-        fetch('/api/executive-summary'),
-        fetch('/api/agent-decisions').then(safeJson),
-        fetch('/api/field-usage').then(safeJson),
-        fetch('/api/security-coverage').then(safeJson),
-        fetch('/api/quality-hotspots').then(safeJson),
-        fetch('/api/search-audit').then(safeJson),
+        apiFetch('/api/executive-summary'),
+        apiFetch('/api/agent-decisions').then(safeJson),
+        apiFetch('/api/field-usage').then(safeJson),
+        apiFetch('/api/security-coverage').then(safeJson),
+        apiFetch('/api/quality-hotspots').then(safeJson),
+        apiFetch('/api/search-audit').then(safeJson),
       ]);
 
       if (summaryRes.ok) {

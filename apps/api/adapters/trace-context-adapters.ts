@@ -15,8 +15,8 @@ import {
   getTraceContextOrNull,
   runWithTraceContextAsync,
   ExecutionContext,
-} from '@/types/trace-context';
-import { GovernanceCausalityEngine } from '@/services/governance-causality-engine';
+} from '../types/trace-context';
+import { GovernanceCausalityEngine } from '../services/governance-causality-engine';
 
 /**
  * QUEUE JOB ENVELOPE

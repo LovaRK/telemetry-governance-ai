@@ -1,0 +1,106 @@
+name: Chaos Testing
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'packages/core/workflow/**'
+      - 'packages/core/adapters/**'
+      - 'packages/infra/queue/**'
+      - 'tests/chaos/**'
+      - 'prisma/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/core/workflow/**'
+      - 'packages/core/adapters/**'
+      - 'packages/infra/queue/**'
+      - 'tests/chaos/**'
+      - 'prisma/**'
+
+jobs:
+  chaos-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      docker:
+        image: docker:dind
+        options: >-
+          --health-cmd "docker ps"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run chaos tests
+        run: npm run test:chaos
+        env:
+          LOG_LEVEL: debug
+          TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+          TESTCONTAINERS_RYUK_DISABLED: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-test-results
+          path: test-results/
+
+      - name: Publish test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Chaos Test Results
+          path: 'test-results/chaos.junit.xml'
+          reporter: 'java-junit'
+
+      - name: Check test coverage
+        run: |
+          coverage=$(npm run test:chaos:coverage 2>&1 | grep -oP 'Statements\s+:\s+\K[\d.]+')
+          echo "Coverage: ${coverage}%"
+          if (( $(echo "$coverage < 80" | bc -l) )); then
+            echo "❌ Coverage below 80%"
+            exit 1
+          fi
+          echo "✅ Coverage acceptable"
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const results = JSON.parse(fs.readFileSync('test-results/chaos.json', 'utf8'));
+            const passed = results.testResults.filter(r => r.numPassingTests > 0).length;
+            const failed = results.testResults.filter(r => r.numFailingTests > 0).length;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Chaos Test Results
+
+            ✅ Passed: ${passed}
+            ❌ Failed: ${failed}
+
+            [View detailed results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+            });

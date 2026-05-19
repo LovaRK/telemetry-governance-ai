@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '../lib/api-client';
 
 import React, { useState, useEffect } from 'react';
 
@@ -36,7 +37,7 @@ export default function ConfigPanel({ open, onClose }: Props) {
   const fetchConfig = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/config');
+      const res = await apiFetch('/api/config');
       if (!res.ok) throw new Error('Failed to load config');
       const data = await res.json();
       setConfig(data);
@@ -53,7 +54,7 @@ export default function ConfigPanel({ open, onClose }: Props) {
     try {
       setSaving(true);
       setError(null);
-      const res = await fetch('/api/config', {
+      const res = await apiFetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

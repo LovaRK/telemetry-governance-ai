@@ -1,0 +1,58 @@
+/**
+ * VITEST CHAOS CONFIG
+ * Isolated test runner for chaos scenarios
+ * Features: Testcontainers support, extended timeouts, detailed output
+ */
+
+import { defineConfig } from 'vitest/config';
+import path from 'path';
+
+export default defineConfig({
+  test: {
+    // Chaos tests need more time (container startup, network latency)
+    testTimeout: 60000, // 60 seconds per test
+    hookTimeout: 60000, // 60 seconds for setup/teardown
+    teardownTimeout: 30000,
+
+    // Run tests sequentially to avoid container conflicts
+    threads: false,
+
+    // Detailed output for debugging
+    reporter: ['verbose'],
+    outputFile: './test-results/chaos.junit.xml',
+
+    // Environment
+    environment: 'node',
+
+    // Coverage (optional)
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      include: [
+        'packages/core/workflow/executor-v2.ts',
+        'packages/core/adapters/**/*.ts',
+        'packages/infra/queue/reconciliation-worker.ts',
+      ],
+      exclude: [
+        'node_modules/',
+        'tests/',
+      ],
+    },
+
+    // Globals (describe, it, expect without imports)
+    globals: true,
+
+    // Include pattern
+    include: [
+      'tests/chaos/scenarios/**/*.test.ts',
+    ],
+  },
+
+  resolve: {
+    alias: {
+      '@core': path.resolve(__dirname, './packages/core'),
+      '@infra': path.resolve(__dirname, './packages/infra'),
+      '@prisma': path.resolve(__dirname, './prisma'),
+    },
+  },
+});

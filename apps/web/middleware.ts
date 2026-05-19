@@ -1,4 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyTokenEdge, extractBearerToken } from '@/lib/auth-edge';
+
+// Routes that don't require JWT auth
+const PUBLIC_ROUTES = [
+  '/api/auth/login',
+  '/api/auth/refresh',
+  '/api/auth/logout',
+  '/api/cache-status',   // needed for initial connection check
+  '/login',
+  '/_next',
+  '/favicon.ico',
+];
+
+function isPublic(pathname: string): boolean {
+  return PUBLIC_ROUTES.some((p) => pathname.startsWith(p));
+}
 
 // Inline startup validation (runs once per server instance)
 interface ValidationResult {
@@ -56,7 +72,7 @@ function logValidation(result: ValidationResult): void {
 
 let validationRun = false;
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   if (!validationRun) {
     validationRun = true;
     const result = validateStartupConfig();
@@ -71,6 +87,32 @@ export function middleware(request: NextRequest) {
         },
         { status: 503 }
       );
+    }
+  }
+
+  // JWT auth enforcement
+  // Page routes: browsers never send Authorization headers on navigation.
+  // Client-side auth hook handles redirect to /login for pages.
+  // Middleware only hard-enforces JWT on /api/ routes.
+  const { pathname } = request.nextUrl;
+
+  if (!isPublic(pathname) && pathname.startsWith('/api/')) {
+    const token = extractBearerToken(request.headers.get('authorization'));
+
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    try {
+      const payload = await verifyTokenEdge(token);
+      // Inject tenant context into request headers for downstream use
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set('x-tenant-id', payload.tenantId);
+      requestHeaders.set('x-user-id', payload.sub);
+      requestHeaders.set('x-user-role', payload.role);
+      return NextResponse.next({ request: { headers: requestHeaders } });
+    } catch {
+      return NextResponse.json({ error: 'Token expired or invalid' }, { status: 401 });
     }
   }
 

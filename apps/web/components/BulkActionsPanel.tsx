@@ -1,4 +1,5 @@
 'use client';
+import { apiFetch } from '../lib/api-client';
 
 import React, { useState } from 'react';
 
@@ -33,7 +34,7 @@ export default function BulkActionsPanel({
       setLoading(true);
       setError(null);
 
-      const response = await fetch('/api/bulk-actions', {
+      const response = await apiFetch('/api/bulk-actions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
