@@ -1,87 +1,65 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { createRoute } from '@/lib/api-route-factory';
+import { SplunkClient } from '@api/services/splunk-client';
 
 /**
  * Test Splunk Connection Endpoint
  *
  * Validates Splunk connectivity without doing expensive queries.
  * Returns: connection status, latency, and helpful error messages.
+ *
+ * Uses global route factory for automatic trace + purity enforcement.
  */
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    // Support both old (mcpUrl+token) and new (splunkUrl+username/password) formats
-    const {
-      mcpUrl, token,
-      splunkUrl, authType, username, password, bearerToken,
-      disableSslVerify = false, disable_ssl_verify = false,
-    } = body;
+export const POST = createRoute(async (request: any) => {
+  const body = await request.json();
+  // Support both old (mcpUrl+token) and new (splunkUrl+username/password) formats
+  const {
+    mcpUrl, token,
+    splunkUrl, authType, username, password, bearerToken,
+    disableSslVerify = false, disable_ssl_verify = false,
+  } = body;
 
-    const url = splunkUrl || mcpUrl;
-    if (!url) {
-      return NextResponse.json(
-        { error: 'Splunk URL is required' },
-        { status: 400 }
-      );
-    }
+  const url = splunkUrl || mcpUrl;
+  if (!url) {
+    throw new Error('Splunk URL is required');
+  }
 
-    // Build auth header
-    let authHeader: string;
-    if (authType === 'basic' && username && password) {
-      authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
-    } else if (authType === 'token' && bearerToken) {
-      authHeader = `Bearer ${bearerToken}`;
-    } else if (token) {
-      authHeader = token.startsWith('Bearer ') || token.startsWith('Splunk ') || token.startsWith('Basic ')
-        ? token
-        : `Bearer ${token}`;
-    } else {
-      return NextResponse.json(
-        { error: 'Authentication credentials are required' },
-        { status: 400 }
-      );
-    }
+  // Build auth header
+  let authHeader: string;
+  if (authType === 'basic' && username && password) {
+    authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+  } else if (authType === 'token' && bearerToken) {
+    authHeader = `Bearer ${bearerToken}`;
+  } else if (token) {
+    authHeader = token.startsWith('Bearer ') || token.startsWith('Splunk ') || token.startsWith('Basic ')
+      ? token
+      : `Bearer ${token}`;
+  } else {
+    throw new Error('Authentication credentials are required');
+  }
+  const splunk = new SplunkClient({
+    mcpUrl: url,
+    token: authHeader,
+    allowInsecureTls: !!(disableSslVerify || disable_ssl_verify),
+    timeoutMs: 10000,
+  });
 
-    const { SplunkClient } = require('@api/services/splunk-client');
-    const splunk = new SplunkClient({
-      mcpUrl: url,
-      token: authHeader,
-      allowInsecureTls: !!(disableSslVerify || disable_ssl_verify),
-      timeoutMs: 10000,
-    });
+  // Fast health check (no heavy queries)
+  const health = await splunk.healthCheckFast();
 
-    // Fast health check (no heavy queries)
-    const health = await splunk.healthCheckFast();
+  if (!health.success) {
+    throw new Error(`Connection failed: ${health.error || 'Unknown error'}`);
+  }
 
-    if (!health.success) {
-      return NextResponse.json(
-        {
-          success: false,
-          latencyMs: health.latencyMs,
-          error: health.error || 'Connection failed',
-          hint: generateHint(health.error || ''),
-        },
-        { status: 503 }
-      );
-    }
-
-    return NextResponse.json({
+  return {
+    data: {
       success: true,
       latencyMs: health.latencyMs,
       message: `Connected to Splunk in ${health.latencyMs}ms`,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      {
-        error: 'Test connection failed',
-        reason: message,
-        hint: generateHint(message),
-      },
-      { status: 500 }
-    );
-  }
-}
+    },
+    meta: { source: 'system' },
+  };
+});
 
 function generateHint(error: string): string {
   if (!error) return 'Check MCP URL and token are correct.';

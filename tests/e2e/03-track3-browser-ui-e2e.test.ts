@@ -46,13 +46,12 @@ test.describe('Track 3: Browser UI/UX Full E2E', () => {
   test('trust layer status fetches from /api/governance/trust-status', async ({ page }) => {
     await login(page, BASE_URL);
 
-    await page.goto(`${BASE_URL}/governance`);
-
     const apiCalls: string[] = [];
     page.on('request', (req) => {
       apiCalls.push(req.url());
     });
 
+    await page.goto(`${BASE_URL}/governance`);
     await page.waitForLoadState('networkidle').catch(() => undefined);
 
     const hasTrustStatusCall = apiCalls.some(url => url.includes('/api/governance/trust-status'));
@@ -81,16 +80,17 @@ test.describe('Track 3: Browser UI/UX Full E2E', () => {
   test('reanalysis queue renders queue_health_metrics-backed state', async ({ page }) => {
     await login(page, BASE_URL);
 
+    const apiCalls: string[] = [];
+    page.on('request', (req) => {
+      apiCalls.push(req.url());
+    });
+
     await page.goto(`${BASE_URL}/governance?tab=queue`);
     await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(500); // Brief delay to ensure API calls have been captured
 
     const queueSection = page.getByRole('button', { name: /reanalysis queue/i }).first();
     if (await queueSection.isVisible()) {
-      const apiCalls: string[] = [];
-      page.on('request', (req) => {
-        apiCalls.push(req.url());
-      });
-
       const hasQueueCall = apiCalls.some(url => url.includes('/api/queue-health'));
       expect(hasQueueCall).toBe(true);
     }

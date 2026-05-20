@@ -79,16 +79,27 @@ export const GET = createStreamRoute(async (request: NextRequest) => {
 });
 
 export const POST = createRoute(async (request: Request) => {
-  const body = await request.json();
-  const { source = 'splunk', mode = 'live' } = body;
+  try {
+    const body = await request.json();
+    const { source = 'splunk', mode = 'live' } = body;
 
-  const runId = await enqueueJob({
-    jobType: 'pipeline_run',
-    payload: { source, mode, triggeredAt: new Date().toISOString() },
-  });
+    if (!process.env.DATABASE_URL) {
+      throw new Error('Database not available');
+    }
 
-  return {
-    data: { runId },
-    meta: { source: 'system' },
-  };
+    console.log('[POST /api/job-stream] Enqueuing job with source:', source);
+    const runId = await enqueueJob({
+      jobType: 'pipeline_run',
+      payload: { source, mode, triggeredAt: new Date().toISOString() },
+    });
+    console.log('[POST /api/job-stream] Job enqueued:', runId);
+
+    return {
+      data: { runId },
+      meta: { source: 'system' },
+    };
+  } catch (err) {
+    console.error('[POST /api/job-stream] Error:', err instanceof Error ? err.message : err);
+    throw err;
+  }
 });
