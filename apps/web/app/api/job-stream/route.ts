@@ -1,9 +1,13 @@
 import { NextRequest } from 'next/server';
-import { getJobStatus, getLatestJob } from '@api/services/job-service';
+import { createStreamRoute } from '@/lib/stream-route-factory';
+import { createRoute } from '@/lib/api-route-factory';
+import { getTraceId } from '@core/guards/trace-context';
+import { getJobStatus, getLatestJob, enqueueJob } from '@api/services/job-service';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
+// L3 Compliance: Uses createStreamRoute for trace context injection via AsyncLocalStorage
+export const GET = createStreamRoute(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
   const jobId = searchParams.get('jobId');
 
@@ -22,7 +26,13 @@ export async function GET(request: NextRequest) {
             : await getLatestJob();
 
           if (!job) {
-            send({ status: 'not_found', message: 'No job found' });
+            send({
+              status: 'not_found',
+              message: 'No job found',
+              source: 'system',
+              mode: 'live',
+              traceId: getTraceId(),
+            });
             controller.close();
             return;
           }
@@ -32,6 +42,9 @@ export async function GET(request: NextRequest) {
             progress: job.progress,
             snapshotId: job.snapshotId,
             errorMessage: job.errorMessage,
+            source: 'system',
+            mode: 'live',
+            traceId: getTraceId(),
           });
 
           if (job.status === 'complete' || job.status === 'failed') {
@@ -41,7 +54,13 @@ export async function GET(request: NextRequest) {
 
           setTimeout(poll, 3000);
         } catch (err) {
-          send({ status: 'error', message: err instanceof Error ? err.message : 'Poll error' });
+          send({
+            status: 'error',
+            message: err instanceof Error ? err.message : 'Poll error',
+            source: 'system',
+            mode: 'live',
+            traceId: getTraceId(),
+          });
           controller.close();
         }
       };
@@ -57,4 +76,19 @@ export async function GET(request: NextRequest) {
       Connection: 'keep-alive',
     },
   });
-}
+});
+
+export const POST = createRoute(async (request: Request) => {
+  const body = await request.json();
+  const { source = 'splunk', mode = 'live' } = body;
+
+  const runId = await enqueueJob({
+    jobType: 'pipeline_run',
+    payload: { source, mode, triggeredAt: new Date().toISOString() },
+  });
+
+  return {
+    data: { runId },
+    meta: { source: 'system' },
+  };
+});

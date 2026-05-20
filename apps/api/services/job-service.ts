@@ -28,19 +28,11 @@ export async function enqueueJob(opts: {
   payload: Record<string, unknown>;
 }): Promise<string> {
   const result = await query<{ job_id: string }>(`
-    INSERT INTO job_queue (job_type, snapshot_id, payload)
-    VALUES ($1, $2, $3)
-    ON CONFLICT (snapshot_id, job_type) DO NOTHING
+    INSERT INTO job_queue (job_type, snapshot_id, payload, status, progress, tenant_id, snapshot_date)
+    VALUES ($1, $2, $3, 'pending', '{"batch":0,"totalBatches":0,"decisionsWritten":0}',
+            (SELECT tenant_id FROM users LIMIT 1), CURRENT_DATE)
     RETURNING job_id
   `, [opts.jobType || 'llm_analysis', opts.snapshotId || null, JSON.stringify(opts.payload)]);
-  // ON CONFLICT returns no row — fetch existing job_id so caller gets a valid id
-  if (result.rows.length === 0) {
-    const existing = await query<{ job_id: string }>(
-      `SELECT job_id FROM job_queue WHERE snapshot_id = $1 AND job_type = $2`,
-      [opts.snapshotId || null, opts.jobType || 'llm_analysis']
-    );
-    return existing.rows[0]?.job_id ?? 'dedup';
-  }
   return result.rows[0].job_id;
 }
 
