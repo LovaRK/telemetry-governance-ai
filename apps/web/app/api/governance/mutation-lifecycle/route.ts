@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { createRoute } from '@/lib/api-route-factory';
 import { query } from '@core/database/connection';
 
 /**
@@ -13,43 +14,43 @@ import { query } from '@core/database/connection';
  *   fromState  (optional, filter by originating state)
  *   toState    (optional, filter by destination state)
  */
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 1000);
-    const indexFilter = searchParams.get('index');
-    const fromState = searchParams.get('fromState');
-    const toState   = searchParams.get('toState');
+export const GET = createRoute(async (request: NextRequest) => {
+  const { searchParams } = new URL(request.url);
+  const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 1000);
+  const indexFilter = searchParams.get('index');
+  const fromState = searchParams.get('fromState');
+  const toState   = searchParams.get('toState');
 
-    const conditions: string[] = [];
-    const params: any[] = [];
+  const conditions: string[] = [];
+  const params: any[] = [];
 
-    if (indexFilter) { params.push(indexFilter);  conditions.push(`index_name = $${params.length}`); }
-    if (fromState)   { params.push(fromState);    conditions.push(`from_state = $${params.length}`); }
-    if (toState)     { params.push(toState);      conditions.push(`to_state = $${params.length}`); }
+  if (indexFilter) { params.push(indexFilter);  conditions.push(`index_name = $${params.length}`); }
+  if (fromState)   { params.push(fromState);    conditions.push(`from_state = $${params.length}`); }
+  if (toState)     { params.push(toState);      conditions.push(`to_state = $${params.length}`); }
 
-    params.push(limit);
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  params.push(limit);
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const res = await query<any>(
-      `SELECT id, index_name, sourcetype, from_state, to_state, transition_reason,
-              actor_id, actor_email, session_id, trace_id, duration_ms, recorded_at
-       FROM mutation_lifecycle_events
-       ${where}
-       ORDER BY recorded_at DESC LIMIT $${params.length}`,
-      params
-    );
+  const res = await query<any>(
+    `SELECT id, index_name, sourcetype, from_state, to_state, transition_reason,
+            actor_id, actor_email, session_id, trace_id, duration_ms, recorded_at
+     FROM mutation_lifecycle_events
+     ${where}
+     ORDER BY recorded_at DESC LIMIT $${params.length}`,
+    params
+  );
 
-    const rows = res.rows || [];
+  const rows = res.rows || [];
 
-    // Compute transition frequency map
-    const transitionCounts: Record<string, number> = {};
-    for (const r of rows) {
-      const key = `${r.from_state}→${r.to_state}`;
-      transitionCounts[key] = (transitionCounts[key] || 0) + 1;
-    }
+  // Compute transition frequency map
+  const transitionCounts: Record<string, number> = {};
+  for (const r of rows) {
+    const key = `${r.from_state}→${r.to_state}`;
+    transitionCounts[key] = (transitionCounts[key] || 0) + 1;
+  }
 
-    return NextResponse.json({
+  return {
+    data: {
       summary: {
         totalTransitions: rows.length,
         uniqueIndexes: new Set(rows.map((r: any) => r.index_name)).size,
@@ -70,33 +71,29 @@ export async function GET(request: NextRequest) {
         recordedAt: r.recorded_at,
       })),
       lastUpdate: new Date().toISOString(),
-    });
-  } catch (e) {
-    console.error('[mutation-lifecycle]', e);
-    return NextResponse.json({ error: 'Failed to fetch mutation lifecycle events', events: [] }, { status: 500 });
-  }
-}
+    },
+    meta: { source: 'postgres' },
+  };
+});
 
 /** POST — record a new mutation lifecycle event */
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { indexName, sourcetype, fromState, toState, transitionReason, actorEmail, sessionId, traceId, durationMs } = body;
+export const POST = createRoute(async (request: NextRequest) => {
+  const body = await request.json();
+  const { indexName, sourcetype, fromState, toState, transitionReason, actorEmail, sessionId, traceId, durationMs } = body;
 
-    if (!indexName || !fromState || !toState) {
-      return NextResponse.json({ error: 'indexName, fromState, toState are required' }, { status: 400 });
-    }
-
-    await query(
-      `INSERT INTO mutation_lifecycle_events
-         (index_name, sourcetype, from_state, to_state, transition_reason, actor_email, session_id, trace_id, duration_ms, recorded_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())`,
-      [indexName, sourcetype || null, fromState, toState, transitionReason || null, actorEmail || null, sessionId || null, traceId || null, durationMs || null]
-    );
-
-    return NextResponse.json({ ok: true });
-  } catch (e) {
-    console.error('[mutation-lifecycle POST]', e);
-    return NextResponse.json({ error: 'Failed to record mutation event' }, { status: 500 });
+  if (!indexName || !fromState || !toState) {
+    throw new Error('indexName, fromState, toState are required');
   }
-}
+
+  await query(
+    `INSERT INTO mutation_lifecycle_events
+       (index_name, sourcetype, from_state, to_state, transition_reason, actor_email, session_id, trace_id, duration_ms, recorded_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())`,
+    [indexName, sourcetype || null, fromState, toState, transitionReason || null, actorEmail || null, sessionId || null, traceId || null, durationMs || null]
+  );
+
+  return {
+    data: { ok: true },
+    meta: { source: 'postgres' },
+  };
+});

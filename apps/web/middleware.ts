@@ -11,6 +11,7 @@ const PUBLIC_ROUTES = [
   '/api/test-connection',  // needed for Splunk connection test before auth
   '/api/cache-status',     // needed for initial connection check
   '/api/job-stream',       // Job trigger endpoint
+  '/api/setup/',           // Setup endpoints (tenant creation, admin user creation)
   '/login',
   '/_next',
   '/favicon.ico',
@@ -117,7 +118,13 @@ export async function middleware(request: NextRequest) {
   // Middleware only hard-enforces JWT on /api/ routes.
 
   if (!isPublic(pathname) && pathname.startsWith('/api/')) {
-    const token = extractBearerToken(request.headers.get('authorization'));
+    // Try to get token from Authorization header first (standard API calls)
+    let token = extractBearerToken(request.headers.get('authorization'));
+
+    // Fallback to token in cookie (needed for EventSource/SSE which doesn't send Authorization headers)
+    if (!token) {
+      token = request.cookies.get('accessToken')?.value;
+    }
 
     if (!token) {
       return NextResponse.json(

@@ -1,101 +1,74 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { createRoute } from '@/lib/api-route-factory';
+import { getCacheStatus, listCacheStatuses, setCacheRefreshing, setCacheFresh, setCacheError, isRefreshing } from '@api/services/cache-service';
+import { runFastAggregation } from '@api/services/aggregation-service';
+import { SplunkClient } from '@api/services/splunk-client';
 
-export async function GET(request: NextRequest) {
-  try {
-    const { getCacheStatus, listCacheStatuses } = require('@api/services/cache-service');
-    const { searchParams } = new URL(request.url);
-    const key = searchParams.get('key');
-    if (key) {
-      const status = await getCacheStatus(key);
-      return NextResponse.json(status);
-    }
-    const statuses = await listCacheStatuses();
-    return NextResponse.json({ caches: statuses });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to fetch cache status' },
-      { status: 500 }
-    );
+export const GET = createRoute(async (request: NextRequest) => {
+  const { searchParams } = new URL(request.url);
+  const key = searchParams.get('key');
+  if (key) {
+    const status = await getCacheStatus(key);
+    return {
+      data: status,
+      meta: { source: 'system' },
+    };
   }
-}
+  const statuses = await listCacheStatuses();
+  return {
+    data: { caches: statuses },
+    meta: { source: 'system' },
+  };
+});
 
-export async function POST(request: NextRequest) {
+export const POST = createRoute(async (request: NextRequest) => {
   const started = Date.now();
-  try {
-    const { setCacheRefreshing, setCacheFresh, setCacheError, isRefreshing } = require('@api/services/cache-service');
-    const { runFastAggregation } = require('@api/services/aggregation-service');
-    const { SplunkClient } = require('@api/services/splunk-client');
 
-    const body = await request.json();
-    if (!body?.mcpUrl) {
-      return NextResponse.json({ error: 'mcpUrl is required' }, { status: 400 });
-    }
+  const body = await request.json();
+  if (!body?.mcpUrl) {
+    throw new Error('mcpUrl is required');
+  }
 
-    let authToken = body.token;
-    if (!authToken && body.username && body.password) {
-      const credentials = Buffer.from(`${body.username}:${body.password}`).toString('base64');
-      authToken = `Basic ${credentials}`;
-    }
+  let authToken = body.token;
+  if (!authToken && body.username && body.password) {
+    const credentials = Buffer.from(`${body.username}:${body.password}`).toString('base64');
+    authToken = `Basic ${credentials}`;
+  }
 
-    if (!authToken) {
-      return NextResponse.json(
-        { error: 'Authentication required', hint: 'Provide token OR (username + password)' },
-        { status: 400 }
-      );
-    }
+  if (!authToken) {
+    throw new Error('Authentication required: Provide token OR (username + password)');
+  }
 
-    const { mcpUrl, disableSslVerify = false, costPerGbPerDay = 0.5 } = body;
-    const cacheKey = 'index_metrics';
+  const { mcpUrl, disableSslVerify = false, costPerGbPerDay = 0.5 } = body;
+  const cacheKey = 'index_metrics';
 
-    const alreadyRunning = await isRefreshing(cacheKey);
-    if (alreadyRunning) {
-      return NextResponse.json(
-        { error: 'Refresh already in progress', hint: 'Wait for current job to complete' },
-        { status: 409 }
-      );
-    }
+  const alreadyRunning = await isRefreshing(cacheKey);
+  if (alreadyRunning) {
+    throw new Error('Refresh already in progress: Wait for current job to complete');
+  }
 
-    await setCacheRefreshing(cacheKey);
+  await setCacheRefreshing(cacheKey);
 
-    const splunk = new SplunkClient({ mcpUrl, token: authToken, allowInsecureTls: !!disableSslVerify });
+  const splunk = new SplunkClient({ mcpUrl, token: authToken, allowInsecureTls: !!disableSslVerify });
 
-    const health = await splunk.healthCheckFast();
-    if (!health.success) {
-      await setCacheError(cacheKey, `Splunk unreachable: ${health.error}`);
-      const isFirewall = health.error?.includes('firewall') || health.error?.includes('blocked') || health.error?.includes('Cannot reach');
-      return NextResponse.json(
-        {
-          error: 'Cannot connect to Splunk',
-          reason: health.error || 'Connection failed',
-          hint: isFirewall
-            ? 'Open TCP 8089 inbound in your server firewall.'
-            : 'Verify Splunk is running and the token is valid.',
-        },
-        { status: 500 }
-      );
-    }
+  const health = await splunk.healthCheckFast();
+  if (!health.success) {
+    await setCacheError(cacheKey, `Splunk unreachable: ${health.error}`);
+    throw new Error(`Cannot connect to Splunk: ${health.error || 'Connection failed'}`);
+  }
 
-    // Fast path: fetch Splunk metadata (<5s) and enqueue LLM job
-    const result = await runFastAggregation(splunk, { lookbackDays: 30, costPerGbPerDay });
+  // Fast path: fetch Splunk metadata (<5s) and enqueue LLM job
+  const result = await runFastAggregation(splunk, { lookbackDays: 30, costPerGbPerDay });
 
-    return NextResponse.json({
+  return {
+    data: {
       success: true,
       phase: 'fast_complete',
       snapshotId: result.snapshotId,
       jobId: result.jobId,
       inserted: result.inserted,
       durationMs: Date.now() - started,
-    });
-  } catch (error) {
-    const { setCacheError } = require('@api/services/cache-service');
-    const message = error instanceof Error ? error.message : 'Refresh failed';
-    await setCacheError('index_metrics', message).catch(() => {});
-
-    let hint = 'Check MCP URL, token, and network connectivity';
-    if (message.includes('Ollama')) hint = 'Start Ollama: run "ollama serve" in a terminal';
-    else if (message.includes('ECONNREFUSED') || message.includes('ECONNRESET')) hint = 'Port 8089 refused — ensure Splunk management API is running';
-    else if (message.includes('401')) hint = 'Token rejected. Verify your Splunk token is valid.';
-
-    return NextResponse.json({ error: 'Refresh failed', reason: message, hint }, { status: 500 });
-  }
-}
+    },
+    meta: { source: 'system' },
+  };
+});

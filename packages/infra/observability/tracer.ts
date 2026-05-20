@@ -9,7 +9,7 @@ import {
   BatchSpanProcessor,
   ConsoleSpanExporter,
   TraceIdRatioBasedSampler,
-} from '@opentelemetry/node';
+} from '@opentelemetry/sdk-trace-node';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-otlp-http';
 import { context, trace, Span, SpanStatusCode } from '@opentelemetry/api';

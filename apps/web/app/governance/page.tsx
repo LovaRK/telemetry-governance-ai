@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { DriftMonitor } from '../components/DriftMonitor';
 import { ReanalysisQueueStatus } from '../components/ReanalysisQueueStatus';
 import { DecisionReviewQueue } from '../../components/DecisionReviewQueue';
+import TrustLayerStatus from '../../components/TrustLayerStatus';
 
 export default function GovernancePage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'drift' | 'queue' | 'review'>('overview');
@@ -110,32 +111,7 @@ export default function GovernancePage() {
                 <h3 style={{ marginBottom: '16px', color: '#2c3e50', fontSize: '14px' }}>
                   Trust Layer Status
                 </h3>
-                <div style={{ fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.8' }}>
-                  <div style={{ marginBottom: '12px' }}>
-                    <strong>Confidence Decay:</strong>
-                    <div style={{ fontSize: '11px', color: '#7f8c8d', marginTop: '4px' }}>
-                      ✓ Active (30-day half-life)
-                      <br />
-                      ✓ Approval expiry: 90 days
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: '12px' }}>
-                    <strong>Seasonality Baselines:</strong>
-                    <div style={{ fontSize: '11px', color: '#7f8c8d', marginTop: '4px' }}>
-                      ✓ 9 time classes tracked
-                      <br />
-                      ✓ Weekly/monthly/quarterly detection
-                    </div>
-                  </div>
-                  <div>
-                    <strong>Risk-Weighted Sampling:</strong>
-                    <div style={{ fontSize: '11px', color: '#7f8c8d', marginTop: '4px' }}>
-                      ✓ Weekly ground truth audits
-                      <br />
-                      ✓ Targeting stable hallucinations
-                    </div>
-                  </div>
-                </div>
+                <TrustLayerStatus />
               </div>
             </div>
 

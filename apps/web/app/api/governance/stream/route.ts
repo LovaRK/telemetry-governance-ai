@@ -1,4 +1,6 @@
 import { NextRequest } from 'next/server';
+import { createStreamRoute } from '@/lib/stream-route-factory';
+import { getTraceId } from '@core/guards/trace-context';
 import { query } from '@core/database/connection';
 
 /**
@@ -24,13 +26,16 @@ import { query } from '@core/database/connection';
  *
  * Cross-tenant isolation: each stream connection is scoped to the authenticated
  * user's tenant via JWT (currently single-tenant, validated via cookie).
+ *
+ * L3 Compliance: Uses createStreamRoute for trace context injection via AsyncLocalStorage.
+ * SSE events include source, mode, and traceId for observability.
  */
 export const dynamic = 'force-dynamic';
 
 const POLL_INTERVAL_MS = 5_000;
 const MAX_STREAM_DURATION_MS = 5 * 60 * 1000; // 5 min max per connection (Vercel / proxy limit)
 
-export async function GET(request: NextRequest) {
+export const GET = createStreamRoute(async (request: NextRequest) => {
   // Last-Event-ID support — clients reconnect and resume from where they left off
   const lastEventId = request.headers.get('Last-Event-ID') || null;
 
@@ -75,7 +80,7 @@ export async function GET(request: NextRequest) {
         try {
           // 1. New governance actions (status changes)
           const govRes = await query<any>(
-            `SELECT ra.id, ra.index_name, ra.sourcetype, ra.status, ra.actor_email,
+            `SELECT ra.id, ra.index_name, ra.status, ra.actor_email,
                     ra.action_note, ra.updated_at
              FROM recommendation_actions ra
              WHERE ra.updated_at > $1
@@ -89,11 +94,13 @@ export async function GET(request: NextRequest) {
             enqueue('governance', {
               id: r.id,
               indexName: r.index_name,
-              sourcetype: r.sourcetype,
               status: r.status,
               actorEmail: r.actor_email,
               note: r.action_note,
               timestamp: r.updated_at,
+              source: 'postgres',
+              mode: 'live',
+              traceId: getTraceId(),
             }, r.updated_at);
             if (ts > lastSeenTimestamp) lastSeenTimestamp = ts;
           }
@@ -120,15 +127,18 @@ export async function GET(request: NextRequest) {
               compositeScore: parseFloat(r.composite_score || '0'),
               confidence: parseFloat(r.confidence_score || '0'),
               timestamp: r.created_at,
+              source: 'postgres',
+              mode: 'live',
+              traceId: getTraceId(),
             }, r.created_at);
             if (ts > lastSeenTimestamp) lastSeenTimestamp = ts;
           }
 
           // 3. Cache drift events
           const driftRes = await query<any>(
-            `SELECT id, index_name, drift_severity, coherence_score, recorded_at
+            `SELECT coherence_id, index_name, is_divergent, recorded_at
              FROM cache_coherence_telemetry
-             WHERE drift_detected = true AND recorded_at > $1
+             WHERE is_divergent = true AND recorded_at > $1
              ORDER BY recorded_at ASC LIMIT 10`,
             [lastSeenTimestamp.toISOString()]
           );
@@ -136,11 +146,13 @@ export async function GET(request: NextRequest) {
           for (const r of driftRes.rows || []) {
             const ts = new Date(r.recorded_at);
             enqueue('drift', {
-              id: r.id,
+              id: r.coherence_id,
               indexName: r.index_name,
-              driftSeverity: r.drift_severity,
-              coherenceScore: parseFloat(r.coherence_score || '0'),
+              isDivergent: r.is_divergent,
               timestamp: r.recorded_at,
+              source: 'postgres',
+              mode: 'live',
+              traceId: getTraceId(),
             }, r.recorded_at);
             if (ts > lastSeenTimestamp) lastSeenTimestamp = ts;
           }
@@ -177,4 +189,4 @@ export async function GET(request: NextRequest) {
       'X-Accel-Buffering': 'no', // Disable Nginx buffering
     },
   });
-}
+});

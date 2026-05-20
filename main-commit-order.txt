@@ -1,0 +1,112 @@
+00a56fc  2026-05-13  Phase 1: Project setup with Docker Compose configuration
+21bc42c  2026-05-13  Add MCP client and agent pipeline (Connection, Discovery, Context agents)
+2c02181  2026-05-13  Phase 1: Add Zod validation schemas for agent contracts
+96a2a49  2026-05-13  Phase 2: Add Telemetry Value Engine - scoring, weights, cost, and Value Agent
+b54a396  2026-05-13  Phase 4: Add API response with telemetry assets and recommendations, add demo mode sample data
+c8f3910  2026-05-13  Add RecommendationCard component with score breakdown and telemetry assets display
+ebbc2e8  2026-05-15  Fix: Dashboard now loads and displays 8 Splunk indices correctly
+0865b88  2026-05-15  Fix: Remove infinite reload loop caused by fallback useEffect
+a9db84f  2026-05-15  Fix: Stop continuous fetch attempts in AgentIntelligencePanel
+3bf43b0  2026-05-15  Wire gemma4:e4b as sole decision model, remove all others
+420f29f  2026-05-15  Redesign dashboard UI — wire to /api/executive-summary with full LLM data
+5ba0021  2026-05-15  Remove mock data, dead API routes, and old pipeline code
+2e4b520  2026-05-15  Add production architecture document
+b2a0402  2026-05-15  Finalize LLM architecture: Local-first (gemma:2b) + Anthropic fallback
+e13c73f  2026-05-15  Add complete database schema with all required tables
+2d9730a  2026-05-15  Build core dashboard infrastructure: cache-status + detail page + APIs
+3e4e3b2  2026-05-15  Phase 1 fixes: critical bugs, formatting, and branding
+34433ad  2026-05-15  Phase 2: Add D4/D5/D8/D9/D11/D12 chart components to Executive Overview
+eba693e  2026-05-15  Phase 2 — add missing Executive chart components and table improvements
+ce15d5c  2026-05-15  E1/E2: Add KPI row and Sourcetype Health Board to detail page
+11ecbc1  2026-05-15  E3/E12/E13/E16: Add detail page derived-data sections + agent_decisions schema
+26e71ed  2026-05-15  E4/E5/E7/E8/E9: Add derived security and quality sections to detail page
+653e368  2026-05-15  E10/E11: Add Saved Search & Alert Audit infrastructure
+86ef547  2026-05-15  D1/E14: Add headline numbers banner and duplicate collection detection
+5918151  2026-05-15  Add Quick Wins numbered table (D6) and SpendGauge semicircle charts (D2/D3)
+5f9ce52  2026-05-15  Add field_usage, security_coverage, quality_hotspots tables and API routes
+155be64  2026-05-15  Address truth-mode audit: data gating, LLM pipeline stability, search audit classification
+20bef4a  2026-05-15  Refine UI gating: hide empty sections until pipeline populates, add metrics pending message
+a441189  2026-05-16  Consolidate decision authority into TelemetryDecisionAgent + add user config system
+539b1bd  2026-05-16  Add LLM reasoning drill-down, SectionExplainer banners, sparklines, and bootstrap script
+5c579d5  2026-05-16  Fix TypeScript implicit any errors in ExecutiveOverview
+a065b64  2026-05-16  Update TODO.md — Phase 2 implementation complete
+6f3dfe6  2026-05-16  Make bootstrap.sh executable
+ac45323  2026-05-16  Add SectionExplainer to Tier Distribution, Savings Staircase, and Agent Intelligence
+520647f  2026-05-16  Update TODO.md — SectionExplainer on all major sections complete
+20a2f52  2026-05-16  Phase 2: Dashboard Polish — complete implementation
+3cdecd9  2026-05-16  Phase 3: Data Quality Tracking — foundational implementation
+f9fe794  2026-05-16  Complete Phase 4 & 5: Advanced Visualizations and User Configuration
+69caf4b  2026-05-16  Phase 7: Implement real Splunk queries for data quality metrics
+1d132a3  2026-05-16  Phase 8: Advanced Visualization Features — interactive components integration
+407d165  2026-05-16  Phase 9: Decision History & Audit Trails implementation
+8c5f235  2026-05-16  Phase 10: Bulk Actions — multi-index operations with audit trail
+d28ba39  2026-05-16  Document: Complete ARCHITECTURE.md with full system design
+e5f46f9  2026-05-16  Refine ARCHITECTURE.md: Address architectural rigor & operational reality
+1156f52  2026-05-16  Critical: Stability fixes & config-driven controls (Model Switch Chaos + Cold Start UX)
+80816d3  2026-05-16  Complete Phase 2 dashboard enhancements: bootstrap script and section explainers
+d40cf02  2026-05-16  Fix Phase 3 build errors: stub API routes, fix Sankey component, add missing SectionExplainer titles
+d3d072c  2026-05-16  Update TODO: Phase 3 build stabilization complete
+4ed2784  2026-05-17  Fix config API: reimplement locally for web-only build without API layer imports
+b03baa2  2026-05-17  Phase 3: Complete build stabilization and web-only deployment model
+20473b9  2026-05-17  CRITICAL: Reframe Phase 3 as temporary DEMO_MODE architecture, not production
+8cb1829  2026-05-17  Restore data flow: connect real Splunk to PostgreSQL via LLM agent
+d3635cc  2026-05-17  Fix web-only DEMO_MODE: allow graceful degradation without database
+951dde4  2026-05-17  Update TODO: Data Flow End-to-End Testing now in progress
+4b26ce2  2026-05-17  Phase 3 Complete: Data Flow End-to-End Verified
+70491ab  2026-05-17  Update TODO: Document Phase 3 complete and current production readiness
+0936f50  2026-05-17  Implement candidate_reason[] tracking for LLM input explainability
+49200dc  2026-05-17  Display candidate selection reasons in ReasoningDrawer
+a12abe2  2026-05-17  Update TODO: Document candidate_reason[] feature completion
+bb1e172  2026-05-17  Implement historical KPI trending with 7-day visualization
+6dd47a0  2026-05-17  Update TODO: Document historical KPI trending completion
+88db1c8  2026-05-18  Add period selection toggle to KPI trend charts
+5588058  2026-05-18  Implement Phase 4: ModelOps & Governance Hardening
+578f9e4  2026-05-18  Integrate decision lineage recording and queue health metrics collection
+c23d26b  2026-05-18  Update TODO: Week 1-4 implementation roadmap (Week 1 complete)
+678b1c5  2026-05-18  Add API endpoints for decision review queue and queue health metrics
+10a51b8  2026-05-18  Add Week 2 UI components: decision review queue and queue health metrics
+2db59a8  2026-05-18  Update TODO: Week 2 UI components complete, integration pending
+e963e70  2026-05-18  Complete Week 2 integration: Decision review queue and governance dashboard
+f0b6c9a  2026-05-18  Implement Phase 1: Human-Calibrated Stability Formula
+4d21972  2026-05-18  Implement Phase 4 Part 1: Semantic Drift Detection Foundation
+cb2e6c8  2026-05-18  Phase 4 Part 2: Drift Stabilization Layer service implementations
+9f561f3  2026-05-18  Phase 4 Part 3: Hardware-aware adaptive budgeting
+3071e08  2026-05-18  Phase 4 Part 4: Seasonality-aware baseline tracking
+80c816f  2026-05-18  Phase 4 Part 5: Asymmetric recovery + oscillation cooldowns
+9eaa795  2026-05-18  Phase 4 Part 6: Database schema for asymmetric recovery and seasonality
+8da5ac6  2026-05-18  Implement risk-weighted ground truth sampling targeting stable hallucinations
+21b079c  2026-05-18  Integrate seasonality awareness and risk-weighted sampling into drift pipeline
+0b39627  2026-05-18  Wire confidence recovery mechanics into drift event recording
+d6aee50  2026-05-18  Implement reanalysis job queue worker
+03554ae  2026-05-18  Add scheduled ground truth sampling task for continuous audit
+59c7910  2026-05-18  Add database schema for ground truth sampling infrastructure
+a125d23  2026-05-18  Update TODO: Phase 4 Enterprise-Grade Drift Stabilization Layer complete
+bb1bacd  2026-05-18  Add Phase 4 database migrations: baseline windows, recovery ledger, queue budgeting, workflow states, and governance policy
+978d31f  2026-05-18  Phase 5: Trust Inspection Panel - Controlled Visibility Layer (Part 1/2)
+7a5abd2  2026-05-18  Phase 5: Integrate Trust Inspection into DecisionReviewQueue
+6e415d8  2026-05-18  Phase 5: Add Drift Monitor and Reanalysis Queue Status components
+26b4131  2026-05-18  Phase 5: Add comprehensive Governance & Transparency Dashboard
+b24a78f  2026-05-18  Mark Phase 5 complete: Trust Inspection & Transparency Layer
+79a2adb  2026-05-18  Fix: Wrap return statement with fragment to allow multiple JSX elements
+cd16cd2  2026-05-18  Fix: Correct PostgreSQL generated column issues in migrations
+6ad4cf8  2026-05-18  Fix: Remove non-immutable expires_at generated column from human_review_ledger
+9ca4e31  2026-05-18  Archive broken migrations 013-024 out of active migration path
+354e1c8  2026-05-18  Phase 5.1: Implement bidirectional confidence calibration model
+e5bf6e4  2026-05-18  Fix: Correct confidence formula to weighted additive blend
+01c1256  2026-05-18  Phase 6: Governance Observability Infrastructure
+ce2465a  2026-05-18  Phase 6.1: Causality & Cache Coherence Instrumentation
+28a4eec  2026-05-18  Phase 6.1.5A.2: Critical Blockers for Phase 2B SSE Boundary
+bf378db  2026-05-18  Sprint 1: Authentication & Splunk Configuration - Full Implementation
+5354ea2  2026-05-18  Add Sprint 1 completion summary and integration checklist
+4ab26fd  2026-05-18  Sprint 2 Revised: Operator Provenance & Telemetry Contracts (mandatory pre-UI work)
+5bbfe62  2026-05-18  Implement Fix 1 & Fix 2: Cryptographic binding hash chain + token reuse detection
+554ae6a  2026-05-18  Implement Fix 3-6: Envelope HMAC, replay scope downgrade, rate limiting, session lifetime
+1cc60e8  2026-05-18  Add comprehensive integration tests for all 6 security fixes
+9ef275c  2026-05-18  Document GovernanceTelemetryEnvelopeV1 frozen contract (version 1.0)
+9b52d1d  2026-05-18  Implement Phase 2A.1: Systemic Failure Signal Aggregation (Foundation)
+db9d9f3  2026-05-18  Implement all 7 critical blockers for Phase 2A.1 SSE boundary
+d14785d  2026-05-19  Consolidate documentation and add comprehensive E2E testing
+ec9de10  2026-05-19  Add comprehensive RUN_LOCALLY.md guide with troubleshooting
+e6662a4  2026-05-19  Add detailed step-by-step INSTALLATION_GUIDE.md
+f5453bf  2026-05-19  Add PORT_MAPPING_GUIDE.md explaining Docker port configuration
+2b28361  2026-05-19  Implement production-grade port strategy with single source of truth

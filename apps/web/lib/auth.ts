@@ -61,14 +61,21 @@ export async function validateCredentials(
   return { user, tenant: { id: user.tenant_id, slug: user.tenant_slug, name: user.tenant_name } };
 }
 
-export async function createRefreshToken(userId: string): Promise<string> {
+export async function createRefreshToken(userId: string, tenantId?: string): Promise<string> {
   const token = crypto.randomBytes(64).toString('hex');
   const hash = crypto.createHash('sha256').update(token).digest('hex');
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
 
+  // If tenant_id not provided, fetch it from users table
+  let tid = tenantId;
+  if (!tid) {
+    const result = await query(`SELECT tenant_id FROM users WHERE id = $1`, [userId]);
+    tid = result.rows[0]?.tenant_id;
+  }
+
   await query(
-    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
-    [userId, hash, expiresAt]
+    `INSERT INTO refresh_tokens (user_id, tenant_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
+    [userId, tid, hash, expiresAt]
   );
 
   return token;

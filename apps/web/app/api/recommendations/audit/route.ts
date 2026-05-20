@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { createRoute } from '@/lib/api-route-factory';
 import { query } from '@core/database/connection';
 
 /**
@@ -7,16 +8,16 @@ import { query } from '@core/database/connection';
  * Returns the full governance audit trail for a specific index/sourcetype pair.
  * Used by the AuditTimeline component in DecisionExplainabilityPanel.
  */
-export async function GET(request: NextRequest) {
+export const GET = createRoute(async (request: NextRequest) => {
+  const { searchParams } = new URL(request.url);
+  const indexName = searchParams.get('index');
+  const sourcetype = searchParams.get('sourcetype') || null;
+
+  if (!indexName) {
+    throw new Error('index parameter required');
+  }
+
   try {
-    const { searchParams } = new URL(request.url);
-    const indexName = searchParams.get('index');
-    const sourcetype = searchParams.get('sourcetype') || null;
-
-    if (!indexName) {
-      return NextResponse.json({ error: 'index parameter required', audit: [] }, { status: 400 });
-    }
-
     // Look up the recommendation_actions audit trail for this index/sourcetype
     const res = await query<any>(
       `SELECT
@@ -34,43 +35,40 @@ export async function GET(request: NextRequest) {
       [indexName, sourcetype]
     );
 
-    return NextResponse.json({
-      index: indexName,
-      sourcetype,
-      audit: res.rows || [],
-      count: res.rows?.length || 0,
-    });
-  } catch (e) {
-    // Fallback: try the recommendation_actions table directly (no separate audit table)
-    try {
-      const { searchParams } = new URL(request.url);
-      const indexName = searchParams.get('index');
-      const sourcetype = searchParams.get('sourcetype') || null;
-
-      const res = await query<any>(
-        `SELECT
-          id,
-          'NEW'    AS from_status,
-          status   AS to_status,
-          actor_email,
-          action_note AS note,
-          updated_at  AS created_at
-         FROM recommendation_actions
-         WHERE index_name = $1
-           AND (sourcetype = $2 OR ($2 IS NULL AND sourcetype IS NULL))
-         ORDER BY updated_at ASC`,
-        [indexName, sourcetype]
-      );
-
-      return NextResponse.json({
+    return {
+      data: {
         index: indexName,
         sourcetype,
         audit: res.rows || [],
         count: res.rows?.length || 0,
-      });
-    } catch (e2) {
-      console.error('[recommendations/audit]', e2);
-      return NextResponse.json({ error: 'Failed to fetch audit trail', audit: [] }, { status: 500 });
-    }
+      },
+      meta: { source: 'postgres' },
+    };
+  } catch (e) {
+    // Fallback: try the recommendation_actions table directly (no separate audit table)
+    const res = await query<any>(
+      `SELECT
+        id,
+        'NEW'    AS from_status,
+        status   AS to_status,
+        actor_email,
+        action_note AS note,
+        updated_at  AS created_at
+       FROM recommendation_actions
+       WHERE index_name = $1
+         AND (sourcetype = $2 OR ($2 IS NULL AND sourcetype IS NULL))
+       ORDER BY updated_at ASC`,
+      [indexName, sourcetype]
+    );
+
+    return {
+      data: {
+        index: indexName,
+        sourcetype,
+        audit: res.rows || [],
+        count: res.rows?.length || 0,
+      },
+      meta: { source: 'postgres' },
+    };
   }
-}
+});

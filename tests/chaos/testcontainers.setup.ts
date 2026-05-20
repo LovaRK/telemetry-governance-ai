@@ -4,16 +4,15 @@
  * All containers cleaned up after tests complete
  */
 
-import { PostgreSqlContainer, StartedPostgresContainer } from '@testcontainers/postgresql';
-import { GenericContainer, StartedTestContainer } from '@testcontainers/testcontainers';
+import { PostgreSqlContainer, StartedPostgresContainer, GenericContainer, StartedGenericContainer } from '@testcontainers/postgresql';
 import { PrismaClient } from '@prisma/client';
 import Redis from 'ioredis';
 import fetch from 'node-fetch';
 
 export interface TestEnvironment {
   postgres: StartedPostgresContainer;
-  redis: StartedTestContainer;
-  wiremock: StartedTestContainer;
+  redis: StartedGenericContainer;
+  wiremock: StartedGenericContainer;
   db: PrismaClient;
   redisClient: Redis;
   cleanup: () => Promise<void>;

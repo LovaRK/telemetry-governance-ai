@@ -11,10 +11,17 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : 1,
   reporter: 'html',
+  timeout: 120000,  // 2 minutes per test
+  expect: {
+    timeout: 15000,  // 15 seconds for assertions
+  },
   use: {
     baseURL: `http://localhost:${WEB_PORT}`,  // Reads from .env WEB_PORT
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    navigationTimeout: 60000,  // 60 seconds for navigation
+    actionTimeout: 30000,  // 30 seconds for actions
+    headless: false,  // Launch visible browser
   },
 
   projects: [

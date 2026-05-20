@@ -14,11 +14,15 @@ services:
       - NEXT_PUBLIC_SPLUNK_DISABLE_SSL_VERIFY=true
       - LLM_MODEL=gemma2:9b
       - WEB_PORT=${WEB_PORT:-3002}  # Pass to container for health checks
+    volumes:
+      - ../apps/web:/app/apps/web  # Development hot-reload
+      - ../packages:/app/packages  # Shared packages
+      - /app/apps/web/.next  # Exclude .next build cache from mount (use container version)
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
       interval: ${HEALTH_CHECK_INTERVAL:-10s}
       timeout: ${HEALTH_CHECK_TIMEOUT:-5s}
       retries: ${HEALTH_CHECK_RETRIES:-5}

@@ -1,0 +1,7 @@
+[Worker] Pipeline worker starting
+[Worker] Polling job_queue every 5000 ms
+[Worker] Processing: pipeline_run jobs → populate metrics → mark complete
+[Worker] Processing pipeline_run job 7646a19c-ac36-4b57-8cd9-210881a88aa9: source=splunk, mode=live, snapshotDate=2026-05-20
+[Worker] Queue health metrics populated
+[Worker] Executive KPIs populated
+[Worker] Job 7646a19c-ac36-4b57-8cd9-210881a88aa9 complete

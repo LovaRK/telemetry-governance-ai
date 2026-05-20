@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { createRoute } from '@/lib/api-route-factory';
 
 export interface UserConfig {
   costPerGbPerDay: number;
@@ -20,18 +21,12 @@ let config: UserConfig = { ...DEFAULT_CONFIG };
  * GET /api/config
  * Returns current user configuration (in-memory, not persisted).
  */
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  try {
-    return NextResponse.json(config);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[/api/config] GET failed:', message);
-    return NextResponse.json(
-      { error: 'Failed to load configuration', details: message },
-      { status: 500 }
-    );
-  }
-}
+export const GET = createRoute(async (request: NextRequest) => {
+  return {
+    data: config,
+    meta: { source: 'system' },
+  };
+});
 
 /**
  * POST /api/config
@@ -39,58 +34,40 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * Request body: { costPerGbPerDay?, maxIndexesPerRun?, llmTimeoutMs?, decisionWeights? }
  * Note: Changes are not persisted (in-memory only for demo).
  */
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  try {
-    const body = await request.json();
+export const POST = createRoute(async (request: NextRequest) => {
+  const body = await request.json();
 
-    // Update only provided fields
-    if (body.costPerGbPerDay !== undefined) {
-      if (typeof body.costPerGbPerDay !== 'number' || body.costPerGbPerDay <= 0) {
-        return NextResponse.json(
-          { error: 'costPerGbPerDay must be a positive number' },
-          { status: 400 }
-        );
-      }
-      config.costPerGbPerDay = body.costPerGbPerDay;
+  // Update only provided fields
+  if (body.costPerGbPerDay !== undefined) {
+    if (typeof body.costPerGbPerDay !== 'number' || body.costPerGbPerDay <= 0) {
+      throw new Error('costPerGbPerDay must be a positive number');
     }
-
-    if (body.maxIndexesPerRun !== undefined) {
-      if (typeof body.maxIndexesPerRun !== 'number' || body.maxIndexesPerRun <= 0) {
-        return NextResponse.json(
-          { error: 'maxIndexesPerRun must be a positive number' },
-          { status: 400 }
-        );
-      }
-      config.maxIndexesPerRun = body.maxIndexesPerRun;
-    }
-
-    if (body.llmTimeoutMs !== undefined) {
-      if (typeof body.llmTimeoutMs !== 'number' || body.llmTimeoutMs <= 0) {
-        return NextResponse.json(
-          { error: 'llmTimeoutMs must be a positive number' },
-          { status: 400 }
-        );
-      }
-      config.llmTimeoutMs = body.llmTimeoutMs;
-    }
-
-    if (body.decisionWeights !== undefined) {
-      if (!body.decisionWeights || typeof body.decisionWeights !== 'object') {
-        return NextResponse.json(
-          { error: 'decisionWeights must be an object' },
-          { status: 400 }
-        );
-      }
-      config.decisionWeights = body.decisionWeights;
-    }
-
-    return NextResponse.json(config);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[/api/config] POST failed:', message);
-    return NextResponse.json(
-      { error: 'Failed to update configuration', details: message },
-      { status: 400 }
-    );
+    config.costPerGbPerDay = body.costPerGbPerDay;
   }
-}
+
+  if (body.maxIndexesPerRun !== undefined) {
+    if (typeof body.maxIndexesPerRun !== 'number' || body.maxIndexesPerRun <= 0) {
+      throw new Error('maxIndexesPerRun must be a positive number');
+    }
+    config.maxIndexesPerRun = body.maxIndexesPerRun;
+  }
+
+  if (body.llmTimeoutMs !== undefined) {
+    if (typeof body.llmTimeoutMs !== 'number' || body.llmTimeoutMs <= 0) {
+      throw new Error('llmTimeoutMs must be a positive number');
+    }
+    config.llmTimeoutMs = body.llmTimeoutMs;
+  }
+
+  if (body.decisionWeights !== undefined) {
+    if (!body.decisionWeights || typeof body.decisionWeights !== 'object') {
+      throw new Error('decisionWeights must be an object');
+    }
+    config.decisionWeights = body.decisionWeights;
+  }
+
+  return {
+    data: config,
+    meta: { source: 'system' },
+  };
+});

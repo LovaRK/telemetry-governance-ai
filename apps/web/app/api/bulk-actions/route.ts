@@ -1,12 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-
-let pool: any = null;
-try {
-  const conn = require('@core/database/connection');
-  pool = conn.pool;
-} catch {
-  // Database module not available in web-only mode
-}
+import { NextRequest } from 'next/server';
+import { createRoute } from '@/lib/api-route-factory';
+import { pool } from '@core/database/connection';
 
 interface BulkActionResult {
   indexName: string;
@@ -95,49 +89,30 @@ async function applyBulkAction(
   return results;
 }
 
-export async function POST(request: NextRequest) {
+export const POST = createRoute(async (request: NextRequest) => {
+  const body = await request.json();
+  const { indexNames, action, reason } = body;
+
+  if (!indexNames || !Array.isArray(indexNames) || indexNames.length === 0) {
+    throw new Error('indexNames must be a non-empty array');
+  }
+
+  if (!['KEEP', 'OPTIMIZE', 'ARCHIVE', 'ELIMINATE', 'S3_CANDIDATE'].includes(action)) {
+    throw new Error('Invalid action. Must be one of: KEEP, OPTIMIZE, ARCHIVE, ELIMINATE, S3_CANDIDATE');
+  }
+
+  const client = await pool.connect();
   try {
-    if (!pool) {
-      return NextResponse.json(
-        {
-          mode: 'DEMO_MODE',
-          error: 'Bulk actions not available',
-          missingDependency: 'PostgreSQL',
-          reason: 'Requires full-stack deployment with transaction support.',
-        },
-        { status: 503 }
-      );
-    }
+    await client.query('BEGIN');
 
-    const body = await request.json();
-    const { indexNames, action, reason } = body;
+    const results = await applyBulkAction(client, indexNames, action, reason);
 
-    if (!indexNames || !Array.isArray(indexNames) || indexNames.length === 0) {
-      return NextResponse.json(
-        { error: 'indexNames must be a non-empty array' },
-        { status: 400 }
-      );
-    }
+    await client.query('COMMIT');
 
-    if (!['KEEP', 'OPTIMIZE', 'ARCHIVE', 'ELIMINATE', 'S3_CANDIDATE'].includes(action)) {
-      return NextResponse.json(
-        { error: 'Invalid action. Must be one of: KEEP, OPTIMIZE, ARCHIVE, ELIMINATE, S3_CANDIDATE' },
-        { status: 400 }
-      );
-    }
+    const allSuccessful = (results as BulkActionResult[]).every(r => r.success);
 
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      const results = await applyBulkAction(client, indexNames, action, reason);
-
-      await client.query('COMMIT');
-
-      const allSuccessful = (results as BulkActionResult[]).every(r => r.success);
-
-      return NextResponse.json({
-        mode: 'FULL_STACK',
+    return {
+      data: {
         success: allSuccessful,
         results,
         summary: {
@@ -145,29 +120,17 @@ export async function POST(request: NextRequest) {
           successful: results.filter(r => r.success).length,
           failed: results.filter(r => !r.success).length,
         },
-      });
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
-  } catch (e) {
-    console.error('[bulk-actions] Error:', e);
-    return NextResponse.json(
-      {
-        mode: 'DEMO_MODE',
-        error: 'Bulk action failed',
-        details: e instanceof Error ? e.message : 'Unknown error',
       },
-      { status: 500 }
-    );
+      meta: { source: 'postgres' },
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
-}
+});
 
-export async function GET() {
-  return NextResponse.json(
-    { error: 'Bulk actions requires POST request' },
-    { status: 405 }
-  );
-}
+export const GET = createRoute(async () => {
+  throw new Error('Bulk actions requires POST request');
+});

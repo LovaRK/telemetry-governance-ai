@@ -1,6 +1,6 @@
 import { Pool, PoolClient } from 'pg';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { TokenService } from './token-service';
 

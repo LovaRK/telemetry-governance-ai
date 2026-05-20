@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { createRoute } from '@/lib/api-route-factory';
 import { Pool } from 'pg';
 import { GovernanceTelemetryService } from '@/services/governance-telemetry-service';
 
@@ -35,56 +36,48 @@ const pool = new Pool({
  *   "last_update": "2026-05-18T12:35:00Z"
  * }
  */
-export async function GET(request: NextRequest) {
-  try {
-    if (!process.env.DATABASE_URL) {
-      return NextResponse.json(
-        {
-          events: [],
-          total: 0,
-          last_update: new Date().toISOString(),
-        },
-        { status: 200 }
-      );
-    }
-
-    const searchParams = request.nextUrl.searchParams;
-    const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 1000);
-    const severity = searchParams.get('severity');
-
-    const telemetryService = new GovernanceTelemetryService(pool);
-    let events = await telemetryService.getEventsStream(limit);
-
-    // Filter by severity if requested
-    if (severity) {
-      events = events.filter((e) => e.event_severity === severity.toUpperCase());
-    }
-
-    return NextResponse.json(
-      {
-        events: events.map((e) => ({
-          eventId: e.event_id,
-          indexName: e.index_name,
-          eventType: e.event_type,
-          fromState: e.from_state,
-          toState: e.to_state,
-          reviewerId: e.reviewer_id,
-          apiResponseCode: e.api_response_code,
-          apiErrorCode: e.api_error_code,
-          blockingReason: e.blocking_reason,
-          timestamp: e.recorded_at,
-          severity: e.event_severity,
-        })),
-        total: events.length,
+export const GET = createRoute(async (request: NextRequest) => {
+  if (!process.env.DATABASE_URL) {
+    return {
+      data: {
+        events: [],
+        total: 0,
         last_update: new Date().toISOString(),
       },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error('Error fetching events stream:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch events stream' },
-      { status: 500 }
-    );
+      meta: { source: 'system' },
+    };
   }
-}
+
+  const searchParams = request.nextUrl.searchParams;
+  const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 1000);
+  const severity = searchParams.get('severity');
+
+  const telemetryService = new GovernanceTelemetryService(pool);
+  let events = await telemetryService.getEventsStream(limit);
+
+  // Filter by severity if requested
+  if (severity) {
+    events = events.filter((e) => e.event_severity === severity.toUpperCase());
+  }
+
+  return {
+    data: {
+      events: events.map((e) => ({
+        eventId: e.event_id,
+        indexName: e.index_name,
+        eventType: e.event_type,
+        fromState: e.from_state,
+        toState: e.to_state,
+        reviewerId: e.reviewer_id,
+        apiResponseCode: e.api_response_code,
+        apiErrorCode: e.api_error_code,
+        blockingReason: e.blocking_reason,
+        timestamp: e.recorded_at,
+        severity: e.event_severity,
+      })),
+      total: events.length,
+      last_update: new Date().toISOString(),
+    },
+    meta: { source: 'postgres' },
+  };
+});

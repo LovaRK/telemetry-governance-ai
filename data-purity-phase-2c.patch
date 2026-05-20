@@ -1,0 +1,442 @@
+diff --git a/packages/core/guards/data-purity.guard.ts b/packages/core/guards/data-purity.guard.ts
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/packages/core/guards/data-purity.guard.ts
+@@ -0,0 +1,35 @@
++/**
++ * Data Purity Enforcement Guard
++ *
++ * Enforces system invariant: All runtime data originates from Splunk, PostgreSQL, or system.
++ * No synthetic data, fallbacks, mocks, or defaults are allowed.
++ */
++
++export type DataSource = 'splunk' | 'postgres' | 'system';
++
++export interface DataPurityMeta {
++  source: DataSource;
++  mode: 'live';
++  traceId: string;
++}
++
++/**
++ * Assert that data carries proper purity metadata.
++ * Throws immediately if any field is missing or invalid.
++ */
++export function assertDataPurity(meta: Partial<DataPurityMeta>): void {
++  if (!meta) {
++    throw new Error('❌ Missing meta (data purity violation)');
++  }
++
++  if (!meta.source) {
++    throw new Error('❌ Missing source attribution');
++  }
++
++  if (!['splunk', 'postgres', 'system'].includes(meta.source)) {
++    throw new Error(`❌ Invalid source: ${meta.source}`);
++  }
++
++  if (meta.mode !== 'live') {
++    throw new Error(`❌ Non-live mode detected: ${meta.mode}`);
++  }
++
++  if (!meta.traceId) {
++    throw new Error('❌ Missing traceId for distributed tracing');
++  }
++}
+diff --git a/packages/core/guards/fail-loud.ts b/packages/core/guards/fail-loud.ts
+new file mode 100644
+index 0000000..2345678
+--- /dev/null
++++ b/packages/core/guards/fail-loud.ts
+@@ -0,0 +1,17 @@
++/**
++ * Fail-Loud Guard
++ *
++ * Converts any error into a SYSTEM_INVARIANT_VIOLATION signal.
++ * Never silently falls back or masks errors.
++ */
++
++import { logger } from '@infra/observability';
++
++export function failLoudly(error: Error): never {
++  logger.error('SYSTEM_INVARIANT_VIOLATION', {
++    message: error.message,
++    stack: error.stack,
++    timestamp: new Date().toISOString(),
++  });
++
++  throw new Error(`SYSTEM_INVARIANT_VIOLATION: ${error.message}`);
++}
+diff --git a/apps/api/middleware/data-purity.middleware.ts b/apps/api/middleware/data-purity.middleware.ts
+new file mode 100644
+index 0000000..3456789
+--- /dev/null
++++ b/apps/api/middleware/data-purity.middleware.ts
+@@ -0,0 +1,18 @@
++/**
++ * Data Purity API Middleware
++ *
++ * Enforces that all API responses carry proper source attribution.
++ */
++
++import { assertDataPurity } from '@core/guards/data-purity.guard';
++
++export interface ApiResponse<T = any> {
++  data: T;
++  meta: {
++    source: 'splunk' | 'postgres' | 'system';
++    mode: 'live';
++    traceId: string;
++  };
++}
++
++export function enforceMeta(response: any): void {
++  if (!response?.meta) {
++    throw new Error('❌ Missing meta in API response');
++  }
++
++  assertDataPurity(response.meta);
++}
+diff --git a/scripts/no-mock-check.sh b/scripts/no-mock-check.sh
+new file mode 100755
+index 0000000..4567890
+--- /dev/null
++++ b/scripts/no-mock-check.sh
+@@ -0,0 +1,20 @@
++#!/bin/bash
++
++# Data Purity Enforcement Script
++# Prevents mock, demo, fake, fallback, and sample data from entering runtime code
++
++echo "🔍 Checking for data purity violations..."
++
++VIOLATIONS=$(grep -r \
++  -E "mock|demo|fake|fallback|sample" \
++  apps/ packages/ core/ \
++  --include="*.ts" --include="*.tsx" \
++  2>/dev/null | \
++  grep -v "tests/" | grep -v "__tests__/" | grep -v ".test." | grep -v ".spec.")
++
++if [ -n "$VIOLATIONS" ]; then
++  echo "❌ Data purity violations detected:"
++  echo "$VIOLATIONS"
++  exit 1
++fi
++
++echo "✅ Data purity check passed"
+diff --git a/prisma/migrations/122_data_purity/migration.sql b/prisma/migrations/122_data_purity/migration.sql
+new file mode 100644
+index 0000000..5678901
+--- /dev/null
++++ b/prisma/migrations/122_data_purity/migration.sql
+@@ -0,0 +1,40 @@
++-- Migration 122: Data Purity Enforcement
++--
++-- Adds source attribution and mode constraints to execution substrate.
++-- Enforces: mode MUST always be 'live' for all persisted data.
++
++ALTER TABLE execution_actions
++ADD COLUMN source VARCHAR(32) NOT NULL,
++ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'live',
++ADD COLUMN trace_id UUID NOT NULL;
++
++-- 🔒 CRITICAL: Prevent non-live data from being persisted
++ALTER TABLE execution_actions
++ADD CONSTRAINT chk_execution_actions_mode CHECK (mode = 'live');
++
++ALTER TABLE execution_results
++ADD COLUMN source VARCHAR(32) NOT NULL,
++ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'live',
++ADD COLUMN trace_id UUID NOT NULL;
++
++-- 🔒 CRITICAL: Prevent non-live data from being persisted
++ALTER TABLE execution_results
++ADD CONSTRAINT chk_execution_results_mode CHECK (mode = 'live');
++
++-- Create system_config table (replaces in-memory config storage)
++CREATE TABLE IF NOT EXISTS system_config (
++  key TEXT PRIMARY KEY,
++  value JSONB NOT NULL,
++  source VARCHAR(32) NOT NULL CHECK (source IN ('user_override', 'system_default', 'splunk_tag')),
++  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
++  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
++);
++
++-- Indexes for performance
++CREATE INDEX idx_system_config_updated ON system_config(updated_at DESC);
++
++-- Document: source must be traceable
++COMMENT ON TABLE system_config IS 'System configuration with source attribution. Source must be: user_override (user-set), system_default (code default), or splunk_tag (from Splunk).';
++COMMENT ON COLUMN system_config.source IS 'Origin of config value: must be traceable to user action or system rule.';
+diff --git a/apps/api/bootstrap.ts b/apps/api/bootstrap.ts
+index 1111111..2222222 100644
+--- a/apps/api/bootstrap.ts
++++ b/apps/api/bootstrap.ts
+@@ -1,6 +1,12 @@
+ import { logger } from '@infra/observability';
+
+ export async function bootstrap() {
++  // 🔒 DATA PURITY: Reject DEMO_MODE runtime
++  if (process.env.DEMO_MODE === 'true') {
++    throw new Error(
++      '❌ DEMO_MODE is forbidden in runtime. System must operate with live data only.'
++    );
++  }
+
+   // Validate required environment
+   if (!process.env.DATABASE_URL) {
+diff --git a/packages/core/workflow/executor-v2.ts b/packages/core/workflow/executor-v2.ts
+index 3333333..4444444 100644
+--- a/packages/core/workflow/executor-v2.ts
++++ b/packages/core/workflow/executor-v2.ts
+@@ -1,5 +1,7 @@
++import { assertDataPurity } from '@core/guards/data-purity.guard';
++import { failLoudly } from '@core/guards/fail-loud';
+ import { splunkAdapter } from '@core/adapters/splunk.adapter';
+-import { logger } from '@infra/observability';
++import { logger } from '@infra/observability';
+ import { query } from '@core/database/connection';
+
+ interface ExecutionAction {
+@@ -25,6 +27,11 @@ export async function executeAction(action: ExecutionAction) {
+   try {
+     const result = await splunkAdapter.mutateIndex(action.target, action.params);
+
++    // 🔒 GUARD 1: Validate adapter response carries purity metadata
++    assertDataPurity({
++      source: result.source,
++      mode: result.mode,
++      traceId: result.traceId,
++    });
+
+     // 🔒 GUARD 2: Persist with purity metadata before event emission
+     const resultRecord = await query(
+@@ -32,6 +39,9 @@ export async function executeAction(action: ExecutionAction) {
+        INSERT INTO execution_results
+        (action_id, execution_id, status, attempt_number,
+         result_payload, error_code,
++        source, mode, trace_id,
+         recorded_at)
+        VALUES ($1, $2, 'SUCCEEDED', $3, $4, NULL, $5, 'live', $6, NOW())
+        RETURNING *
+@@ -42,6 +52,8 @@ export async function executeAction(action: ExecutionAction) {
+         action.action_id,
+         action.execution_id,
+         action.attempt_count + 1,
+         JSON.stringify(result.payload),
++        result.source,
++        result.traceId,
+       ]
+     );
+
+@@ -50,7 +62,7 @@ export async function executeAction(action: ExecutionAction) {
+       resultRecord.rows[0]
+     );
+
+     return result;
+   } catch (error) {
+-    throw error;
++    failLoudly(error as Error);
+   }
+ }
+diff --git a/apps/web/app/api/governance/replay/route.ts b/apps/web/app/api/governance/replay/route.ts
+index 5555555..6666666 100644
+--- a/apps/web/app/api/governance/replay/route.ts
++++ b/apps/web/app/api/governance/replay/route.ts
+@@ -40,28 +40,16 @@ export async function GET(request: NextRequest) {
+       params
+     );
+
+-    // Fallback: use agent_decisions + recommendation_actions as replay source
++    // 🔒 DATA PURITY: Do NOT fallback to stale data
+     if (res.rows.length === 0) {
+-      const fallbackParams: any[] = [asOfDate.toISOString(), limit];
+-      const fallbackWhere = index ? `AND ad.index_name = $3` : '';
+-      if (index) fallbackParams.push(index);
+-
+-      res = await query<any>(
+-        `SELECT
+-           ad.id           AS replay_id,
+-           ad.index_name,
+-           ad.sourcetype,
+-           jsonb_build_object(...) AS snapshot_state,
+-           ad.created_at AS recorded_at,
+-           'agent_decisions'   AS replay_source
+-         FROM agent_decisions ad
+-         ...`,
+-        fallbackParams
++      return NextResponse.json(
++        {
++          error: '❌ No governance replay available',
++          details: 'governance_replay_journal not populated for this period',
++          asOf: asOfDate.toISOString(),
++          action: 'governance_replay_journal must be populated by execution substrate',
++        },
++        { status: 503 }
+       );
+     }
+
+@@ -81,6 +69,7 @@ export async function GET(request: NextRequest) {
+         recordedAt: r.recorded_at,
+         source: r.replay_source,
+       })),
++      meta: { source: 'postgres', mode: 'live', traceId: request.headers.get('x-trace-id') || 'replay-' + Date.now() },
+     });
+   } catch (e) {
+     console.error('[replay]', e);
+diff --git a/apps/web/app/api/config/route.ts b/apps/web/app/api/config/route.ts
+index 7777777..8888888 100644
+--- a/apps/web/app/api/config/route.ts
++++ b/apps/web/app/api/config/route.ts
+@@ -1,60 +1,58 @@
+ import { NextRequest, NextResponse } from 'next/server';
++import { enforceMeta } from '@api/middleware/data-purity.middleware';
+ import { query } from '@core/database/connection';
++import { v4 as uuidv4 } from 'uuid';
+
+ export interface UserConfig {
+   costPerGbPerDay: number;
+   maxIndexesPerRun: number;
+   llmTimeoutMs: number;
+   decisionWeights?: Record<string, unknown>;
+ }
+
+-const DEFAULT_CONFIG: UserConfig = {
+-  costPerGbPerDay: 0.5,
+-  maxIndexesPerRun: 1000,
+-  llmTimeoutMs: 30000,
+-};
+-
+-// ❌ REMOVED: In-memory storage for demo purposes
+-// let config: UserConfig = { ...DEFAULT_CONFIG };
+-
+ /**
+  * GET /api/config
+- * Returns current user configuration (from database, with source attribution).
++ * Loads configuration from system_config table.
++ * Every value is traced to its origin (user_override, system_default, splunk_tag).
+  */
+ export async function GET(request: NextRequest): Promise<NextResponse> {
+   try {
+-    // Load from database instead of in-memory
++    // Load all config keys from database
+     const result = await query<any>(
+-      `SELECT key, value, source FROM system_config`,
++      `SELECT key, value, source FROM system_config ORDER BY updated_at DESC`,
+       []
+     );
+
++    // Reconstruct config object
+     const config: Record<string, any> = {};
+     result.rows.forEach((row) => {
+       config[row.key] = row.value;
+     });
+
++    // 🔒 DATA PURITY: Enforce source attribution
+     return NextResponse.json({
+       data: config,
+       meta: {
+         source: 'postgres',
+         mode: 'live',
+         traceId: request.headers.get('x-trace-id') || uuidv4(),
+       },
++    });
+   } catch (error) {
+     const message = error instanceof Error ? error.message : 'Unknown error';
+     console.error('[/api/config] GET failed:', message);
+     return NextResponse.json(
+-      { error: 'Failed to load configuration', details: message },
++      {
++        error: '❌ Failed to load configuration from database',
++        details: message,
++        action: 'Check system_config table and database connection'
++      },
+       { status: 500 }
+     );
+   }
+ }
+
+ /**
+  * POST /api/config
+- * Update configuration in database (persisted).
++ * Update configuration with source attribution.
+  */
+ export async function POST(request: NextRequest): Promise<NextResponse> {
+   try {
+     const body = await request.json();
+     const traceId = request.headers.get('x-trace-id') || uuidv4();
+
++    // 🔒 Validate: source MUST be explicit
++    if (!body.source || !['user_override', 'system_default', 'splunk_tag'].includes(body.source)) {
++      return NextResponse.json(
++        { error: '❌ Missing or invalid source. Must be: user_override, system_default, or splunk_tag' },
++        { status: 400 }
++      );
++    }
++
+     // Update each key in system_config with source
+     const updatePromises = Object.entries(body).map(async ([key, value]) => {
+       if (key === 'source') return; // Skip metadata
+
+       await query(
+         `INSERT INTO system_config (key, value, source, updated_at)
+          VALUES ($1, $2, $3, NOW())
+          ON CONFLICT (key) DO UPDATE SET value = $2, source = $3, updated_at = NOW()`,
+         [key, JSON.stringify(value), body.source]
+       );
+     });
+
+     await Promise.all(updatePromises);
+
+     // Return updated config with meta
+     const result = await query<any>(
+       `SELECT key, value, source FROM system_config`,
+       []
+     );
+
+     const config: Record<string, any> = {};
+     result.rows.forEach((row) => {
+       config[row.key] = row.value;
+     });
+
+     return NextResponse.json({
+       data: config,
+       meta: {
+         source: 'postgres',
+         mode: 'live',
+         traceId,
+       },
+     });
+   } catch (error) {
+     const message = error instanceof Error ? error.message : 'Unknown error';
+     console.error('[/api/config] POST failed:', message);
+     return NextResponse.json(
+-      { error: 'Failed to update configuration', details: message },
++      {
++        error: '❌ Failed to update configuration',
++        details: message,
++        action: 'Ensure source field is provided'
++      },
+       { status: 400 }
+     );
+   }
+ }
+diff --git a/.github/workflows/test.yml b/.github/workflows/test.yml
+index 9999999..aaaaaaa 100644
+--- a/.github/workflows/test.yml
++++ b/.github/workflows/test.yml
+@@ -25,6 +25,12 @@ jobs:
+     - name: Run unit tests
+       run: npm run test:unit
+
++    - name: 🔒 Data Purity Check
++      run: bash scripts/no-mock-check.sh
++      continue-on-error: false
++      description: >-
++        Enforces that no mock/demo/fake/fallback data exists in runtime code.
++        Failure indicates system integrity violation.
++
+     - name: Run integration tests
+       run: npm run test:integration
+

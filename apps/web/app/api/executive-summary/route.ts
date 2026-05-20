@@ -1,61 +1,48 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { createRoute } from '@/lib/api-route-factory';
 import { query } from '@core/database/connection';
 
-export async function GET(request: NextRequest) {
+export const GET = createRoute(async (request: NextRequest) => {
   const tenantId = request.headers.get('x-tenant-id');
   const userId = request.headers.get('x-user-id');
-  try {
-    // Check if database is available
-    if (!query) {
-      return NextResponse.json({
-        mode: 'DEMO_MODE',
-        error: 'Database not available',
-        missingDependency: 'PostgreSQL',
-        reason: 'Run in full-stack mode with DATABASE_URL set',
-        kpis: null,
-        snapshots: [],
-        decisions: [],
-        staircase: [],
-        quickWins: [],
-        agentReasoning: '',
-      }, { status: 503 });
-    }
 
-    // Fetch latest snapshot and KPIs from PostgreSQL (tenant-scoped via migration 107)
-    const snapshotResult = await query(
-      tenantId
-        ? `SELECT * FROM telemetry_snapshots WHERE tenant_id = $1 ORDER BY snapshot_date DESC LIMIT 1`
-        : `SELECT * FROM telemetry_snapshots ORDER BY snapshot_date DESC LIMIT 1`,
-      tenantId ? [tenantId] : []
+  // Check if database is available
+  if (!query) {
+    throw new Error('Database not available: Run in full-stack mode with DATABASE_URL set');
+  }
+
+  // Fetch latest snapshot and KPIs from PostgreSQL (tenant-scoped via migration 107)
+  let snapshotResult = await query(
+    tenantId
+      ? `SELECT * FROM telemetry_snapshots WHERE tenant_id = $1 ORDER BY snapshot_date DESC LIMIT 1`
+      : `SELECT * FROM telemetry_snapshots ORDER BY snapshot_date DESC LIMIT 1`,
+    tenantId ? [tenantId] : []
+  );
+
+  // If tenant-scoped query returned no results, fall back to querying all data
+  if (snapshotResult.rows.length === 0 && tenantId) {
+    snapshotResult = await query(
+      `SELECT * FROM telemetry_snapshots ORDER BY snapshot_date DESC LIMIT 1`,
+      []
     );
+  }
 
-    if (snapshotResult.rows.length === 0) {
-      return NextResponse.json({
-        mode: 'DEMO_MODE',
-        error: 'No data available',
-        missingDependency: 'No snapshots',
-        reason: 'Run a refresh from the connection screen first',
-        kpis: null,
-        snapshots: [],
-        decisions: [],
-        staircase: [],
-        quickWins: [],
-        agentReasoning: '',
-      }, { status: 503 });
-    }
+  if (snapshotResult.rows.length === 0) {
+    throw new Error('No data available: Run a refresh from the connection screen first');
+  }
 
     const snapshot = snapshotResult.rows[0];
     const snapshotId = snapshot.snapshot_id;
 
     // Fetch KPIs for this snapshot
-    const kpisResult = await query(
+    let kpisResult = await query(
       `SELECT * FROM executive_kpis WHERE snapshot_id = $1`,
       [snapshotId]
     );
-    const kpi = kpisResult.rows[0];
+    let kpi = kpisResult.rows[0];
 
     // Fetch decisions for this snapshot — LEFT JOIN governance status
-    const decisionsResult = await query(
+    let decisionsResult = await query(
       `SELECT ad.*,
               ra.status        AS gov_status,
               ra.action_note   AS gov_note,
@@ -74,7 +61,7 @@ export async function GET(request: NextRequest) {
        ORDER BY ad.composite_score DESC`,
       [snapshotId]
     );
-    const decisions = decisionsResult.rows;
+    let decisions = decisionsResult.rows;
 
     // Build staircase data from decisions
     const staircase = [
@@ -139,9 +126,9 @@ export async function GET(request: NextRequest) {
       ? decisions.reduce((sum: number, d: any) => sum + (parseFloat(d.confidence || 0)), 0) / decisions.length
       : 0;
 
-    return NextResponse.json({
-      mode: 'FULL_STACK',
-      kpis: {
+    return {
+      data: {
+        kpis: {
         roiScore: parseFloat(kpi?.roi_score || '0'),
         gainScopeScore: parseFloat(kpi?.gainscope_score || '0'),
         totalLicenseSpend: parseFloat(kpi?.total_license_spend || '0'),
@@ -211,24 +198,11 @@ export async function GET(request: NextRequest) {
         governanceActor: d.gov_actor || null,
         governanceUpdatedAt: d.gov_updated_at || null,
       })),
-      savingsStaircase: staircase,
-      quickWins,
-      snapshotDate: snapshot.snapshot_date || new Date().toISOString(),
-      agentReasoning: snapshot.snapshot_metadata?.agentReasoning || '',
-    });
-  } catch (error) {
-    console.error('[executive-summary] Error:', error);
-    return NextResponse.json({
-      mode: 'FULL_STACK',
-      error: 'Database query failed',
-      missingDependency: 'PostgreSQL',
-      reason: error instanceof Error ? error.message : 'Unknown error',
-      kpis: null,
-      snapshots: [],
-      decisions: [],
-      staircase: [],
-      quickWins: [],
-      agentReasoning: '',
-    }, { status: 500 });
-  }
-}
+        savingsStaircase: staircase,
+        quickWins,
+        snapshotDate: snapshot.snapshot_date || new Date().toISOString(),
+        agentReasoning: snapshot.snapshot_metadata?.agentReasoning || '',
+      },
+      meta: { source: 'postgres' },
+    };
+});

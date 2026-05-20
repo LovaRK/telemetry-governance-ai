@@ -1,0 +1,1077 @@
+
+🚀 E2E Test Global Setup
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📍 Checking service on http://localhost:3002...
+⏳ Waiting for service to be healthy...
+✅ Service healthy: http://localhost:3002/api/health
+✅ All services ready for testing
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+Running 38 tests using 1 worker
+
+  ✘   1 [chromium] › tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:4:7 › Dashboard E2E Tests › connection screen loads without hard-coded data (6.6s)
+  ✘   2 [chromium] › tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:29:7 › Dashboard E2E Tests › API calls are made for executive-summary, not hard-coded (7.3s)
+  ✓   3 [chromium] › tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:51:7 › Dashboard E2E Tests › no synthetic data leaks into DOM (255ms)
+  ✓   4 [chromium] › tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:74:7 › Dashboard E2E Tests › localStorage is used for configuration only, not data (41ms)
+  ✓   5 [chromium] › tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:102:7 › Dashboard E2E Tests › CSS does not hard-code style data or metrics (234ms)
+  ✓   6 [chromium] › tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:129:7 › Dashboard E2E Tests › component tree has no hidden hard-coded data in attributes (194ms)
+  ✘   7 [chromium] › tests/e2e/02-api-integration.test.ts:4:7 › API Integration Tests › cache-status endpoint returns valid JSON (2.2s)
+  ✓   8 [chromium] › tests/e2e/02-api-integration.test.ts:36:7 › API Integration Tests › no hard-coded indices data in localStorage (225ms)
+  ✓   9 [chromium] › tests/e2e/02-api-integration.test.ts:64:7 › API Integration Tests › network requests go to /api/* endpoints, not hard-coded responses (2.2s)
+  ✓  10 [chromium] › tests/e2e/02-api-integration.test.ts:85:7 › API Integration Tests › no fetch response mocks in window scope (236ms)
+  ✓  11 [chromium] › tests/e2e/02-api-integration.test.ts:103:7 › API Integration Tests › response bodies are parsed, not string-concatenated (2.2s)
+  ✘  12 [chromium] › tests/e2e/02-api-integration.test.ts:134:7 › API Integration Tests › form submission sends credentials, not hard-coded token (277ms)
+  ✘  13 [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:15:7 › Track 3: Browser UI/UX Full E2E › login flow works end-to-end (30.0s)
+  ✘  14 [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:20:7 › Track 3: Browser UI/UX Full E2E › splunk connect gate renders and shows real HTTP 500 (30.0s)
+  ✘  15 [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:35:7 › Track 3: Browser UI/UX Full E2E › governance overview tab renders without 503 (30.1s)
+  ✘  16 [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:46:7 › Track 3: Browser UI/UX Full E2E › trust layer status fetches from /api/governance/trust-status (30.0s)
+  ✘  17 [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:67:7 › Track 3: Browser UI/UX Full E2E › drift monitor renders without schema errors (30.0s)
+  ✘  18 [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:80:7 › Track 3: Browser UI/UX Full E2E › reanalysis queue renders queue_health_metrics-backed state (30.0s)
+  ✘  19 [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:99:7 › Track 3: Browser UI/UX Full E2E › decision review renders without useUser crash (30.1s)
+  ✘  20 [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:109:7 › Track 3: Browser UI/UX Full E2E › decision history uses db-backed api, not stub (30.0s)
+  ✘  21 [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:132:7 › Track 3: Browser UI/UX Full E2E › no visible mock/demo/synthetic/hardcoded live-status text (30.1s)
+  ✘  22 [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:145:7 › Track 3: Browser UI/UX Full E2E › empty states are truthful, not fake data (30.0s)
+  ✘  23 [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:157:7 › Track 3: Browser UI/UX Full E2E › decision-lineage endpoint returns valid DB-backed response (30.0s)
+  ✘  24 [chromium] › tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:7:7 › Track 5: Pipeline Refresh E2E › pipeline updates dashboard values from server (30.0s)
+  ✘  25 [chromium] › tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:55:7 › Track 5: Pipeline Refresh E2E › pipeline run endpoint returns valid job id (30.0s)
+  ✘  26 [chromium] › tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:82:7 › Track 5: Pipeline Refresh E2E › executive-summary reflects pipeline data, not hardcoded (30.0s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  27 [chromium] › tests/e2e/06-production-certification.spec.ts:63:7 › Production Certification Suite › Page: /governance loads without errors (30.1s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  28 [chromium] › tests/e2e/06-production-certification.spec.ts:88:7 › Production Certification Suite › Page: /governance tabs render without errors (30.1s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  29 [chromium] › tests/e2e/06-production-certification.spec.ts:113:7 › Production Certification Suite › Trust Layer Status API returns DB-backed data (30.1s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  30 [chromium] › tests/e2e/06-production-certification.spec.ts:135:7 › Production Certification Suite › Decision History uses DB-backed API, not stub (30.1s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  31 [chromium] › tests/e2e/06-production-certification.spec.ts:159:7 › Production Certification Suite › Queue Health metrics populated and visible (30.1s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  32 [chromium] › tests/e2e/06-production-certification.spec.ts:178:7 › Production Certification Suite › Executive Summary shows aggregated data (30.1s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  33 [chromium] › tests/e2e/06-production-certification.spec.ts:200:7 › Production Certification Suite › All major routes load without 500 errors (30.1s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  34 [chromium] › tests/e2e/06-production-certification.spec.ts:225:7 › Production Certification Suite › No hardcoded/mock/demo values visible in UI (30.0s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  35 [chromium] › tests/e2e/06-production-certification.spec.ts:249:7 › Production Certification Suite › Decision Lineage endpoint returns valid DB response (30.1s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  36 [chromium] › tests/e2e/06-production-certification.spec.ts:266:7 › Production Certification Suite › Pipeline trigger and completion flow (30.1s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  37 [chromium] › tests/e2e/06-production-certification.spec.ts:305:7 › Production Certification Suite › No React error boundary or hydration errors (30.1s)
+
+=== Test Summary ===
+Console errors captured: 1
+Page errors: 0
+Failed requests: 0
+Total API responses: 2
+  ✘  38 [chromium] › tests/e2e/06-production-certification.spec.ts:328:7 › Production Certification Suite › Summary: API endpoints all healthy (30.0s)
+
+
+  1) [chromium] › tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:4:7 › Dashboard E2E Tests › connection screen loads without hard-coded data 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('text=Connect to Splunk to get started')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('text=Connect to Splunk to get started')[22m
+
+
+       8 |     // Should show connection form (no data has been loaded yet)
+       9 |     await expect(page.locator('text=datasensAI')).toBeVisible();
+    > 10 |     await expect(page.locator('text=Connect to Splunk to get started')).toBeVisible();
+         |                                                                         ^
+      11 |
+      12 |     // Verify connection form elements are present
+      13 |     const splunkUrlInput = page.locator('input[placeholder*="Splunk URL"]').first();
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:10:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/01-dashboard-loads-without-db54f-ads-without-hard-coded-data-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/01-dashboard-loads-without-db54f-ads-without-hard-coded-data-chromium/error-context.md
+
+  2) [chromium] › tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:29:7 › Dashboard E2E Tests › API calls are made for executive-summary, not hard-coded 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('text=Connect to Splunk to get started')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('text=Connect to Splunk to get started')[22m
+
+
+      46 |     // Connection screen should be shown (no Splunk connection yet)
+      47 |     // This means executive-summary should NOT be called
+    > 48 |     await expect(page.locator('text=Connect to Splunk to get started')).toBeVisible();
+         |                                                                         ^
+      49 |   });
+      50 |
+      51 |   test('no synthetic data leaks into DOM', async ({ page }) => {
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:48:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/01-dashboard-loads-without-67e6e-tive-summary-not-hard-coded-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/01-dashboard-loads-without-67e6e-tive-summary-not-hard-coded-chromium/error-context.md
+
+  3) [chromium] › tests/e2e/02-api-integration.test.ts:4:7 › API Integration Tests › cache-status endpoint returns valid JSON 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoHaveProperty[2m([22m[32mpath[39m[2m)[22m
+
+    Expected path: [32m"hasEverRefreshed"[39m
+    Received path: [31m[][39m
+
+    Received value: [31m{"data": {"hasAgentDecisions": false, "hasData": false, "hasEverRefreshed": false, "lastRefreshAt": null, "message": "Awaiting first refresh", "nextRefreshAt": null, "recordCount": 0, "status": "stale"}, "meta": {"mode": "live", "source": "postgres", "traceId": "61d00552-6ddd-4251-b550-827d46b6d031"}}[39m
+
+      27 |     // Verify response has expected structure (not hard-coded values)
+      28 |     if (statusResponse) {
+    > 29 |       expect(statusResponse).toHaveProperty('hasEverRefreshed');
+         |                              ^
+      30 |       expect(statusResponse).toHaveProperty('status');
+      31 |       // Boolean values, not hard-coded strings
+      32 |       expect(typeof statusResponse.hasEverRefreshed).toBe('boolean');
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/02-api-integration.test.ts:29:30
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/02-api-integration-API-Int-a7d68-endpoint-returns-valid-JSON-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/02-api-integration-API-Int-a7d68-endpoint-returns-valid-JSON-chromium/error-context.md
+
+  4) [chromium] › tests/e2e/02-api-integration.test.ts:134:7 › API Integration Tests › form submission sends credentials, not hard-coded token 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('input[placeholder*="Splunk URL"]').first()
+    Expected: visible
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('input[placeholder*="Splunk URL"]').first()[22m
+
+
+      153 |     // This test verifies the form is set up correctly to send to API
+      154 |     const urlInput = page.locator('input[placeholder*="Splunk URL"]').first();
+    > 155 |     expect(urlInput).toBeVisible();
+          |                      ^
+      156 |   });
+      157 | });
+      158 |
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/02-api-integration.test.ts:155:22
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/02-api-integration-API-Int-f8f83-ntials-not-hard-coded-token-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/02-api-integration-API-Int-f8f83-ntials-not-hard-coded-token-chromium/error-context.md
+
+  5) [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:15:7 › Track 3: Browser UI/UX Full E2E › login flow works end-to-end 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/03-track3-browser-ui-e2e.test.ts:16:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-track3-browser-ui-e2e-T-4df9b-login-flow-works-end-to-end-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-track3-browser-ui-e2e-T-4df9b-login-flow-works-end-to-end-chromium/error-context.md
+
+  6) [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:20:7 › Track 3: Browser UI/UX Full E2E › splunk connect gate renders and shows real HTTP 500 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/03-track3-browser-ui-e2e.test.ts:21:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-track3-browser-ui-e2e-T-4c379-ers-and-shows-real-HTTP-500-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-track3-browser-ui-e2e-T-4c379-ers-and-shows-real-HTTP-500-chromium/error-context.md
+
+  7) [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:35:7 › Track 3: Browser UI/UX Full E2E › governance overview tab renders without 503 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/03-track3-browser-ui-e2e.test.ts:36:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-track3-browser-ui-e2e-T-21c0b-iew-tab-renders-without-503-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-track3-browser-ui-e2e-T-21c0b-iew-tab-renders-without-503-chromium/error-context.md
+
+  8) [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:46:7 › Track 3: Browser UI/UX Full E2E › trust layer status fetches from /api/governance/trust-status 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/03-track3-browser-ui-e2e.test.ts:47:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-track3-browser-ui-e2e-T-67997-api-governance-trust-status-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-track3-browser-ui-e2e-T-67997-api-governance-trust-status-chromium/error-context.md
+
+  9) [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:67:7 › Track 3: Browser UI/UX Full E2E › drift monitor renders without schema errors 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/03-track3-browser-ui-e2e.test.ts:68:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-track3-browser-ui-e2e-T-e2f6a-nders-without-schema-errors-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-track3-browser-ui-e2e-T-e2f6a-nders-without-schema-errors-chromium/error-context.md
+
+  10) [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:80:7 › Track 3: Browser UI/UX Full E2E › reanalysis queue renders queue_health_metrics-backed state 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/03-track3-browser-ui-e2e.test.ts:81:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-track3-browser-ui-e2e-T-87290-health-metrics-backed-state-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-track3-browser-ui-e2e-T-87290-health-metrics-backed-state-chromium/error-context.md
+
+  11) [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:99:7 › Track 3: Browser UI/UX Full E2E › decision review renders without useUser crash 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/03-track3-browser-ui-e2e.test.ts:100:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-track3-browser-ui-e2e-T-58753-nders-without-useUser-crash-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-track3-browser-ui-e2e-T-58753-nders-without-useUser-crash-chromium/error-context.md
+
+  12) [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:109:7 › Track 3: Browser UI/UX Full E2E › decision history uses db-backed api, not stub 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/03-track3-browser-ui-e2e.test.ts:110:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-track3-browser-ui-e2e-T-40e65-uses-db-backed-api-not-stub-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-track3-browser-ui-e2e-T-40e65-uses-db-backed-api-not-stub-chromium/error-context.md
+
+  13) [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:132:7 › Track 3: Browser UI/UX Full E2E › no visible mock/demo/synthetic/hardcoded live-status text 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/03-track3-browser-ui-e2e.test.ts:133:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-track3-browser-ui-e2e-T-3a653--hardcoded-live-status-text-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-track3-browser-ui-e2e-T-3a653--hardcoded-live-status-text-chromium/error-context.md
+
+  14) [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:145:7 › Track 3: Browser UI/UX Full E2E › empty states are truthful, not fake data 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/03-track3-browser-ui-e2e.test.ts:146:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-track3-browser-ui-e2e-T-379c5--are-truthful-not-fake-data-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-track3-browser-ui-e2e-T-379c5--are-truthful-not-fake-data-chromium/error-context.md
+
+  15) [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:157:7 › Track 3: Browser UI/UX Full E2E › decision-lineage endpoint returns valid DB-backed response 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/03-track3-browser-ui-e2e.test.ts:158:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/03-track3-browser-ui-e2e-T-24179-ns-valid-DB-backed-response-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/03-track3-browser-ui-e2e-T-24179-ns-valid-DB-backed-response-chromium/error-context.md
+
+  16) [chromium] › tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:7:7 › Track 5: Pipeline Refresh E2E › pipeline updates dashboard values from server 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:9:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/05-track5-pipeline-refresh-5a516-ashboard-values-from-server-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/05-track5-pipeline-refresh-5a516-ashboard-values-from-server-chromium/error-context.md
+
+  17) [chromium] › tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:55:7 › Track 5: Pipeline Refresh E2E › pipeline run endpoint returns valid job id 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:57:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/05-track5-pipeline-refresh-a3b02-dpoint-returns-valid-job-id-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/05-track5-pipeline-refresh-a3b02-dpoint-returns-valid-job-id-chromium/error-context.md
+
+  18) [chromium] › tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:82:7 › Track 5: Pipeline Refresh E2E › executive-summary reflects pipeline data, not hardcoded 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:84:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/05-track5-pipeline-refresh-aa1b9-pipeline-data-not-hardcoded-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/05-track5-pipeline-refresh-aa1b9-pipeline-data-not-hardcoded-chromium/error-context.md
+
+  19) [chromium] › tests/e2e/06-production-certification.spec.ts:63:7 › Production Certification Suite › Page: /governance loads without errors 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-792ae-rnance-loads-without-errors-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-792ae-rnance-loads-without-errors-chromium/error-context.md
+
+  20) [chromium] › tests/e2e/06-production-certification.spec.ts:88:7 › Production Certification Suite › Page: /governance tabs render without errors 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-ccfd3--tabs-render-without-errors-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-ccfd3--tabs-render-without-errors-chromium/error-context.md
+
+  21) [chromium] › tests/e2e/06-production-certification.spec.ts:113:7 › Production Certification Suite › Trust Layer Status API returns DB-backed data 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-eca16--API-returns-DB-backed-data-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-eca16--API-returns-DB-backed-data-chromium/error-context.md
+
+  22) [chromium] › tests/e2e/06-production-certification.spec.ts:135:7 › Production Certification Suite › Decision History uses DB-backed API, not stub 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-92dfd-uses-DB-backed-API-not-stub-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-92dfd-uses-DB-backed-API-not-stub-chromium/error-context.md
+
+  23) [chromium] › tests/e2e/06-production-certification.spec.ts:159:7 › Production Certification Suite › Queue Health metrics populated and visible 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-64df3-trics-populated-and-visible-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-64df3-trics-populated-and-visible-chromium/error-context.md
+
+  24) [chromium] › tests/e2e/06-production-certification.spec.ts:178:7 › Production Certification Suite › Executive Summary shows aggregated data 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-d3b50-mmary-shows-aggregated-data-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-d3b50-mmary-shows-aggregated-data-chromium/error-context.md
+
+  25) [chromium] › tests/e2e/06-production-certification.spec.ts:200:7 › Production Certification Suite › All major routes load without 500 errors 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-cae26-tes-load-without-500-errors-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-cae26-tes-load-without-500-errors-chromium/error-context.md
+
+  26) [chromium] › tests/e2e/06-production-certification.spec.ts:225:7 › Production Certification Suite › No hardcoded/mock/demo values visible in UI 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-af148-k-demo-values-visible-in-UI-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-af148-k-demo-values-visible-in-UI-chromium/error-context.md
+
+  27) [chromium] › tests/e2e/06-production-certification.spec.ts:249:7 › Production Certification Suite › Decision Lineage endpoint returns valid DB response 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-1a447-t-returns-valid-DB-response-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-1a447-t-returns-valid-DB-response-chromium/error-context.md
+
+  28) [chromium] › tests/e2e/06-production-certification.spec.ts:266:7 › Production Certification Suite › Pipeline trigger and completion flow 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-73a7b-trigger-and-completion-flow-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-73a7b-trigger-and-completion-flow-chromium/error-context.md
+
+  29) [chromium] › tests/e2e/06-production-certification.spec.ts:305:7 › Production Certification Suite › No React error boundary or hydration errors 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-a5e43-oundary-or-hydration-errors-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-a5e43-oundary-or-hydration-errors-chromium/error-context.md
+
+  30) [chromium] › tests/e2e/06-production-certification.spec.ts:328:7 › Production Certification Suite › Summary: API endpoints all healthy 
+
+    [31mTest timeout of 30000ms exceeded while running "beforeEach" hook.[39m
+
+      10 |   let apiResponses: { url: string; status: number; method: string }[] = [];
+      11 |
+    > 12 |   test.beforeEach(async ({ page }) => {
+         |        ^
+      13 |     consoleErrors = [];
+      14 |     pageErrors = [];
+      15 |     failedRequests = [];
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:12:8
+
+    Error: page.waitForURL: Test timeout of 30000ms exceeded.
+    =========================== logs ===========================
+    waiting for navigation until "load"
+    ============================================================
+
+       at helpers/login.ts:12
+
+      10 |   const submit = page.locator('button[type="submit"], form button').first();
+      11 |   await Promise.all([
+    > 12 |     page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 }),
+         |          ^
+      13 |     submit.click(),
+      14 |   ]);
+      15 |
+        at login (/Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/helpers/login.ts:12:10)
+        at /Users/ramakrishna/Desktop/Teja/Dashboards/tests/e2e/06-production-certification.spec.ts:60:5
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/06-production-certificatio-99152-y-API-endpoints-all-healthy-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/06-production-certificatio-99152-y-API-endpoints-all-healthy-chromium/error-context.md
+
+  30 failed
+    [chromium] › tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:4:7 › Dashboard E2E Tests › connection screen loads without hard-coded data 
+    [chromium] › tests/e2e/01-dashboard-loads-without-hardcoded-data.test.ts:29:7 › Dashboard E2E Tests › API calls are made for executive-summary, not hard-coded 
+    [chromium] › tests/e2e/02-api-integration.test.ts:4:7 › API Integration Tests › cache-status endpoint returns valid JSON 
+    [chromium] › tests/e2e/02-api-integration.test.ts:134:7 › API Integration Tests › form submission sends credentials, not hard-coded token 
+    [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:15:7 › Track 3: Browser UI/UX Full E2E › login flow works end-to-end 
+    [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:20:7 › Track 3: Browser UI/UX Full E2E › splunk connect gate renders and shows real HTTP 500 
+    [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:35:7 › Track 3: Browser UI/UX Full E2E › governance overview tab renders without 503 
+    [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:46:7 › Track 3: Browser UI/UX Full E2E › trust layer status fetches from /api/governance/trust-status 
+    [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:67:7 › Track 3: Browser UI/UX Full E2E › drift monitor renders without schema errors 
+    [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:80:7 › Track 3: Browser UI/UX Full E2E › reanalysis queue renders queue_health_metrics-backed state 
+    [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:99:7 › Track 3: Browser UI/UX Full E2E › decision review renders without useUser crash 
+    [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:109:7 › Track 3: Browser UI/UX Full E2E › decision history uses db-backed api, not stub 
+    [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:132:7 › Track 3: Browser UI/UX Full E2E › no visible mock/demo/synthetic/hardcoded live-status text 
+    [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:145:7 › Track 3: Browser UI/UX Full E2E › empty states are truthful, not fake data 
+    [chromium] › tests/e2e/03-track3-browser-ui-e2e.test.ts:157:7 › Track 3: Browser UI/UX Full E2E › decision-lineage endpoint returns valid DB-backed response 
+    [chromium] › tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:7:7 › Track 5: Pipeline Refresh E2E › pipeline updates dashboard values from server 
+    [chromium] › tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:55:7 › Track 5: Pipeline Refresh E2E › pipeline run endpoint returns valid job id 
+    [chromium] › tests/e2e/05-track5-pipeline-refresh-e2e.test.ts:82:7 › Track 5: Pipeline Refresh E2E › executive-summary reflects pipeline data, not hardcoded 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:63:7 › Production Certification Suite › Page: /governance loads without errors 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:88:7 › Production Certification Suite › Page: /governance tabs render without errors 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:113:7 › Production Certification Suite › Trust Layer Status API returns DB-backed data 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:135:7 › Production Certification Suite › Decision History uses DB-backed API, not stub 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:159:7 › Production Certification Suite › Queue Health metrics populated and visible 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:178:7 › Production Certification Suite › Executive Summary shows aggregated data 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:200:7 › Production Certification Suite › All major routes load without 500 errors 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:225:7 › Production Certification Suite › No hardcoded/mock/demo values visible in UI 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:249:7 › Production Certification Suite › Decision Lineage endpoint returns valid DB response 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:266:7 › Production Certification Suite › Pipeline trigger and completion flow 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:305:7 › Production Certification Suite › No React error boundary or hydration errors 
+    [chromium] › tests/e2e/06-production-certification.spec.ts:328:7 › Production Certification Suite › Summary: API endpoints all healthy 
+  8 passed (13.6m)

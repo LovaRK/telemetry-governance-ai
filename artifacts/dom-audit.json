@@ -1,0 +1,9 @@
+{
+  "findings": {
+    "Mock/Demo/Test": [
+      "test"
+    ]
+  },
+  "hasHardcodedData": true,
+  "timestamp": "2026-05-20T15:18:24.059Z"
+}

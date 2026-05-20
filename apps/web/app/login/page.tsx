@@ -7,7 +7,7 @@ import { Suspense } from 'react';
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [email, setEmail] = useState('admin@bitsio.com');
+  const [email, setEmail] = useState('admin@demo.local');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -24,16 +24,16 @@ function LoginForm() {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json();
+      const response = await res.json();
 
       if (!res.ok) {
-        setError(data.error || 'Login failed');
+        setError(response.error || 'Login failed');
         return;
       }
 
       // Store access token — used by all API calls
-      localStorage.setItem('access_token', data.accessToken);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      localStorage.setItem('access_token', response.data.accessToken);
+      localStorage.setItem('user', JSON.stringify(response.data.user));
 
       const next = searchParams.get('next') || '/';
       router.push(next);
@@ -128,7 +128,7 @@ function LoginForm() {
         </form>
 
         <p style={{ color: '#475569', fontSize: '0.75rem', textAlign: 'center', marginTop: '1.5rem' }}>
-          Default: admin@bitsio.com / Admin@1234
+          Default: admin@demo.local / Demo@12345
         </p>
       </div>
     </div>

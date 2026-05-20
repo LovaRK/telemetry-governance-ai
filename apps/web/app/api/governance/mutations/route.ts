@@ -1,38 +1,39 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { createRoute } from '@/lib/api-route-factory';
 import { query } from '@core/database/connection';
 
 /**
  * GET /api/governance/mutations
  * Returns recent governance mutation journal entries.
  */
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 1000);
-    const index = searchParams.get('index');
-    const since = searchParams.get('since');
+export const GET = createRoute(async (request: NextRequest) => {
+  const { searchParams } = new URL(request.url);
+  const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 1000);
+  const index = searchParams.get('index');
+  const since = searchParams.get('since');
 
-    const conditions: string[] = [];
-    const params: any[] = [];
+  const conditions: string[] = [];
+  const params: any[] = [];
 
-    if (index) { params.push(index); conditions.push(`index_name = $${params.length}`); }
-    if (since) { params.push(since); conditions.push(`recorded_at >= $${params.length}`); }
+  if (index) { params.push(index); conditions.push(`index_name = $${params.length}`); }
+  if (since) { params.push(since); conditions.push(`recorded_at >= $${params.length}`); }
 
-    params.push(limit);
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  params.push(limit);
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const res = await query<any>(
-      `SELECT event_id, index_name, event_type, action_intent,
-              from_state, to_state, reviewer_id, trace_id, recorded_at
-       FROM governance_mutation_journal
-       ${where}
-       ORDER BY recorded_at DESC LIMIT $${params.length}`,
-      params
-    );
+  const res = await query<any>(
+    `SELECT event_id, index_name, event_type, action_intent,
+            from_state, to_state, reviewer_id, trace_id, recorded_at
+     FROM governance_mutation_journal
+     ${where}
+     ORDER BY recorded_at DESC LIMIT $${params.length}`,
+    params
+  );
 
-    const rows = res.rows || [];
+  const rows = res.rows || [];
 
-    return NextResponse.json({
+  return {
+    data: {
       summary: {
         total: rows.length,
         mutationTypes: rows.reduce((acc: Record<string, number>, r: any) => {
@@ -52,66 +53,65 @@ export async function GET(request: NextRequest) {
         recordedAt: r.recorded_at,
       })),
       lastUpdate: new Date().toISOString(),
-    });
-  } catch (e) {
-    console.error('[mutations GET]', e);
-    return NextResponse.json({ error: 'Failed to fetch mutations', mutations: [] }, { status: 500 });
-  }
-}
+    },
+    meta: { source: 'postgres' },
+  };
+});
 
 /**
  * POST /api/governance/mutations
  * Record a governance action (approve/reject quick-wins, etc.)
  * Maps to recommendation_actions for simple approve/reject flows.
  */
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { indexName, sourcetype, mutationType, actorEmail, actionNote, idempotencyKey } = body;
+export const POST = createRoute(async (request: NextRequest) => {
+  const body = await request.json();
+  const { indexName, sourcetype, mutationType, actorEmail, actionNote, idempotencyKey } = body;
 
-    if (!indexName || !mutationType) {
-      return NextResponse.json({ error: 'indexName and mutationType are required' }, { status: 400 });
-    }
-
-    // Upsert into recommendation_actions — this is the primary governance ledger
-    // The quick-win approve uses this to record the decision.
-    const statusMap: Record<string, string> = {
-      APPROVE: 'APPROVED',
-      REJECT: 'REJECTED',
-      DEFER: 'DEFERRED',
-      ESCALATE: 'ESCALATED',
-    };
-    const status = statusMap[mutationType] || mutationType;
-
-    // Check idempotency via recommendation_actions
-    if (idempotencyKey) {
-      const existing = await query<any>(
-        `SELECT id FROM recommendation_actions WHERE action_note = $1 AND index_name = $2 LIMIT 1`,
-        [idempotencyKey, indexName]
-      );
-      if (existing.rows.length > 0) {
-        return NextResponse.json({ ok: true, idempotent: true, id: existing.rows[0].id });
-      }
-    }
-
-    // Get the latest snapshot_id for this index
-    const snapRes = await query<any>(
-      `SELECT snapshot_id FROM agent_decisions WHERE index_name = $1 ORDER BY created_at DESC LIMIT 1`,
-      [indexName]
-    );
-    const snapshotId = snapRes.rows[0]?.snapshot_id || '00000000-0000-0000-0000-000000000000';
-
-    const res = await query<any>(
-      `INSERT INTO recommendation_actions
-         (index_name, snapshot_id, status, actor_email, action_note, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       RETURNING id`,
-      [indexName, snapshotId, status, actorEmail || null, actionNote || idempotencyKey || null]
-    );
-
-    return NextResponse.json({ ok: true, id: res.rows[0]?.id });
-  } catch (e) {
-    console.error('[mutations POST]', e);
-    return NextResponse.json({ error: 'Failed to record mutation' }, { status: 500 });
+  if (!indexName || !mutationType) {
+    throw new Error('indexName and mutationType are required');
   }
-}
+
+  // Upsert into recommendation_actions — this is the primary governance ledger
+  // The quick-win approve uses this to record the decision.
+  const statusMap: Record<string, string> = {
+    APPROVE: 'APPROVED',
+    REJECT: 'REJECTED',
+    DEFER: 'DEFERRED',
+    ESCALATE: 'ESCALATED',
+  };
+  const status = statusMap[mutationType] || mutationType;
+
+  // Check idempotency via recommendation_actions
+  if (idempotencyKey) {
+    const existing = await query<any>(
+      `SELECT id FROM recommendation_actions WHERE action_note = $1 AND index_name = $2 LIMIT 1`,
+      [idempotencyKey, indexName]
+    );
+    if (existing.rows.length > 0) {
+      return {
+        data: { ok: true, idempotent: true, id: existing.rows[0].id },
+        meta: { source: 'postgres' },
+      };
+    }
+  }
+
+  // Get the latest snapshot_id for this index
+  const snapRes = await query<any>(
+    `SELECT snapshot_id FROM agent_decisions WHERE index_name = $1 ORDER BY created_at DESC LIMIT 1`,
+    [indexName]
+  );
+  const snapshotId = snapRes.rows[0]?.snapshot_id || '00000000-0000-0000-0000-000000000000';
+
+  const res = await query<any>(
+    `INSERT INTO recommendation_actions
+       (index_name, snapshot_id, status, actor_email, action_note, updated_at)
+     VALUES ($1, $2, $3, $4, $5, NOW())
+     RETURNING id`,
+    [indexName, snapshotId, status, actorEmail || null, actionNote || idempotencyKey || null]
+  );
+
+  return {
+    data: { ok: true, id: res.rows[0]?.id },
+    meta: { source: 'postgres' },
+  };
+});

@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  opa:
+    image: openpolicyagent/opa:latest
+    container_name: opa-policy-engine
+    ports:
+      - "${OPA_PORT:-8181}:8181"
+    volumes:
+      - ./packages/core/policy/opa/policies:/policies:ro
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "--log-level=info"
+      - "/policies"
+    environment:
+      - OPA_LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/health?bundles"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - telemetry
+    restart: unless-stopped
+
+networks:
+  telemetry:
+    driver: bridge

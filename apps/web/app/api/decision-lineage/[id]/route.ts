@@ -1,83 +1,55 @@
-import { NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { createRoute } from '@/lib/api-route-factory';
+import { transaction } from '@core/database/connection';
+import { updateDecisionWithCalibration as updateDecisionWithCalibrationService } from '@api/services/decision-lineage-service';
 
-let transaction: any = null;
-let updateDecisionWithCalibration: any = null;
-
-try {
-  const conn = require('@core/database/connection');
-  transaction = conn.transaction;
-  const service = require('@api/services/decision-lineage-service');
-  updateDecisionWithCalibration = service.updateDecisionWithCalibration;
-} catch {
-  // Database module not available in web-only mode
-}
-
-export async function POST(
+export const POST = createRoute(async (
   request: Request,
   { params }: { params: { id: string } }
-) {
-  try {
-    if (!transaction || !process.env.DATABASE_URL) {
-      return NextResponse.json({
-        mode: 'DEMO_MODE',
-        error: 'Database not available',
-        missingDependency: 'PostgreSQL'
-      }, { status: 503 });
-    }
+) => {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('Database not available');
+  }
 
-    const body = await request.json();
-    const { action, reviewedBy, dismissalReason, factId } = body;
+  const body = await request.json();
+  const { action, reviewedBy, dismissalReason, factId } = body;
 
-    if (!action || !['approve', 'reject'].includes(action)) {
-      return NextResponse.json(
-        { error: 'Invalid action. Must be "approve" or "reject"' },
-        { status: 400 }
-      );
-    }
+  if (!action || !['approve', 'reject'].includes(action)) {
+    throw new Error('Invalid action. Must be "approve" or "reject"');
+  }
 
-    if (!reviewedBy) {
-      return NextResponse.json(
-        { error: 'reviewedBy is required' },
-        { status: 400 }
-      );
-    }
+  if (!reviewedBy) {
+    throw new Error('reviewedBy is required');
+  }
 
-    if (!factId) {
-      return NextResponse.json(
-        { error: 'factId is required for calibration' },
-        { status: 400 }
-      );
-    }
+  if (!factId) {
+    throw new Error('factId is required for calibration');
+  }
 
-    const reviewAction = action === 'approve' ? 'APPROVE' : 'REJECT';
+  const reviewAction = action === 'approve' ? 'APPROVE' : 'REJECT';
 
-    await transaction(async (client: any) => {
-      await updateDecisionWithCalibration(
-        client,
-        params.id,
-        factId,
-        reviewAction,
-        reviewedBy,
-        dismissalReason || undefined
-      );
-    });
+  await transaction(async (client: any) => {
+    await updateDecisionWithCalibrationService(
+      client,
+      params.id,
+      factId,
+      reviewAction,
+      reviewedBy,
+      dismissalReason || undefined
+    );
+  });
 
-    const newStatus = action === 'approve' ? 'APPLIED' : 'DISMISSED';
+  const newStatus = action === 'approve' ? 'APPLIED' : 'DISMISSED';
 
-    return NextResponse.json({
+  return {
+    data: {
       mode: 'FULL_STACK',
       success: true,
       message: `Decision ${params.id} ${action}ed with human calibration applied`,
       newStatus,
       reviewAction,
       timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('[API] Decision status update error:', message);
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
-  }
-}
+    },
+    meta: { source: 'system' },
+  };
+});

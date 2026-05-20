@@ -45,15 +45,28 @@ export function ReanalysisQueueStatus() {
           throw new Error(`HTTP ${response.status}`);
         }
 
-        const data = await response.json();
+        const json = await response.json();
+        const data = json.data;
 
-        if (data.mode === 'DEMO_MODE') {
-          setError('Database not available');
+        if (!data) {
+          setError('No queue data available');
           setStatus(null);
           return;
         }
 
-        setStatus(data);
+        // Map API response to component's expected shape
+        const queueStatus: QueueStatus = {
+          pendingEmergency: data[0]?.highConfidenceProposals ?? 0,
+          pendingCritical: data[0]?.mediumConfidenceProposals ?? 0,
+          pendingStandard: data[0]?.lowConfidenceProposals ?? 0,
+          pendingBackground: data[0]?.candidatesSentToAi ?? 0,
+          pendingDeferred: 0,
+          totalPending: (data[0]?.candidatesSentToAi ?? 0),
+          jobsCompletedToday: 0,
+          jobsFailedToday: 0,
+        };
+
+        setStatus(queueStatus);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch queue status');

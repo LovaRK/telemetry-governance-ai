@@ -42,13 +42,14 @@ export default function KPITrendChart({
         const res = await apiFetch(`/api/kpi-history?days=${days}`);
         const result = await res.json();
 
-        if (result.mode === 'DEMO_MODE') {
+        // Unwrap nested response: result.data.mode and result.data.data
+        if (result.data?.mode === 'DEMO_MODE') {
           setError('Database not available');
           setData([]);
           return;
         }
 
-        setData(result.data || []);
+        setData(result.data?.data || []);
         setError(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load history');

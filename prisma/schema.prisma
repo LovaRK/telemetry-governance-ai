@@ -7,7 +7,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model Decision {
@@ -48,13 +47,42 @@ model ExecutionJournal {
   idempotencyKey  String    @unique
   status          String    @default("STARTED") // STARTED, COMPLETED, FAILED, ROLLED_BACK
   externalState   Json?     // { status: 'success' | 'failed' | 'unknown', externalId?, error? }
+
+  // Data Purity Tracking (Phase 2C.1)
+  source          String?   // 'splunk', 'postgres', 'system' - Phase 3 will enforce NOT NULL
+  mode            String?   // 'live' - Phase 3 will enforce NOT NULL
+  traceId         String?   // UUID - W3C Trace Context correlation ID
+
+  // Audit relationships
+  auditEvents     DataPurityAudit[]
+
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@index([status])
   @@index([decisionId])
   @@index([tenantId, status]) // For reconciliation queries
+  @@index([traceId]) // For audit trail replay
+  @@index([source, createdAt]) // For data provenance analysis
   @@map("execution_journal")
+}
+
+model DataPurityAudit {
+  id                  BigInt                @id @default(autoincrement())
+  executionJournal    ExecutionJournal      @relation(fields: [executionJournalId], references: [id], onDelete: Cascade)
+  executionJournalId  String
+  source              String                // 'splunk', 'postgres', 'system'
+  mode                String                // 'live'
+  traceId             String                // UUID
+  violationType       String?               // Type of violation detected
+  violationMessage    String?               // Detailed violation message
+  validationTimestamp DateTime              @default(now())
+  createdAt           DateTime              @default(now())
+
+  @@index([executionJournalId, validationTimestamp])
+  @@index([traceId, createdAt])
+  @@index([violationType, createdAt]) // For drift detection queries
+  @@map("data_purity_audit")
 }
 
 model AuditEvent {

@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS tenants (
     deleted_at          TIMESTAMPTZ
 );
 
-CREATE INDEX idx_tenants_slug ON tenants(slug);
-CREATE INDEX idx_tenants_status ON tenants(tenant_status);
+CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug);
+CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(tenant_status);
 
 -- ============================================
 -- 2. USERS TABLE (with tenant_id)
@@ -49,8 +49,8 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE(tenant_id, email)
 );
 
-CREATE INDEX idx_users_tenant_id ON users(tenant_id);
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- ============================================
 -- 3. USER SESSIONS TABLE
@@ -68,10 +68,10 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     is_revoked          BOOLEAN DEFAULT false
 );
 
-CREATE INDEX idx_sessions_user_id ON user_sessions(user_id);
-CREATE INDEX idx_sessions_tenant_id ON user_sessions(tenant_id);
-CREATE INDEX idx_sessions_token ON user_sessions(token);
-CREATE INDEX idx_sessions_expires_at ON user_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_tenant_id ON user_sessions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions(token);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON user_sessions(expires_at);
 
 -- ============================================
 -- 4. TENANT CONFIGURATION (for multi-tenant settings)
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS tenant_config (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_tenant_config_tenant_id ON tenant_config(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_config_tenant_id ON tenant_config(tenant_id);
 
 -- ============================================
 -- 5. AUDIT LOG FOR MULTI-TENANT OPERATIONS
@@ -106,10 +106,10 @@ CREATE TABLE IF NOT EXISTS tenant_audit_log (
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_audit_log_tenant ON tenant_audit_log(tenant_id);
-CREATE INDEX idx_audit_log_user ON tenant_audit_log(user_id);
-CREATE INDEX idx_audit_log_action ON tenant_audit_log(action);
-CREATE INDEX idx_audit_log_created ON tenant_audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_tenant ON tenant_audit_log(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_user ON tenant_audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action ON tenant_audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created ON tenant_audit_log(created_at);
 
 -- ============================================
 -- 6. ADD tenant_id TO EXISTING TABLES
@@ -125,15 +125,23 @@ CREATE INDEX IF NOT EXISTS idx_agent_decisions_tenant ON agent_decisions(tenant_
 
 -- Add tenant_id to user_config
 ALTER TABLE user_config ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE;
-ALTER TABLE user_config ADD CONSTRAINT unique_tenant_config UNIQUE (tenant_id, config_key);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'unique_tenant_config' AND table_name = 'user_config') THEN
+    ALTER TABLE user_config ADD CONSTRAINT unique_tenant_config UNIQUE (tenant_id, config_key);
+  END IF;
+END $$;
 
 -- Add tenant_id to search_audit
 ALTER TABLE search_audit ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_search_audit_tenant ON search_audit(tenant_id);
 
--- Add tenant_id to data_quality_summary
-ALTER TABLE data_quality_summary ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE;
-CREATE INDEX IF NOT EXISTS idx_quality_summary_tenant ON data_quality_summary(tenant_id);
+-- Add tenant_id to data_quality_summary (only if table exists)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'data_quality_summary') THEN
+    ALTER TABLE data_quality_summary ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE;
+    CREATE INDEX IF NOT EXISTS idx_quality_summary_tenant ON data_quality_summary(tenant_id);
+  END IF;
+END $$;
 
 -- ============================================
 -- 7. TRIGGERS FOR UPDATED_AT
@@ -146,17 +154,29 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER update_tenants_updated_at
-    BEFORE UPDATE ON tenants
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.triggers WHERE trigger_name = 'update_tenants_updated_at' AND event_object_table = 'tenants') THEN
+    CREATE TRIGGER update_tenants_updated_at
+        BEFORE UPDATE ON tenants
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+END $$;
 
-CREATE TRIGGER update_users_updated_at
-    BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.triggers WHERE trigger_name = 'update_users_updated_at' AND event_object_table = 'users') THEN
+    CREATE TRIGGER update_users_updated_at
+        BEFORE UPDATE ON users
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+END $$;
 
-CREATE TRIGGER update_tenant_config_updated_at
-    BEFORE UPDATE ON tenant_config
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.triggers WHERE trigger_name = 'update_tenant_config_updated_at' AND event_object_table = 'tenant_config') THEN
+    CREATE TRIGGER update_tenant_config_updated_at
+        BEFORE UPDATE ON tenant_config
+        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+END $$;
 
 -- ============================================
 -- 8. HELPER FUNCTIONS
@@ -227,3 +247,23 @@ BEGIN
     RETURN v_audit_id;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ============================================
+-- 9. REFRESH TOKENS TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  token_hash VARCHAR(255) NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  is_revoked BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_tenant ON refresh_tokens(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens(expires_at) WHERE NOT is_revoked;
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_revoked ON refresh_tokens(is_revoked) WHERE is_revoked = true;

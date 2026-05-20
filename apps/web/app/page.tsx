@@ -73,8 +73,16 @@ function Home() {
 
   const fetchSummary = async () => {
     try {
-      const statusRes = await fetch('/api/cache-status');
-      const statusData: CacheStatus = await statusRes.json();
+      const statusRes = await apiFetch('/api/cache-status');
+      if (!statusRes.ok) {
+        console.error('Cache status request failed:', statusRes.status, statusRes.statusText);
+        setError(`Failed to load cache status: ${statusRes.status} ${statusRes.statusText}`);
+        setSummary(null);
+        return;
+      }
+
+      const response = await statusRes.json();
+      const statusData: CacheStatus = response.data || response;
       setCacheStatus(statusData);
 
       // GATE: only load dashboard if a real Splunk refresh has ever run
@@ -84,16 +92,22 @@ function Home() {
       }
 
       const summaryRes = await apiFetch('/api/executive-summary');
-      if (!summaryRes.ok) { setSummary(null); return; }
+      if (!summaryRes.ok) {
+        console.error('Executive summary request failed:', summaryRes.status);
+        setSummary(null);
+        return;
+      }
 
-      const data = await summaryRes.json();
-      if (data?.snapshots?.length > 0) {
-        setSummary(data as ExecutiveSummary);
+      const summaryResponse = await summaryRes.json();
+      const summaryData = summaryResponse.data || summaryResponse;
+      if (summaryData?.snapshots?.length > 0) {
+        setSummary(summaryData as ExecutiveSummary);
       } else {
         setSummary(null);
       }
     } catch (e) {
       console.error('Failed to fetch summary:', e);
+      setError(`Error loading dashboard: ${e instanceof Error ? e.message : 'Unknown error'}`);
       setSummary(null);
     }
   };

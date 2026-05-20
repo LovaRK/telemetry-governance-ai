@@ -16,7 +16,13 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:chaos": "vitest run --config vitest.chaos.config.ts",
+    "test:chaos:invariants": "vitest run --config vitest.chaos-invariants.config.ts",
+    "test:chaos:invariants:watch": "vitest --config vitest.chaos-invariants.config.ts",
+    "test:chaos:invariants:coverage": "vitest run --config vitest.chaos-invariants.config.ts --coverage",
+    "test:chaos:infra": "vitest run --config vitest.chaos.config.ts",
+    "test:chaos:infra:watch": "vitest --config vitest.chaos.config.ts",
+    "test:chaos:infra:coverage": "vitest run --config vitest.chaos.config.ts --coverage",
+    "test:chaos": "npm run test:chaos:invariants && npm run test:chaos:infra",
     "test:chaos:watch": "vitest --config vitest.chaos.config.ts",
     "test:chaos:coverage": "vitest run --config vitest.chaos.config.ts --coverage",
     "test:e2e": "playwright test",
@@ -25,6 +31,9 @@
     "test:e2e:debug": "playwright test --debug"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/sdk-node": "^0.218.0",
+    "@opentelemetry/sdk-trace-node": "^2.7.1",
     "bullmq": "^5.76.10",
     "redis": "^5.12.1",
     "uuid": "^14.0.0"
@@ -32,14 +41,19 @@
   "devDependencies": {
     "@jest/globals": "^29.7.0",
     "@playwright/test": "^1.60.0",
+    "@prisma/client": "^7.8.0",
+    "@testcontainers/postgresql": "^12.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/jest": "^29.5.8",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.0.0",
     "@types/uuid": "^10.0.0",
+    "ioredis": "^5.10.1",
     "jest": "^29.7.0",
+    "node-fetch": "^3.3.2",
     "ts-jest": "^29.1.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.6"
   }
 }

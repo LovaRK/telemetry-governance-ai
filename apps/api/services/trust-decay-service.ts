@@ -154,10 +154,10 @@ export async function calculateModelTrustScore(
   // Count stale and expired approvals
   const staleResult = await client.query(
     `SELECT
-       COUNT(CASE WHEN is_disagreement = false AND days_since_review > 30 THEN 1 END) as stale_count,
-       COUNT(CASE WHEN is_disagreement = false AND days_since_review > 90 THEN 1 END) as expired_count
+       COUNT(CASE WHEN is_disagreement = false AND FLOOR(EXTRACT(EPOCH FROM (NOW() - reviewed_at)) / 86400)::INTEGER > 30 THEN 1 END) as stale_count,
+       COUNT(CASE WHEN is_disagreement = false AND FLOOR(EXTRACT(EPOCH FROM (NOW() - reviewed_at)) / 86400)::INTEGER > 90 THEN 1 END) as expired_count
      FROM human_review_ledger
-     WHERE review_status = 'APPROVED'`
+     WHERE review_action = 'APPROVED'`
   );
 
   const staleData = staleResult.rows[0];

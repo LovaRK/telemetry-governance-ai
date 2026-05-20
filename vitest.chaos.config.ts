@@ -1,7 +1,14 @@
 /**
- * VITEST CHAOS CONFIG
- * Isolated test runner for chaos scenarios
- * Features: Testcontainers support, extended timeouts, detailed output
+ * VITEST CHAOS-INFRA CONFIG
+ * Infrastructure-dependent chaos tests (requires Docker + Postgres + Redis + WireMock)
+ *
+ * Features:
+ * - Testcontainers support (ephemeral containers)
+ * - Extended timeouts for container startup/cleanup
+ * - Detailed output for debugging container issues
+ *
+ * For pure invariant tests that don't require infrastructure:
+ * Use vitest.chaos-invariants.config.ts instead
  */
 
 import { defineConfig } from 'vitest/config';
@@ -52,7 +59,6 @@ export default defineConfig({
     alias: {
       '@core': path.resolve(__dirname, './packages/core'),
       '@infra': path.resolve(__dirname, './packages/infra'),
-      '@prisma': path.resolve(__dirname, './prisma'),
     },
   },
 });
