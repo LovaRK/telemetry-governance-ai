@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyTokenEdge, extractBearerToken } from '@/lib/auth-edge';
+import { v4 as uuid } from 'uuid';
 
 // Routes that don't require JWT auth
 const PUBLIC_ROUTES = [
   '/api/auth/login',
   '/api/auth/refresh',
   '/api/auth/logout',
-  '/api/cache-status',   // needed for initial connection check
+  '/api/health',           // Docker health checks
+  '/api/test-connection',  // needed for Splunk connection test before auth
+  '/api/cache-status',     // needed for initial connection check
+  '/api/job-stream',       // Job trigger endpoint
   '/login',
   '/_next',
   '/favicon.ico',
@@ -90,33 +94,55 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Trace Context Injection (Phase 3)
+  // CRITICAL: Establish traceId at request boundary for end-to-end correlation
+  const { pathname } = request.nextUrl;
+
+  // Extract W3C traceparent header or generate new traceId
+  const traceparent = request.headers.get('traceparent');
+  const traceId = traceparent
+    ? traceparent.split('-')[1] // Extract traceId from "00-{traceId}-{spanId}-{flags}"
+    : uuid();
+
+  // Create new request headers with traceId injected
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-trace-id', traceId);
+
+  // Re-set the request with updated headers for all downstream handlers
+  let response = NextResponse.next({ request: { headers: requestHeaders } });
+
   // JWT auth enforcement
   // Page routes: browsers never send Authorization headers on navigation.
   // Client-side auth hook handles redirect to /login for pages.
   // Middleware only hard-enforces JWT on /api/ routes.
-  const { pathname } = request.nextUrl;
 
   if (!isPublic(pathname) && pathname.startsWith('/api/')) {
     const token = extractBearerToken(request.headers.get('authorization'));
 
     if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401, headers: { 'x-trace-id': traceId } }
+      );
     }
 
     try {
       const payload = await verifyTokenEdge(token);
-      // Inject tenant context into request headers for downstream use
-      const requestHeaders = new Headers(request.headers);
+      // Inject tenant + auth context into request headers for downstream use
       requestHeaders.set('x-tenant-id', payload.tenantId);
       requestHeaders.set('x-user-id', payload.sub);
       requestHeaders.set('x-user-role', payload.role);
+      // traceId already set above
       return NextResponse.next({ request: { headers: requestHeaders } });
     } catch {
-      return NextResponse.json({ error: 'Token expired or invalid' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Token expired or invalid' },
+        { status: 401, headers: { 'x-trace-id': traceId } }
+      );
     }
   }
 
-  return NextResponse.next();
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {
