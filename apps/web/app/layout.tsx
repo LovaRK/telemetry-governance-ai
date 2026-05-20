@@ -1,5 +1,6 @@
 import './globals.css';
 import type { Metadata } from 'next';
+import { Providers } from './providers';
 
 export const metadata: Metadata = {
   title: 'datasensAI — Executive ROI Overview',
@@ -10,7 +11,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <div className="container">{children}</div>
+        <Providers>
+          <div className="container">{children}</div>
+        </Providers>
       </body>
     </html>
   );
