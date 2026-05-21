@@ -50,12 +50,15 @@
   ],
   "exclude": [
     "node_modules",
-    "../../apps/api",
-    "../../agents",
-    "../../tools",
-    "../../docker",
+    "../../apps/api/**/*",
+    "../../agents/**/*",
+    "../../tools/**/*",
+    "../../docker/**/*",
+    "../../core/**/*",
     "examples",
     "hooks",
-    "src"
+    "src",
+    "**/*.test.ts",
+    "**/*.test.tsx"
   ]
 }

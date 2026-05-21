@@ -65,6 +65,10 @@ export interface PipelineEvent {
   actor?: string;              // agent:cost_optimization, operator:alice, system
   operator_session_id?: string; // Anonymizable operator identity
 
+  // Temporal context
+  timestamp: string;           // ISO 8601 timestamp
+  created_at?: string;         // ISO 8601 creation timestamp
+
   // Governance metadata (policy decisions, rollback info, etc.)
   governance?: Record<string, any>;
 }

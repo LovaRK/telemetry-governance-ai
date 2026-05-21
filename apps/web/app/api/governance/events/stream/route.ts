@@ -42,7 +42,7 @@ export const GET = createStreamRoute(async (request: NextRequest) => {
       for (const event of historicalTimeline) {
         // Apply dynamic filters
         if (taxonomyFilter.length > 0 && !taxonomyFilter.includes(event.taxonomy)) continue;
-        if (severityFilter.length > 0 && !severityFilter.includes(event.severity)) continue;
+        if (severityFilter.length > 0 && event.severity && !severityFilter.includes(event.severity)) continue;
 
         lastSeenSequence = event.sequence;
 
@@ -79,7 +79,7 @@ export const GET = createStreamRoute(async (request: NextRequest) => {
       for (const event of targetEvents) {
         // Apply dynamic filters
         if (taxonomyFilter.length > 0 && !taxonomyFilter.includes(event.taxonomy)) continue;
-        if (severityFilter.length > 0 && !severityFilter.includes(event.severity)) continue;
+        if (severityFilter.length > 0 && event.severity && !severityFilter.includes(event.severity)) continue;
 
         lastSeenSequence = event.sequence;
 

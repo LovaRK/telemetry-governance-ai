@@ -21,10 +21,13 @@ export const GET = createRoute(async (req: NextRequest) => {
   // 1. Check OPA reachability
   let opaReachable = false;
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     const response = await fetch(`${OPA_URL}/health`, {
       method: 'GET',
-      timeout: 5000,
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     opaReachable = response.ok;
   } catch (err) {
     opaReachable = false;
