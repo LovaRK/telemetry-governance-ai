@@ -9,8 +9,26 @@ export const GET = createRoute(async (request: NextRequest) => {
   const tenantId = request.headers.get('x-tenant-id') || 'default';
   const publishedRun = await getLatestPublishedRun(tenantId);
 
+  // Empty state: no published snapshot yet (not an error, valid application state)
   if (!publishedRun) {
-    throw new Error('No published snapshot available: run a refresh first');
+    return {
+      empty: true,
+      status: 'NO_PUBLISHED_SNAPSHOT',
+      title: 'No executive summary available',
+      message: 'Run a refresh to generate your first telemetry snapshot.',
+      actions: [
+        {
+          label: 'Run Refresh',
+          endpoint: '/api/cache',
+        },
+      ],
+      summary: null,
+      metrics: [],
+      meta: {
+        source: 'postgres',
+        tenantId,
+      },
+    };
   }
 
   const snapshotId = publishedRun.snapshotId;

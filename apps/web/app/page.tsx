@@ -24,6 +24,7 @@ import JobStatusToast from '../components/shared/JobStatusToast';
 import { useGovernanceStream } from '../lib/use-governance-stream';
 import { GovernanceToastNotification, useGovernanceToastManager } from '../components/dashboard/GovernanceToastNotification';
 import { ToastProvider } from '../lib/toast-context';
+import EmptyState from '../components/state/EmptyState';
 
 type Tab = 'overview' | 'telemetry' | 'governance';
 type PipelineStage = 'idle' | 'splunk_fetch' | 'snapshot_write' | 'kpi_aggregation' | 'ai_decisions' | 'governance_sync' | 'dashboard_publish' | 'complete' | 'failed';
@@ -130,6 +131,13 @@ function Home() {
 
       const summaryResponse = await summaryRes.json();
       const summaryData = summaryResponse.data || summaryResponse;
+
+      // Handle empty state (no published snapshot yet)
+      if (summaryData?.empty === true) {
+        setSummary(null); // Render empty state in dashboard
+        return;
+      }
+
       if (summaryData?.snapshots?.length > 0) {
         const prevKpis = summary?.kpis;
         const nextKpis = summaryData.kpis;
@@ -695,6 +703,11 @@ function Home() {
               </div>
             )}
           </div>
+        )}
+
+        {/* Empty state — no published snapshot yet */}
+        {!loading && !hasData && !summary && cacheStatus?.hasEverRefreshed && (
+          <EmptyState onRefresh={() => window.location.reload()} loading={false} />
         )}
 
         {/* Dashboard tabs */}
