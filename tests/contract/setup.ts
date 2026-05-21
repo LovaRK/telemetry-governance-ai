@@ -5,7 +5,7 @@
  * This is called once before all contract tests via Jest setupFilesAfterEnv.
  */
 
-import { query } from '@core/database/connection';
+import { query } from '../../core/database/connection';
 import bcrypt from 'bcryptjs';
 
 const TEST_USER_EMAIL = 'admin@bitso.com';
