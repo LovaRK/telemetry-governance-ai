@@ -4,6 +4,9 @@ module.exports = {
   roots: ['<rootDir>/tests'],
   testMatch: ['**/*.test.ts', '**/*.spec.test.ts'],
   testPathIgnorePatterns: ['node_modules', '.claude/worktrees', 'tests/chaos', 'tests/e2e', 'tests/phase9-purity'],
+  setupFilesAfterEnv: [
+    '<rootDir>/tests/contract/setup.ts'
+  ],
   transform: {
     '^.+\\.ts$': ['ts-jest', {
       tsconfig: {
