@@ -7,6 +7,20 @@ export interface JobProgress {
   message?: string;
 }
 
+/**
+ * CRITICAL: All job payloads MUST include immutable tenant metadata.
+ * This prevents workers from inferring tenant context and accidentally defaulting to 'default'.
+ * Tenant context is a requirement, not optional.
+ */
+export interface JobPayload {
+  tenantId: string;
+  userId: string;
+  traceId: string;
+  snapshotId: string;
+  runId: string;
+  [key: string]: unknown;
+}
+
 export interface JobRecord {
   id: number;
   jobId: string;
@@ -25,8 +39,24 @@ export interface JobRecord {
 export async function enqueueJob(opts: {
   jobType?: string;
   snapshotId?: string;
-  payload: Record<string, unknown>;
+  payload: JobPayload;
 }): Promise<string> {
+  // CRITICAL: Validate immutable tenant context is present
+  // Workers MUST NOT infer tenant or default to 'default'
+  if (!opts.payload.tenantId || !opts.payload.userId || !opts.payload.traceId) {
+    throw new Error(
+      `Invalid job payload: missing required tenant context. ` +
+      `Must include tenantId, userId, traceId. Received: ${JSON.stringify(opts.payload)}`
+    );
+  }
+
+  // Validate tenantId is a UUID, not 'default'
+  if (opts.payload.tenantId === 'default' || !isValidUUID(opts.payload.tenantId)) {
+    throw new Error(
+      `Invalid tenantId "${opts.payload.tenantId}" - must be a valid UUID, not 'default'`
+    );
+  }
+
   const result = await query<{ job_id: string }>(`
     INSERT INTO job_queue (job_type, snapshot_id, payload, status, progress, snapshot_date)
     VALUES ($1, $2, $3, 'pending', '{"batch":0,"totalBatches":0,"decisionsWritten":0}', CURRENT_DATE)
@@ -119,4 +149,9 @@ export async function getLatestJob(snapshotDate?: string): Promise<JobRecord | n
     LIMIT 1
   `, [snapshotDate || new Date().toISOString().split('T')[0]]);
   return result.rows[0] || null;
+}
+
+function isValidUUID(value: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(value);
 }

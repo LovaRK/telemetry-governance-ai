@@ -13,7 +13,7 @@ describe('Pipeline: job-stream', () => {
     });
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.data.runId).toEqual(expect.any(String));
     expect(body.meta.traceId).toEqual(expect.any(String));
   });

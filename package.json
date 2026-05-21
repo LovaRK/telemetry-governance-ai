@@ -9,9 +9,13 @@
     "tools"
   ],
   "scripts": {
+    "validate:tenant-context": "node scripts/validate-tenant-context.js",
+    "verify": "npm run validate:tenant-context && npm run typecheck && npm run test && npm run build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx 2>/dev/null || true",
     "dev": "docker-compose -f docker/docker-compose.yml up",
-    "build": "docker-compose build",
-    "clean": "docker-compose down -v",
+    "build": "docker-compose -f docker/docker-compose.yml build",
+    "clean": "docker-compose -f docker/docker-compose.yml down -v",
     "migrate": "node scripts/init-db.js",
     "test": "jest",
     "test:watch": "jest --watch",

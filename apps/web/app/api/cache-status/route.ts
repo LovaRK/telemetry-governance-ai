@@ -2,10 +2,19 @@ import { createRoute } from '@/lib/api-route-factory';
 import { getCacheStatus } from '@api/services/cache-service';
 import { query } from '@core/database/connection';
 import { ensurePipelineLedgerSchema, getLatestPublishedRun, getRunMetrics } from '@/lib/pipeline-ledger-service';
+import { NextRequest, NextResponse } from 'next/server';
+import { requireContext } from '@/lib/auth-context';
 
-export const GET = createRoute(async () => {
+export const GET = createRoute(async (request: NextRequest) => {
   await ensurePipelineLedgerSchema();
-  const tenantId = 'default';
+
+  // Require authentication - this returns tenant-specific data
+  const ctxOrError = await requireContext(request);
+  if (ctxOrError instanceof NextResponse) {
+    return ctxOrError;
+  }
+  const context = ctxOrError;
+  const tenantId = context.tenantId;
   // Check cache metadata status
   const cacheMetadata = await getCacheStatus('index_metrics');
   // Check if there is materialized data in the database.

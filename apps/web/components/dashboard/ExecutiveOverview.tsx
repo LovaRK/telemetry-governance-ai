@@ -166,7 +166,7 @@ interface DrawerState {
 }
 
 export default function ExecutiveOverview({ summary, hasAgentDecisions = false }: Props) {
-  const { kpis, quickWins, savingsStaircase, agentReasoning, snapshotDate, snapshots } = summary;
+  const { kpis, quickWins = [], savingsStaircase = [], agentReasoning = '', snapshotDate, snapshots = [] } = summary;
   const [drawer, setDrawer] = useState<DrawerState>({ isOpen: false, metric: '', value: '', title: '', howCalculated: '' });
 
   const tierTotal = kpis.tierCounts.critical + kpis.tierCounts.important + kpis.tierCounts.niceToHave + kpis.tierCounts.lowValue;
@@ -180,7 +180,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
   const actionCounts: Record<string, number> = {};
   snapshots.forEach((s) => { actionCounts[s.classification] = (actionCounts[s.classification] || 0) + 1; });
 
-  const staircase = savingsStaircase.length > 0 ? savingsStaircase : (() => {
+  const staircase = savingsStaircase && savingsStaircase.length > 0 ? savingsStaircase : (() => {
     const byAction: Record<string, { savings: number; count: number }> = {};
     snapshots.forEach((s) => {
       if (!byAction[s.classification]) byAction[s.classification] = { savings: 0, count: 0 };

@@ -4,7 +4,7 @@
  * Critical: This is what makes it agentic (not just analytical)
  */
 
-import type { PolicyDecision } from '@core/policy';
+import type { PolicyDecision } from '../policy/types';
 
 export interface ExecutionAction {
   id: string;

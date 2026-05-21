@@ -252,7 +252,9 @@ async function runMigration(client, fileName, content, expectedChecksum) {
     try {
       // Optional session context for governance bootstrap migrations.
       if (process.env.GOVERNANCE_BOOTSTRAP_KEY) {
-        await client.query('SET LOCAL app.governance_bootstrap_key = $1', [process.env.GOVERNANCE_BOOTSTRAP_KEY]);
+        // Note: SET LOCAL doesn't support parameterized queries; use literal value
+        const escapedKey = process.env.GOVERNANCE_BOOTSTRAP_KEY.replace(/'/g, "''");
+        await client.query(`SET LOCAL app.governance_bootstrap_key = '${escapedKey}'`);
       }
 
       await client.query(content);

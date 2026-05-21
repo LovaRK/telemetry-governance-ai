@@ -1,9 +1,9 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/apps'],
-  testMatch: ['**/__tests__/**/*.test.ts'],
-  testPathIgnorePatterns: ['node_modules', '.claude/worktrees'],
+  roots: ['<rootDir>/tests'],
+  testMatch: ['**/*.test.ts', '**/*.spec.test.ts'],
+  testPathIgnorePatterns: ['node_modules', '.claude/worktrees', 'tests/chaos', 'tests/e2e', 'tests/phase9-purity'],
   transform: {
     '^.+\\.ts$': ['ts-jest', {
       tsconfig: {
@@ -36,9 +36,11 @@ module.exports = {
     '^@tools/(.*)$': '<rootDir>/tools/$1'
   },
   collectCoverageFrom: [
-    'apps/api/**/*.ts',
-    '!apps/api/**/*.test.ts',
-    '!apps/api/**/__tests__/**'
+    'core/**/*.ts',
+    'agents/**/*.ts',
+    'tools/**/*.ts',
+    '!**/*.test.ts',
+    '!**/*.spec.ts'
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node']
 };

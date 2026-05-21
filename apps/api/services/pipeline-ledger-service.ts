@@ -1,4 +1,5 @@
-import { getClient, query } from '@core/database/connection';
+import { getClient, query, transaction } from '@core/database/connection';
+import type { RequestContext } from '@/core/auth/request-context';
 import crypto from 'crypto';
 
 export type PipelineRunStatus = 'PENDING' | 'RUNNING' | 'FAILED' | 'SUCCEEDED';
@@ -79,9 +80,9 @@ export async function ensurePipelineLedgerSchema(): Promise<void> {
   await query(`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_tenant_published ON pipeline_runs(tenant_id, published, published_at DESC)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_pipeline_stage_events_run_stage ON pipeline_stage_events(run_id, stage, started_at DESC)`);
 
-  await query(`ALTER TABLE telemetry_snapshots ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL DEFAULT 'default'`);
-  await query(`ALTER TABLE executive_kpis ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL DEFAULT 'default'`);
-  await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL DEFAULT 'default'`);
+  await query(`ALTER TABLE telemetry_snapshots ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL`);
+  await query(`ALTER TABLE executive_kpis ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL`);
+  await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL`);
 
   await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS run_id UUID`);
   await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS trace_id VARCHAR(128)`);
@@ -211,22 +212,31 @@ export async function getActiveRunByHash(hash: string): Promise<PipelineRunRecor
   return result.rows[0] || null;
 }
 
-export async function createRunningRun(params: {
-  runId: string;
-  snapshotId: string;
-  tenantId: string;
-  idempotencyHash: string;
-  pipelineVersion: string;
-  modelVersion: string;
-  promptVersion: string;
-  splunkQueryVersion: string;
-}): Promise<void> {
+export async function createRunningRun(
+  params: {
+    runId: string;
+    snapshotId: string;
+    tenantId: string;
+    idempotencyHash: string;
+    pipelineVersion: string;
+    modelVersion: string;
+    promptVersion: string;
+    splunkQueryVersion: string;
+  },
+  context?: RequestContext
+): Promise<void> {
+  // CRITICAL: Reject 'default' tenant - this must come from RequestContext
+  if (params.tenantId === 'default' || !isValidUUID(params.tenantId)) {
+    throw new Error(`Invalid tenantId "${params.tenantId}" - must be a valid UUID, not 'default'`);
+  }
+
   await query(
     `INSERT INTO pipeline_runs (
       run_id, snapshot_id, tenant_id, status, published, idempotency_hash,
       pipeline_version, model_version, prompt_version, splunk_query_version
      ) VALUES ($1,$2,$3,'RUNNING',false,$4,$5,$6,$7,$8)`,
-    [params.runId, params.snapshotId, params.tenantId, params.idempotencyHash, params.pipelineVersion, params.modelVersion, params.promptVersion, params.splunkQueryVersion]
+    [params.runId, params.snapshotId, params.tenantId, params.idempotencyHash, params.pipelineVersion, params.modelVersion, params.promptVersion, params.splunkQueryVersion],
+    context
   );
 }
 
@@ -334,4 +344,9 @@ export async function getRunMetrics(runId: string, snapshotId: string, tenantId:
     dailyAvgGb: Number(snaps.rows[0]?.total_gb || 0),
     decisionCount: Number(decisions.rows[0]?.count || 0),
   };
+}
+
+function isValidUUID(value: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(value);
 }

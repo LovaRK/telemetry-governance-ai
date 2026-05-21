@@ -2,6 +2,7 @@ import { PoolClient } from 'pg';
 import { SplunkClient } from './splunk-client';
 import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/llm-decision-agent';
 import { loadUserConfig } from './config-service';
+import { RequestContext } from '@/core/auth/request-context';
 import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics, querySavedSearchInventory, queryParsingErrors, buildUtilizationInputs, buildDetectionInputs, buildQualityInputs } from './splunk-queries-service';
 import {
   computeUtilizationScores,
@@ -64,10 +65,12 @@ const MAX_SOURCETYPE_INDEXES = 20;
 
 export async function runAggregation(
   splunk: SplunkClient,
+  ctx: RequestContext,
   config: AggregationConfig = DEFAULT_CONFIG
 ): Promise<AggregationResult> {
   const start = Date.now();
   const snapshotId = uuidv4();
+  const tenantId = ctx.tenantId;
 
   // Load user config for cost model
   const userConfig = await loadUserConfig();
@@ -157,7 +160,7 @@ export async function runAggregation(
       console.log(`[Aggregation] Governance maintenance: ${expiredCount} expired, ${overdueCount} flagged for review`);
     }
     return await diffSnapshots(client, allInputs, today, versions);
-  });
+  }, ctx);
 
   console.log(`[Aggregation] Diffing results:`, diffResult.summaryStats);
 
@@ -525,7 +528,7 @@ export async function runAggregation(
     } catch (e) {
       console.warn('[Aggregation] Drift detection skipped (non-fatal):', e instanceof Error ? e.message : e);
     }
-  });
+  }, ctx);
 
   return {
     snapshotId,
@@ -975,19 +978,20 @@ async function updateCacheMetadata(client: PoolClient, key: string, count: numbe
 /**
  * Phase 2 fast path: fetch Splunk metadata (<5s), write raw snapshots,
  * enqueue LLM job for background worker. Returns immediately.
+ * CRITICAL: tenantId is mandatory from RequestContext, never inferred.
  */
 export async function runFastAggregation(
   splunk: SplunkClient,
+  ctx: RequestContext,
   config: AggregationConfig = DEFAULT_CONFIG,
-  context?: {
+  options?: {
     snapshotId?: string;
     runId?: string;
-    tenantId?: string;
   }
 ): Promise<FastAggregationResult> {
   const start = Date.now();
-  const snapshotId = context?.snapshotId || uuidv4();
-  const tenantId = context?.tenantId || 'default';
+  const snapshotId = options?.snapshotId || uuidv4();
+  const tenantId = ctx.tenantId;
   const today = new Date().toISOString().split('T')[0];
 
   const userConfig = await loadUserConfig();
@@ -1079,7 +1083,7 @@ export async function runFastAggregation(
         record_count = EXCLUDED.record_count,
         updated_at = NOW()
     `, [inserted]);
-  });
+  }, ctx);
 
   // ── 3. Build candidate list for LLM (heuristic filter) ─────────────────
   const MAX_INDEXES = parseInt(process.env.MAX_INDEXES_PER_RUN || '100', 10);
@@ -1137,23 +1141,26 @@ export async function runFastAggregation(
   console.log(`[FastAgg] Filtering reasons:`, candidateReasons.slice(0, 3).map(c => `${c.index}: ${c.reasons.join(', ')}`));
 
   // ── 4. Enqueue LLM job ──────────────────────────────────────────────────
+  // CRITICAL: Job payload must include immutable tenant context for worker execution
   const jobId = await enqueueJob({
     jobType: 'llm_analysis',
     snapshotId,
     payload: {
-      runId: context?.runId || null,
-      tenantId,
+      tenantId: ctx.tenantId,
+      userId: ctx.userId,
+      traceId: ctx.traceId,
+      snapshotId,
+      runId: options?.runId || uuidv4(),
       inputs: candidates.length > 0 ? candidates : allInputs.slice(0, MAX_INDEXES),
       candidateReasons: candidates.length > 0 ? candidateReasons : [],
       config: { lookbackDays: config.lookbackDays, costPerGbPerDay },
       checkpoint: 0,
-      snapshotId,
     },
   });
 
   console.log(`[FastAgg] Done in ${Date.now() - start}ms. Snapshot ${snapshotId}, job ${jobId}, ${inserted} snapshots written.`);
 
-  return { snapshotId, jobId, runId: context?.runId, tenantId, inserted, durationMs: Date.now() - start };
+  return { snapshotId, jobId, runId: options?.runId, tenantId: ctx.tenantId, inserted, durationMs: Date.now() - start };
 }
 
 /**

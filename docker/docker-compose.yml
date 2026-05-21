@@ -14,6 +14,9 @@ services:
       - NEXT_PUBLIC_SPLUNK_DISABLE_SSL_VERIFY=true
       - LLM_MODEL=gemma2:9b
       - WEB_PORT=${WEB_PORT:-3002}  # Pass to container for health checks
+      - GOVERNANCE_BOOTSTRAP_KEY=75512d550a46fc514ca7874ba7fee1244f39303d99a782e82cbcfd2097ee03cd
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@bitso.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-Admin@12345}
     volumes:
       - ../apps/web:/app/apps/web  # Development hot-reload
       - ../packages:/app/packages  # Shared packages

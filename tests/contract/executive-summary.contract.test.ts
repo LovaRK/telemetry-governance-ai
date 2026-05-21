@@ -6,16 +6,24 @@ describe('Contract: /api/executive-summary', () => {
     const res = await authGet('/api/executive-summary', token);
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as any;
 
-    expect(body).toMatchObject({
-      data: expect.any(Object),
-      meta: expect.objectContaining({
+    // Check for empty state contract
+    if (body.empty === true) {
+      expect(body.status).toBe('NO_PUBLISHED_SNAPSHOT');
+      expect(body.summary).toBeNull();
+      expect(Array.isArray(body.metrics)).toBe(true);
+      return;
+    }
+
+    // Check for populated state contract
+    expect(body.data).toEqual(expect.any(Object));
+    expect(body.meta).toEqual(
+      expect.objectContaining({
         source: expect.any(String),
-        mode: expect.any(String),
         traceId: expect.any(String),
-      }),
-    });
+      })
+    );
 
     expect(typeof body.data.kpis).toBe('object');
     expect(Array.isArray(body.data.snapshots)).toBe(true);

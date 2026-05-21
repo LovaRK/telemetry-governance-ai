@@ -28,7 +28,7 @@ interface ErrorResponse {
  * MUST be used for all API routes to ensure trace context + purity.
  */
 export function createRoute(
-  handler: (req: NextRequest, ...rest: any[]) => Promise<APIResponse>
+  handler: (req: NextRequest, ...rest: any[]) => Promise<APIResponse | NextResponse>
 ) {
   return async (req: NextRequest, ...rest: any[]) => {
     try {
@@ -38,6 +38,11 @@ export function createRoute(
       // Run handler within trace context
       return await withTraceContext(traceId, async () => {
         const result = await handler(req, ...rest);
+
+        // If handler returned NextResponse directly, return it (supports custom status codes)
+        if (result instanceof NextResponse) {
+          return result;
+        }
 
         // Validate response has meta
         if (!result?.meta) {

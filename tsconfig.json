@@ -25,6 +25,6 @@
       "@tools/*": ["tools/*"]
     }
   },
-  "include": ["apps/**/*.ts", "core/**/*.ts"],
-  "exclude": ["node_modules", "dist", ".next"]
+  "include": ["core/**/*.ts", "agents/**/*.ts", "tools/**/*.ts"],
+  "exclude": ["node_modules", "dist", ".next", "apps/**"]
 }

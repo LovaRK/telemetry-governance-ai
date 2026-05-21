@@ -1,9 +1,10 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createRoute } from '@/lib/api-route-factory';
 import { getCacheStatus, listCacheStatuses, setCacheRefreshing, setCacheFresh, setCacheError, isRefreshing } from '@api/services/cache-service';
 import { runFastAggregation } from '@api/services/aggregation-service';
 import { SplunkClient } from '@api/services/splunk-client';
 import { getRuntimeConfig } from '@/lib/runtime-config';
+import { requireContext } from '@/lib/auth-context';
 import { v4 as uuidv4 } from 'uuid';
 import {
   appendStageEvent,
@@ -35,6 +36,13 @@ export const POST = createRoute(async (request: NextRequest) => {
   const started = Date.now();
   await ensurePipelineLedgerSchema();
 
+  // Extract and validate RequestContext (fail-closed, no fallbacks)
+  const ctxOrError = await requireContext(request);
+  if (ctxOrError instanceof NextResponse) {
+    return ctxOrError;
+  }
+  const context = ctxOrError;
+
   const body = await request.json();
   if (!body?.mcpUrl) {
     throw new Error('mcpUrl is required');
@@ -52,7 +60,7 @@ export const POST = createRoute(async (request: NextRequest) => {
 
   const { mcpUrl, disableSslVerify = false, costPerGbPerDay } = body;
   const runtimeConfig = getRuntimeConfig();
-  const tenantId = body.tenantId || request.headers.get('x-tenant-id') || 'default';
+  const tenantId = context.tenantId;
   const trigger = body.trigger || 'manual';
   const window = body.window || `${configWindowDays(body)}d`;
   const idempotencyHash = buildIdempotencyHash({ tenantId, trigger, window });
@@ -72,16 +80,19 @@ export const POST = createRoute(async (request: NextRequest) => {
 
   const runId = uuidv4();
   const snapshotId = uuidv4();
-  await createRunningRun({
-    runId,
-    snapshotId,
-    tenantId,
-    idempotencyHash,
-    pipelineVersion: process.env.PIPELINE_VERSION || '1.0.0',
-    modelVersion: process.env.MODEL_VERSION || 'gemma2:9b',
-    promptVersion: process.env.PROMPT_VERSION || '2.0',
-    splunkQueryVersion: process.env.SPLUNK_QUERY_VERSION || '1.0',
-  });
+  await createRunningRun(
+    {
+      runId,
+      snapshotId,
+      tenantId,
+      idempotencyHash,
+      pipelineVersion: process.env.PIPELINE_VERSION || '1.0.0',
+      modelVersion: process.env.MODEL_VERSION || 'gemma2:9b',
+      promptVersion: process.env.PROMPT_VERSION || '2.0',
+      splunkQueryVersion: process.env.SPLUNK_QUERY_VERSION || '1.0',
+    },
+    context
+  );
 
   const effectiveCostPerGbPerDay =
     typeof costPerGbPerDay === 'number' && Number.isFinite(costPerGbPerDay)
@@ -115,8 +126,9 @@ export const POST = createRoute(async (request: NextRequest) => {
     await appendStageEvent({ runId, stage: 'KPI_AGGREGATION', status: 'IN_PROGRESS' });
     result = await runFastAggregation(
       splunk,
+      context,
       { lookbackDays: 30, costPerGbPerDay: effectiveCostPerGbPerDay },
-      { snapshotId, runId, tenantId }
+      { snapshotId, runId }
     );
     await appendStageEvent({
       runId,

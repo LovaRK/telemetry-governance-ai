@@ -3,15 +3,14 @@ import { verifyTokenEdge, extractBearerToken } from '@/lib/auth-edge';
 import { v4 as uuid } from 'uuid';
 
 // Routes that don't require JWT auth
+// CRITICAL: All data endpoints require authentication to enforce tenant isolation
 const PUBLIC_ROUTES = [
   '/api/auth/login',
   '/api/auth/refresh',
   '/api/auth/logout',
   '/api/health',           // Docker health checks
   '/api/test-connection',  // needed for Splunk connection test before auth
-  '/api/cache-status',     // needed for initial connection check
-  '/api/job-stream',       // Job trigger endpoint
-  '/api/governance/stream', // SSE stream for live governance updates
+  '/api/splunk/test-connection', // Splunk connection test endpoint
   '/api/setup/',           // Setup endpoints (tenant creation, admin user creation)
   '/login',
   '/_next',
@@ -126,7 +125,7 @@ export async function middleware(request: NextRequest) {
 
     if (!token) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'missing authentication' },
         { status: 401, headers: { 'x-trace-id': traceId } }
       );
     }

@@ -6,7 +6,7 @@ describe('Pipeline: worker outputs', () => {
     const res = await authGet('/api/queue-health?limit=10', token);
 
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(Array.isArray(body.data)).toBe(true);
     expect(typeof body.meta.traceId).toBe('string');
   });

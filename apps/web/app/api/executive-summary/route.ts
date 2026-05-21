@@ -1,12 +1,46 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createRoute } from '@/lib/api-route-factory';
 import { query } from '@core/database/connection';
 import { ensurePipelineLedgerSchema, getLatestPublishedRun } from '@/lib/pipeline-ledger-service';
+import { requireContext } from '@/lib/auth-context';
 
 export const GET = createRoute(async (request: NextRequest) => {
   await ensurePipelineLedgerSchema();
 
-  const tenantId = request.headers.get('x-tenant-id') || 'default';
+  // Require authentication - returns tenant-specific executive summary
+  const ctxOrError = await requireContext(request);
+  if (ctxOrError instanceof NextResponse) {
+    return ctxOrError;
+  }
+  const context = ctxOrError;
+  const tenantId = context.tenantId;
+
+  // Check for in-progress refresh (LOADING state)
+  const loadingRunResult = await query(
+    `SELECT run_id, status, started_at FROM pipeline_runs
+     WHERE tenant_id = $1 AND status = 'PROCESSING'
+     ORDER BY started_at DESC LIMIT 1`,
+    [tenantId]
+  );
+  const loadingRun = loadingRunResult.rows?.[0];
+
+  if (loadingRun) {
+    const stage = 'TELEMETRY_INGESTION';
+    return {
+      loading: true,
+      runId: loadingRun.run_id,
+      stage,
+      status: 'REFRESH_IN_PROGRESS',
+      title: 'Refresh in progress',
+      message: `Analyzing your telemetry (${stage})...`,
+      meta: {
+        source: 'postgres',
+        tenantId,
+        startedAt: loadingRun.started_at,
+      },
+    };
+  }
+
   const publishedRun = await getLatestPublishedRun(tenantId);
 
   // Empty state: no published snapshot yet (not an error, valid application state)
@@ -22,8 +56,30 @@ export const GET = createRoute(async (request: NextRequest) => {
           endpoint: '/api/cache',
         },
       ],
-      summary: null,
-      metrics: [],
+      data: {
+        kpis: {
+          roiScore: 0,
+          gainScopeScore: 0,
+          totalLicenseSpend: 0,
+          licenseSpendLowValue: 0,
+          storageSavingsPotential: 0,
+          totalDailyGb: 0,
+          totalSourcetypes: 0,
+          tierCounts: { critical: 0, important: 0, niceToHave: 0, lowValue: 0 },
+          securityGaps: 0,
+          operationalGaps: 0,
+          avgUtilization: 0,
+          avgDetection: 0,
+          avgQuality: 0,
+          avgConfidence: 0,
+        },
+        quickWins: [],
+        savingsStaircase: [],
+        agentReasoning: '',
+        snapshotDate: new Date().toISOString(),
+        snapshots: [],
+        decisions: [],
+      },
       meta: {
         source: 'postgres',
         tenantId,
@@ -41,11 +97,90 @@ export const GET = createRoute(async (request: NextRequest) => {
   );
   const snapshotRows = snapshotRowsResult.rows || [];
 
+  // Splunk unavailable: published run exists but no snapshots (data ingestion failed)
+  if (snapshotRows.length === 0) {
+    return {
+      empty: true,
+      status: 'SPLUNK_UNAVAILABLE',
+      reason: 'SPLUNK_UNAVAILABLE',
+      title: 'Unable to load telemetry data',
+      message: 'Splunk is currently unavailable. We will retry your refresh when service is restored.',
+      retryable: true,
+      actions: [
+        {
+          label: 'Retry Refresh',
+          endpoint: '/api/cache',
+        },
+      ],
+      data: {
+        kpis: {
+          roiScore: 0,
+          gainScopeScore: 0,
+          totalLicenseSpend: 0,
+          licenseSpendLowValue: 0,
+          storageSavingsPotential: 0,
+          totalDailyGb: 0,
+          totalSourcetypes: 0,
+          tierCounts: { critical: 0, important: 0, niceToHave: 0, lowValue: 0 },
+          securityGaps: 0,
+          operationalGaps: 0,
+          avgUtilization: 0,
+          avgDetection: 0,
+          avgQuality: 0,
+          avgConfidence: 0,
+        },
+        quickWins: [],
+        savingsStaircase: [],
+        agentReasoning: '',
+        snapshotDate: publishedRun.publishedAt || publishedRun.startedAt,
+        snapshots: [],
+        decisions: [],
+      },
+      meta: {
+        source: 'postgres',
+        tenantId,
+        runId: publishedRun.runId,
+        snapshotId: publishedRun.snapshotId,
+      },
+    };
+  }
+
   const kpisResult = await query(
     `SELECT * FROM executive_kpis WHERE tenant_id = $1 AND snapshot_id = $2 LIMIT 1`,
     [tenantId, snapshotId]
   );
   const kpi = kpisResult.rows[0] || {};
+
+  // Governance validation: active model pointer must exist (fail-fast)
+  // Fall back to SYSTEM tenant if tenant-specific pointer doesn't exist
+  const modelPointerResult = await query(
+    `SELECT model_id, prompt_id FROM active_model_pointer
+     WHERE tenant_id = $1 OR tenant_id = 'SYSTEM'
+     ORDER BY tenant_id ASC LIMIT 1`,
+    [tenantId]
+  );
+
+  if (!modelPointerResult.rows || modelPointerResult.rows.length === 0) {
+    const traceId = request.headers.get('x-trace-id') || 'unknown';
+    return NextResponse.json(
+      {
+        error: 'NO_ACTIVE_MODEL_POINTER',
+        status: 'GOVERNANCE_MISSING',
+        title: 'Governance configuration required',
+        message: 'No active model/prompt configuration for this tenant. Governance setup is required before continuing.',
+        empty: false,
+        meta: {
+          source: 'postgres',
+          mode: 'live',
+          tenantId,
+          runId: publishedRun.runId,
+          snapshotId: publishedRun.snapshotId,
+          traceId,
+        },
+      },
+      { status: 503 }
+    );
+  }
 
   const decisionsResult = await query(
     `SELECT ad.*,

@@ -434,9 +434,138 @@ function extractIssueType(evidence: any): string {
 
 // ── Main polling loop ──────────────────────────────────────────────────────
 
+async function validateSchemaContract() {
+  // Dynamic schema validation — same contract as web service
+  const REQUIRED_COLUMNS: { [key: string]: string[] } = {
+    telemetry_snapshots: ['snapshot_id', 'snapshot_date', 'created_at'],
+    pipeline_runs: ['run_id', 'status', 'published', 'published_at'],
+    pipeline_stage_events: ['run_id', 'stage', 'status', 'started_at'],
+    agent_decisions: [
+      'model_governance_id',
+      'prompt_governance_id',
+      'promotion_id',
+      'decision_contract_version',
+      'llm_version',
+      'prompt_version',
+    ],
+    llm_health_cache: ['provider', 'last_checked'],
+    prompt_registry: ['prompt_id', 'version', 'encrypted_prompt', 'system_prompt_hash'],
+    approved_models: ['model_id', 'model_version', 'status'],
+    model_promotions: ['promotion_id', 'runtime_snapshot'],
+    active_model_pointer: ['tenant_id', 'model_id', 'prompt_id', 'config_version'],
+  };
+
+  const violations: string[] = [];
+
+  // Check tables
+  for (const table of Object.keys(REQUIRED_COLUMNS)) {
+    const res = await query<any>(`
+      SELECT 1 FROM information_schema.tables WHERE table_name = $1
+    `, [table]);
+    if (res.rows.length === 0) {
+      violations.push(`Missing table: ${table}`);
+    }
+  }
+
+  // Check columns
+  for (const [table, columns] of Object.entries(REQUIRED_COLUMNS)) {
+    for (const col of columns) {
+      const res = await query<any>(`
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = $1 AND column_name = $2
+      `, [table, col]);
+      if (res.rows.length === 0) {
+        violations.push(`Missing column: ${table}.${col}`);
+      }
+    }
+  }
+
+  if (violations.length > 0) {
+    console.error('❌ SCHEMA CONTRACT VIOLATION');
+    console.error(violations.join('\n'));
+    process.exit(1);
+  }
+
+  console.log('[Worker] ✓ Schema contract validation passed');
+}
+
+async function validateDataPurity() {
+  // Allow synthetic data in test/dev environments
+  if (
+    process.env.NODE_ENV === 'test' ||
+    process.env.ALLOW_SYNTHETIC_DATA === 'true' ||
+    process.env.NODE_ENV !== 'production'
+  ) {
+    console.log('[Worker] 🔍 Data purity validation skipped (development mode)');
+    return;
+  }
+
+  // Reject synthetic data from production database
+  console.log('[Worker] 🔍 Validating data purity...');
+
+  const violations: string[] = [];
+
+  // Check for demo tenants
+  const demoTenantsRes = await query<any>(`
+    SELECT COUNT(*) as count FROM tenants
+    WHERE LOWER(slug) ILIKE '%demo%' OR LOWER(name) ILIKE '%demo%'
+  `, []);
+
+  if ((demoTenantsRes.rows[0]?.count || 0) > 0) {
+    violations.push(`Demo tenant rows: ${demoTenantsRes.rows[0].count}`);
+  }
+
+  // Check for synthetic snapshots
+  const syntheticRes = await query<any>(`
+    SELECT COUNT(*) as count FROM telemetry_snapshots
+    WHERE snapshot_id ILIKE '%demo%'
+       OR snapshot_id ILIKE '%synthetic%'
+  `, []);
+
+  if ((syntheticRes.rows[0]?.count || 0) > 0) {
+    violations.push(`Synthetic snapshots: ${syntheticRes.rows[0].count}`);
+  }
+
+  // Check for hardcoded KPIs (demo tenant)
+  const kpisRes = await query<any>(`
+    SELECT COUNT(*) as count FROM executive_kpis
+    WHERE tenant_id = 'demo' OR tenant_id ILIKE '%fake%'
+  `, []);
+
+  if ((kpisRes.rows[0]?.count || 0) > 0) {
+    violations.push(`Hardcoded KPIs: ${kpisRes.rows[0].count}`);
+  }
+
+  if (violations.length > 0) {
+    console.error('❌ DATA PURITY VIOLATION');
+    console.error('Synthetic data detected:', violations.join(', '));
+    process.exit(1);
+  }
+
+  console.log('[Worker] ✓ Data purity validation passed');
+}
+
 async function main() {
   console.log('[Worker] Starting. Polling job_queue every', POLL_INTERVAL_MS, 'ms');
   console.log('[Worker] OLLAMA_BASE_URL:', process.env.OLLAMA_BASE_URL || 'http://localhost:11434');
+
+  // Validate schema contract on startup
+  try {
+    await validateSchemaContract();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[Worker] Schema contract validation failed:', msg);
+    process.exit(1);
+  }
+
+  // Validate data purity on startup
+  try {
+    await validateDataPurity();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[Worker] Data purity validation failed:', msg);
+    process.exit(1);
+  }
 
   while (true) {
     try {

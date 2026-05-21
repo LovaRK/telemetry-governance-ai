@@ -142,6 +142,7 @@ export async function executePolicyEvaluation(
       event_type: 'POLICY_VALIDATION_EXECUTED',
       taxonomy: 'POLICY',
       severity: getRiskSeverity(riskLevel),
+      timestamp: new Date().toISOString(),
       message: `Governance Engine evaluating ${input.actionType} policy evaluation for ${input.targetService}.`,
       payload: {
         policy_name: 'INFRASTRUCTURE_TELEMETRY_GOVERNANCE_RULES',
@@ -182,6 +183,7 @@ export async function executePolicyEvaluation(
         event_type: 'POLICY_ENFORCEMENT_BLOCKED',
         taxonomy: 'POLICY',
         severity: 'CRITICAL',
+        timestamp: new Date().toISOString(),
         message: `Policy Engine BLOCKED autonomous execution: Violation of compliance rule 'FORBIDDEN_${input.actionType}'.`,
         payload: {
           policy_version: POLICY_VERSION,
@@ -219,6 +221,7 @@ export async function executePolicyEvaluation(
         event_type: 'POLICY_APPROVAL_REQUIRED',
         taxonomy: 'POLICY',
         severity: 'WARN',
+        timestamp: new Date().toISOString(),
         message: `Policy Engine verified structural validity. Human-in-the-loop authorization required for action '${input.actionType}'.`,
         payload: {
           policy_version: POLICY_VERSION,
@@ -260,6 +263,7 @@ export async function executePolicyEvaluation(
       event_type: 'POLICY_ENFORCEMENT_ALLOWED',
       taxonomy: 'POLICY',
       severity: 'INFO',
+      timestamp: new Date().toISOString(),
       message: `Policy Engine approved auto-remediation rule. Routing transaction directly to downstream async worker pool.`,
       payload: {
         policy_version: POLICY_VERSION,
@@ -326,10 +330,10 @@ export async function approveOperatorDecision(
       event_type: 'OPERATOR_APPROVAL_GRANTED',
       taxonomy: 'OPERATOR',
       severity: 'INFO',
+      timestamp: new Date().toISOString(),
       message: `Operator authorized human-in-the-loop override. Proceeding to downstream execution stage.${approvalReason ? ` Reason: ${approvalReason}` : ''}`,
       payload: {
         approval_reason: approvalReason || null,
-        timestamp: new Date().toISOString(),
       },
       governance: buildGovernanceMetadata({
         matched_policies: ['OPERATOR_OVERRIDE_GRANTED'],

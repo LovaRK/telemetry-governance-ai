@@ -134,7 +134,8 @@ function Home() {
 
       // Handle empty state (no published snapshot yet)
       if (summaryData?.empty === true) {
-        setSummary(null); // Render empty state in dashboard
+        // Set summary with empty data structure so component can still render
+        setSummary(summaryData);
         return;
       }
 

@@ -1,6 +1,7 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createStreamRoute } from '@/lib/stream-route-factory';
 import { getTraceId } from '@core/guards/trace-context';
+import { requireContext } from '@/lib/auth-context';
 import { query } from '@core/database/connection';
 
 /**
@@ -25,7 +26,7 @@ import { query } from '@core/database/connection';
  * event ID seen, ensuring no events are missed across reconnects.
  *
  * Cross-tenant isolation: each stream connection is scoped to the authenticated
- * user's tenant via JWT (currently single-tenant, validated via cookie).
+ * user's tenant via JWT with enforced tenant context validation.
  *
  * L3 Compliance: Uses createStreamRoute for trace context injection via AsyncLocalStorage.
  * SSE events include source, mode, and traceId for observability.
@@ -36,6 +37,13 @@ const POLL_INTERVAL_MS = 5_000;
 const MAX_STREAM_DURATION_MS = 5 * 60 * 1000; // 5 min max per connection (Vercel / proxy limit)
 
 export const GET = createStreamRoute(async (request: NextRequest) => {
+  // Require authentication: fail-closed if missing tenant context
+  const ctxOrError = await requireContext(request);
+  if (ctxOrError instanceof NextResponse) {
+    return ctxOrError;
+  }
+  const context = ctxOrError;
+
   // Last-Event-ID support — clients reconnect and resume from where they left off
   const lastEventId = request.headers.get('Last-Event-ID') || null;
 

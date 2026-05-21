@@ -28,7 +28,7 @@ export class MCPClient {
         return { status: 'NO_INDEX_ACCESS', indexes: [], sources: 0, latency_ms: latency, capabilities: { search: false, stats: false }, error: `HTTP ${response.status}` };
       }
 
-      const data = await response.json();
+      const data = await response.json() as { indexes?: string[]; sources?: number };
 
       return {
         status: latency > 500 ? 'DEGRADED' : 'CONNECTED',

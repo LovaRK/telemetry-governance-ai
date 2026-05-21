@@ -1,10 +1,19 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createRoute } from '@/lib/api-route-factory';
+import { requireContext } from '@/lib/auth-context';
 import { ensurePipelineLedgerSchema, getRunById, getRunMetrics } from '@/lib/pipeline-ledger-service';
 
 export const GET = createRoute(async (request: NextRequest, context: { params: Promise<{ runId: string }> }) => {
   await ensurePipelineLedgerSchema();
-  const tenantId = request.headers.get('x-tenant-id') || 'default';
+
+  // Require authentication: fail-closed if missing tenant context
+  const ctxOrError = await requireContext(request);
+  if (ctxOrError instanceof NextResponse) {
+    return ctxOrError;
+  }
+  const ctx = ctxOrError;
+  const tenantId = ctx.tenantId;
+
   const { runId } = await context.params;
   const run = await getRunById(runId);
   if (!run) throw new Error('Run not found');
