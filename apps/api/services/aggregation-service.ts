@@ -584,7 +584,7 @@ async function upsertDecision(
       classification, confidence, recommendation, evidence,
       raw_metadata
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-    ON CONFLICT ON CONSTRAINT uq_snapshot_identity DO UPDATE SET
+    ON CONFLICT (snapshot_date, granularity, index_name, sourcetype) DO UPDATE SET
       snapshot_id     = EXCLUDED.snapshot_id,
       total_events    = EXCLUDED.total_events,
       daily_avg_gb    = EXCLUDED.daily_avg_gb,
