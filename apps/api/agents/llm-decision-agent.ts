@@ -330,7 +330,7 @@ export async function runLLMDecisionAgent(
   }
 
   const BATCH_SIZE = 1; // Reduced from 5 for local Ollama memory constraint (gemma2:9b is 5.4GB + batch overhead)
-  const LLM_TIMEOUT_MS = parseInt(process.env.LLM_BATCH_TIMEOUT || '120', 10) * 1000;
+  const LLM_TIMEOUT_MS = parseInt(process.env.LLM_BATCH_TIMEOUT || '45', 10) * 1000;
 
   // Timeout wrapper
   const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
@@ -359,7 +359,11 @@ export async function runLLMDecisionAgent(
       let raw: string;
       let provider: string;
       try {
-        const { response, provider: p } = await router.generate(prompt, { json: true, temperature: 0.1 });
+        const { response, provider: p } = await withTimeout(
+          router.generate(prompt, { json: true, temperature: 0.1 }),
+          LLM_TIMEOUT_MS,
+          `LLM batch ${batchIdx + 1}`
+        );
         raw = response;
         provider = p;
       } catch (e) {

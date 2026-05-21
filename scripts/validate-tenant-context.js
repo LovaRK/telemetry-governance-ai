@@ -28,7 +28,7 @@ const PATTERNS_TO_REJECT = [
   },
   {
     name: 'Literal default assignment',
-    regex: /=\s*['"]default['"].*tenantId|tenantId.*=\s*['"]default['"]/g,
+    regex: /(?:const|let|var)\s+tenantId\s*=\s*['"]default['"]|tenantId\s*:\s*['"]default['"]/g,
     example: "❌ const tenantId = 'default';",
   },
   {

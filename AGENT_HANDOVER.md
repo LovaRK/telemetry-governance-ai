@@ -386,3 +386,86 @@ New files:
 - `scripts/ci-guard-no-set-tenant.sh`
 - `tests/contract/db-tenant-isolation.regression.test.ts`
 - `AGENT_HANDOVER.md` (this file)
+
+---
+
+## 2026-05-21 Addendum — Refresh Presentation Stabilization
+
+### Current Live Verification Result
+
+The local Docker stack was tested against the live Splunk endpoint `https://144.202.48.85:8089/services/mcp` using the real tenant context:
+
+- Tenant: `4fb5e7fd-895e-4320-a080-8a2380659296`
+- User: `cdc19941-dfe3-4ea5-8518-10d63ec89fc0`
+- Latest successful run: `86fd4e71-e1e7-4187-8c87-f408c0b86176`
+- Latest successful snapshot: `6e8ee11a-13d1-4d8c-aac3-f89c9fec274e`
+- Refresh HTTP duration: `2080ms`
+- Worker publish duration: `3966ms`
+- Published rows: 3 Splunk-derived indexes (`history`, `main`, `tutorial`)
+- Active pointer: `tenant_snapshot_pointer.active_run_id = 86fd4e71-e1e7-4187-8c87-f408c0b86176`
+
+Verified endpoint outputs:
+
+```text
+GET /api/health                  -> 200, schema valid, purity valid, syntheticDataDetected=false
+GET /api/cache-status            -> status=fresh, recordCount=3, decisionCount=0, dailyAvgGb=0.0351
+GET /api/pipeline-runs/latest    -> status=SUCCEEDED, published=true, durationMs=3966
+GET /api/executive-summary       -> meta.runId matches latest run, snapshotCount=3, totalDailyGb=0.0351, annual spend=$6.41
+```
+
+The dashboard UI was also checked with Playwright. It no longer shows `AI is calculating...` after refresh. It shows the published Splunk server data with a clear `No LLM decisions yet` banner when the local model does not produce decisions for the small dataset.
+
+### Fixes Added After Commit d63f321
+
+- `apps/api/services/aggregation-service.ts`
+  - LLM candidate selection now has materiality gates:
+    - `LLM_MIN_DAILY_GB` default `0.1`
+    - `LLM_MIN_ANNUAL_COST` default `25`
+    - `LLM_MIN_TOTAL_EVENTS` default `1000000`
+  - Small Splunk environments publish server-derived snapshot/KPI data without waiting on local inference.
+
+- `docker/worker.ts`
+  - Handles `inputs.length === 0` as a valid no-material-candidates path.
+  - Publishes the Splunk-derived snapshot atomically and completes the job.
+  - Recovers stale running/partial jobs and stale `RUNNING` pipeline runs on startup.
+  - Marks all-AI-failed runs as `FAILED` instead of leaving zombies.
+
+- `apps/api/agents/llm-decision-agent.ts` and `agents/reasoning/ollama.ts`
+  - Local Ollama calls now fail within bounded time instead of blocking refresh indefinitely.
+  - Defaults: `LLM_BATCH_TIMEOUT=45s`, `OLLAMA_REQUEST_TIMEOUT_MS=45000`.
+
+- `apps/web/app/api/cache-status/route.ts`
+  - Readiness flags are scoped to the active tenant published snapshot.
+  - Historical/global `agent_decisions` rows no longer make the current dashboard think AI decisions exist.
+  - Published run pointer overrides stale global cache metadata status to `fresh`.
+
+- `apps/web/app/api/executive-summary/route.ts`
+  - `totalDailyGb` now falls back to active snapshot rows when baseline KPI rows contain zero.
+
+- `apps/web/app/api/job-stream/route.ts`
+  - POST now enqueues a valid tenant-context payload instead of malformed worker jobs.
+
+- `scripts/validate-tenant-context.js`
+  - Tenant gate no longer false-positives on safe rejection checks like `tenantId === 'default'`.
+
+- Removed empty tracked file: `FORCE_REBUILD_1779204700`.
+
+### Verification Commands Run
+
+```bash
+npm run validate:tenant-context
+npm run test:contract -- --runInBand
+npm run test:pipeline -- --runInBand
+```
+
+Results:
+
+```text
+Tenant context gate: PASS
+Contract tests: 5 suites, 31 tests passing
+Pipeline tests: 2 suites, 2 tests passing
+```
+
+### Known Presentation Note
+
+The current live Splunk dataset is very small (`0.0351 GB/day`, `$6.41/year`). The dashboard intentionally skips LLM analysis for this low-materiality dataset and displays server-derived telemetry only. This is presentation-safe and avoids the previous refresh hang. If a larger Splunk dataset crosses the materiality thresholds, the local Ollama path will run AI decisions with bounded timeouts.

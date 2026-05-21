@@ -1108,17 +1108,27 @@ export async function runFastAggregation(
     })),
   ];
 
-  // Smart candidate filter: only send high-cost/low-use/stale items to LLM
+  // Smart candidate filter: only send materially expensive/stale items to LLM.
+  // Small lab/demo Splunk environments should still publish server-derived KPIs
+  // without waiting on local inference for indexes with negligible spend.
   const now = new Date();
+  const minAiDailyGb = Number(process.env.LLM_MIN_DAILY_GB || 0.1);
+  const minAiAnnualCost = Number(process.env.LLM_MIN_ANNUAL_COST || 25);
+  const minAiEvents = Number(process.env.LLM_MIN_TOTAL_EVENTS || 1_000_000);
   const candidatesWithReasons = allInputs.map((inp) => {
     const daysSinceLast = inp.lastEvent
       ? (now.getTime() - new Date(inp.lastEvent).getTime()) / 86400000
       : 999;
     const reasons: string[] = [];
+    const annualCost = inp.dailyAvgGb * 365 * costPerGbPerDay;
+    const hasMaterialFootprint =
+      inp.dailyAvgGb >= minAiDailyGb ||
+      annualCost >= minAiAnnualCost ||
+      inp.totalEvents >= minAiEvents;
 
-    if (inp.dailyAvgGb > 1) reasons.push('HIGH_VOLUME_LOW_USAGE');
-    if (inp.retentionDays > 365) reasons.push('LONG_RETENTION');
-    if (daysSinceLast > 30) reasons.push('STALE_INDEX');
+    if (hasMaterialFootprint && inp.dailyAvgGb > 1) reasons.push('HIGH_VOLUME_LOW_USAGE');
+    if (hasMaterialFootprint && inp.retentionDays > 365) reasons.push('LONG_RETENTION');
+    if (hasMaterialFootprint && daysSinceLast > 30) reasons.push('STALE_INDEX');
 
     return { input: inp, reasons, selected: reasons.length > 0 };
   });
@@ -1151,7 +1161,7 @@ export async function runFastAggregation(
       traceId: ctx.traceId,
       snapshotId,
       runId: options?.runId || uuidv4(),
-      inputs: candidates.length > 0 ? candidates : allInputs.slice(0, MAX_INDEXES),
+      inputs: candidates,
       candidateReasons: candidates.length > 0 ? candidateReasons : [],
       config: { lookbackDays: config.lookbackDays, costPerGbPerDay },
       checkpoint: 0,

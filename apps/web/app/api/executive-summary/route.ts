@@ -216,6 +216,7 @@ export const GET = createRoute(async (request: NextRequest) => {
 
   const totalDailyGbFromSnapshots = snapshotRows.reduce((sum: number, s: any) => sum + (parseFloat(s.daily_avg_gb) || 0), 0);
   const totalSourcetypesFromSnapshots = snapshotRows.length;
+  const kpiTotalDailyGb = parseFloat(kpi?.total_daily_gb || '0');
 
   const decisionsByKey = new Map<string, any>();
   for (const d of decisions) {
@@ -231,7 +232,7 @@ export const GET = createRoute(async (request: NextRequest) => {
         totalLicenseSpend: parseFloat(kpi?.total_license_spend || '0'),
         licenseSpendLowValue: parseFloat(kpi?.license_spend_low_value || '0'),
         storageSavingsPotential: parseFloat(kpi?.storage_savings_potential || '0'),
-        totalDailyGb: parseFloat(kpi?.total_daily_gb || String(totalDailyGbFromSnapshots) || '0'),
+        totalDailyGb: kpiTotalDailyGb > 0 ? kpiTotalDailyGb : totalDailyGbFromSnapshots,
         totalSourcetypes: parseInt(kpi?.total_sourcetypes || String(totalSourcetypesFromSnapshots) || '0', 10),
         tierCounts,
         securityGaps: parseInt(kpi?.security_gaps || '0', 10),

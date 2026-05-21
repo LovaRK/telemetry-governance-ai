@@ -47,7 +47,8 @@ export class OllamaClient {
     };
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 180_000);
+    const timeoutMs = parseInt(process.env.OLLAMA_REQUEST_TIMEOUT_MS || '45000', 10);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const res = await fetch(`${this.baseUrl}/api/generate`, {

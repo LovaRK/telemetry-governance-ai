@@ -9,7 +9,7 @@
  *   worker (this)  → claims job  → calls Ollama on host → writes decisions → done
  */
 
-import { claimNextJob, updateJobProgress, checkpointJob, setJobComplete, setJobFailed } from '../apps/api/services/job-service';
+import { claimNextJob, updateJobProgress, checkpointJob, setJobComplete, setJobFailed, recoverStaleJobs } from '../apps/api/services/job-service';
 import { runLLMDecisionAgent, RawTelemetryInput } from '../apps/api/agents/llm-decision-agent';
 import { loadUserConfig } from '../apps/api/services/config-service';
 import { pool, query, transaction } from '../core/database/connection';
@@ -25,7 +25,7 @@ async function sleep(ms: number) {
 }
 
 async function processJob(job: any): Promise<void> {
-  const { inputs, candidateReasons, config, checkpoint = 0 } = job.payload as {
+  const { inputs = [], candidateReasons, config, checkpoint = 0 } = job.payload as {
     inputs: RawTelemetryInput[];
     candidateReasons?: Array<{ index: string; sourcetype?: string; reasons: string[] }>;
     config: any;
@@ -36,6 +36,30 @@ async function processJob(job: any): Promise<void> {
   const snapshotId = job.snapshotId || job.payload.snapshotId;
   const runId = (job.payload as any)?.runId || null;
   const tenantId = (job.payload as any)?.tenantId || 'default';
+  if (inputs.length === 0) {
+    console.log(`[Worker] Job ${job.jobId}: no material AI candidates; publishing Splunk-derived snapshot only`);
+    if (runId) {
+      await appendStageEvent({
+        runId,
+        stage: 'AI_DECISIONS',
+        status: 'SUCCESS',
+        recordsProcessed: 0,
+        metadata: { jobId: job.jobId, snapshotId, mode: 'no_material_candidates' },
+      });
+      await appendStageEvent({
+        runId,
+        stage: 'GOVERNANCE_SYNC',
+        status: 'SUCCESS',
+        metadata: { mode: 'no_material_candidates' },
+      });
+      await appendStageEvent({ runId, stage: 'PUBLISH', status: 'IN_PROGRESS' });
+      await publishRunAtomic({ runId, snapshotId, tenantId });
+      await appendStageEvent({ runId, stage: 'PUBLISH', status: 'SUCCESS' });
+    }
+    await setJobComplete(job.jobId, snapshotId);
+    return;
+  }
+
   // Phase 1G-C: Resolve authoritative runtime fingerprint at job boundary.
   // If no active pointer exists, fail fast to avoid ungoverned decisions.
   let runtime: RuntimeFingerprint;
@@ -85,6 +109,7 @@ async function processJob(job: any): Promise<void> {
 
   const userConfig = await loadUserConfig();
   let totalDecisions = 0;
+  let failedBatches = 0;
 
   // Resume from checkpoint (handles worker restart mid-job)
   for (let i = checkpoint; i < batches.length; i++) {
@@ -121,8 +146,28 @@ async function processJob(job: any): Promise<void> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[Worker] Batch ${i + 1} failed:`, msg);
+      failedBatches += 1;
       // Continue to next batch — partial results are still useful
     }
+  }
+
+  if (totalDecisions === 0) {
+    const failureMessage = failedBatches > 0
+      ? `AI_DECISIONS_FAILED: all ${failedBatches} batch(es) failed`
+      : 'AI_DECISIONS_FAILED: no decisions produced';
+    if (runId) {
+      await appendStageEvent({
+        runId,
+        stage: 'AI_DECISIONS',
+        status: 'FAILED',
+        errorType: 'UNKNOWN',
+        errorCode: 'AI_DECISIONS_EMPTY',
+        errorMessage: failureMessage,
+        metadata: { jobId: job.jobId, snapshotId, failedBatches },
+      });
+      await markRunFailed(runId, failureMessage);
+    }
+    throw new Error(failureMessage);
   }
 
   // Final: rebuild executive KPIs from all decisions in DB
@@ -565,6 +610,30 @@ async function main() {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[Worker] Data purity validation failed:', msg);
     process.exit(1);
+  }
+
+  // Recover stale jobs from previous crashed/restarted worker sessions.
+  try {
+    const recovered = await recoverStaleJobs(parseInt(process.env.WORKER_STALE_JOB_MINUTES || '5', 10));
+    if (recovered > 0) {
+      console.warn(`[Worker] Recovered ${recovered} stale running/partial job(s) as failed`);
+    }
+    const staleRuns = await query<any>(`
+      UPDATE pipeline_runs
+      SET status = 'FAILED',
+          published = false,
+          error_message = COALESCE(error_message, 'Recovered stale running run after worker restart'),
+          idempotency_hash = NULL
+      WHERE status = 'RUNNING'
+        AND started_at < NOW() - (COALESCE($1::text, '5') || ' minutes')::interval
+      RETURNING run_id
+    `, [process.env.WORKER_STALE_RUN_MINUTES || '5']);
+    if ((staleRuns.rows || []).length > 0) {
+      console.warn(`[Worker] Recovered ${staleRuns.rows.length} stale running pipeline run(s) as failed`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[Worker] Stale job recovery skipped due to error:', msg);
   }
 
   while (true) {

@@ -135,6 +135,23 @@ export async function setJobFailed(jobId: string, errorMessage: string): Promise
   `, [errorMessage, jobId]);
 }
 
+/** Recover stale non-terminal jobs after worker restart/crash. */
+export async function recoverStaleJobs(maxAgeMinutes: number = 5): Promise<number> {
+  const result = await query<{ count: string }>(`
+    WITH stale AS (
+      UPDATE job_queue
+      SET status = 'failed',
+          error_message = COALESCE(error_message, 'Recovered stale running/partial job after worker restart'),
+          completed_at = NOW()
+      WHERE status IN ('running','partial')
+        AND COALESCE(started_at, created_at) < NOW() - ($1::text || ' minutes')::interval
+      RETURNING 1
+    )
+    SELECT COUNT(*)::text AS count FROM stale
+  `, [String(maxAgeMinutes)]);
+  return Number(result.rows[0]?.count || '0');
+}
+
 /** Get most recent job for a given snapshot date (for SSE reconnect). */
 export async function getLatestJob(snapshotDate?: string): Promise<JobRecord | null> {
   const result = await query<any>(`

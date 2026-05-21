@@ -5,6 +5,7 @@ import { getTraceId } from '@core/guards/trace-context';
 import { requireSSEContext } from '@packages/auth/request-context';
 import { getJobStatus, getLatestJob, enqueueJob } from '@api/services/job-service';
 import { RequestContext } from '@packages/auth/request-context';
+import { randomUUID } from 'crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,15 +105,30 @@ export const POST = createRoute(async (request: NextRequest) => {
     }
 
     console.log('[POST /api/job-stream] Enqueuing job with source:', source);
-    const runId = await enqueueJob({
-      jobType: 'pipeline_run',
-      payload: { source, mode, triggeredAt: new Date().toISOString() },
-      context,
+    const snapshotId = randomUUID();
+    const runId = randomUUID();
+    const jobId = await enqueueJob({
+      jobType: 'llm_analysis',
+      snapshotId,
+      payload: {
+        tenantId: context.tenantId,
+        userId: context.userId,
+        traceId: context.traceId,
+        snapshotId,
+        runId,
+        inputs: [],
+        candidateReasons: [],
+        config: {},
+        checkpoint: 0,
+        source,
+        mode,
+        triggeredAt: new Date().toISOString(),
+      },
     });
-    console.log('[POST /api/job-stream] Job enqueued:', runId);
+    console.log('[POST /api/job-stream] Job enqueued:', jobId);
 
     return {
-      data: { runId },
+      data: { runId: jobId },
       meta: { source: 'system' },
     };
   } catch (err) {
