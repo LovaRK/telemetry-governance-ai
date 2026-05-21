@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRoute } from '@/lib/api-route-factory';
-import { requireContext } from '@/lib/auth-context';
+import { requireContext } from '@packages/auth/request-context';
 import { ensurePipelineLedgerSchema, getRunById, getRunMetrics } from '@/lib/pipeline-ledger-service';
 
 export const GET = createRoute(async (request: NextRequest, context: { params: Promise<{ runId: string }> }) => {

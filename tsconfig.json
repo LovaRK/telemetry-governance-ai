@@ -22,7 +22,8 @@
       "@api/*": ["apps/api/*"],
       "@core/*": ["core/*"],
       "@agents/*": ["agents/*"],
-      "@tools/*": ["tools/*"]
+      "@tools/*": ["tools/*"],
+      "@packages/auth/*": ["packages/auth/*"]
     }
   },
   "include": ["core/**/*.ts", "agents/**/*.ts", "tools/**/*.ts"],

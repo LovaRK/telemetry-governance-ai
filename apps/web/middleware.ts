@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyTokenEdge, extractBearerToken } from '@/lib/auth-edge';
+import { verifyTokenEdge, extractBearerToken } from '@packages/auth/auth-edge';
 import { v4 as uuid } from 'uuid';
 
 // Routes that don't require JWT auth

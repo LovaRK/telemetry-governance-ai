@@ -1,5 +1,5 @@
 import { getClient, query, transaction } from '@core/database/connection';
-import type { RequestContext } from '@/core/auth/request-context';
+import type { RequestContext } from '@packages/auth/request-context';
 import crypto from 'crypto';
 
 export type PipelineRunStatus = 'PENDING' | 'RUNNING' | 'FAILED' | 'SUCCEEDED';

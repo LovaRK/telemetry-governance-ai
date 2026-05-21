@@ -2,7 +2,7 @@ import { PoolClient } from 'pg';
 import { SplunkClient } from './splunk-client';
 import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/llm-decision-agent';
 import { loadUserConfig } from './config-service';
-import { RequestContext } from '@/core/auth/request-context';
+import { RequestContext } from '@packages/auth/request-context';
 import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics, querySavedSearchInventory, queryParsingErrors, buildUtilizationInputs, buildDetectionInputs, buildQualityInputs } from './splunk-queries-service';
 import {
   computeUtilizationScores,

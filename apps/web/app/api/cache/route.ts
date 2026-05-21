@@ -4,7 +4,7 @@ import { getCacheStatus, listCacheStatuses, setCacheRefreshing, setCacheFresh, s
 import { runFastAggregation } from '@api/services/aggregation-service';
 import { SplunkClient } from '@api/services/splunk-client';
 import { getRuntimeConfig } from '@/lib/runtime-config';
-import { requireContext } from '@/lib/auth-context';
+import { requireContext } from '@packages/auth/request-context';
 import { v4 as uuidv4 } from 'uuid';
 import {
   appendStageEvent,

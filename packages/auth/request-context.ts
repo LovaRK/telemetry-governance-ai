@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyTokenEdge } from '../../web/lib/auth-edge';
+import { verifyTokenEdge } from './auth-edge';
 
 export interface RequestContext {
   userId: string;

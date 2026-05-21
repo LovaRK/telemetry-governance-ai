@@ -3,7 +3,7 @@ import { getCacheStatus } from '@api/services/cache-service';
 import { query } from '@core/database/connection';
 import { ensurePipelineLedgerSchema, getLatestPublishedRun, getRunMetrics } from '@/lib/pipeline-ledger-service';
 import { NextRequest, NextResponse } from 'next/server';
-import { requireContext } from '@/lib/auth-context';
+import { requireContext } from '@packages/auth/request-context';
 
 export const GET = createRoute(async (request: NextRequest) => {
   await ensurePipelineLedgerSchema();

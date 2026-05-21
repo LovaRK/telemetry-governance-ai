@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateCredentials, signAccessToken, createRefreshToken } from '@/lib/auth';
+import { validateCredentials, signAccessToken, createRefreshToken } from '@packages/auth/auth';
 import { initTraceFromRequest, withTraceContext, getTraceId } from '@core/guards/trace-context';
 
 export async function POST(request: NextRequest) {

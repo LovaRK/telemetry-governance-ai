@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createStreamRoute } from '@/lib/stream-route-factory';
 import { createRoute } from '@/lib/api-route-factory';
 import { getTraceId } from '@core/guards/trace-context';
-import { requireContext } from '@/lib/auth-context';
+import { requireContext } from '@packages/auth/request-context';
 import { getJobStatus, getLatestJob, enqueueJob } from '@api/services/job-service';
 
 export const dynamic = 'force-dynamic';

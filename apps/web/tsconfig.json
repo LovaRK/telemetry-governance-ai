@@ -41,6 +41,9 @@
       ],
       "@tools/*": [
         "../../tools/*"
+      ],
+      "@packages/auth/*": [
+        "../../packages/auth/*"
       ]
     }
   },

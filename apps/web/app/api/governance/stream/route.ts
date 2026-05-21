@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createStreamRoute } from '@/lib/stream-route-factory';
 import { getTraceId } from '@core/guards/trace-context';
-import { requireContext } from '@/lib/auth-context';
+import { requireContext } from '@packages/auth/request-context';
 import { query } from '@core/database/connection';
 
 /**

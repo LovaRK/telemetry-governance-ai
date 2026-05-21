@@ -7,6 +7,7 @@
 
 import { query } from '../../core/database/connection';
 import bcrypt from 'bcryptjs';
+// Note: RequestContext not imported here; setup only creates DB records for test user
 
 const TEST_USER_EMAIL = 'admin@bitso.com';
 const TEST_USER_PASSWORD = 'Admin@12345';

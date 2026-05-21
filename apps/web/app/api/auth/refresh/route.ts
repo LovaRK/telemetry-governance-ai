@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { rotateRefreshToken } from '@/lib/auth';
+import { rotateRefreshToken } from '@packages/auth/auth';
 import { initTraceFromRequest, withTraceContext } from '@core/guards/trace-context';
 
 export async function POST(request: NextRequest) {

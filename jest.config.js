@@ -26,7 +26,8 @@ module.exports = {
           '@api/*': ['apps/api/*'],
           '@core/*': ['core/*'],
           '@agents/*': ['agents/*'],
-          '@tools/*': ['tools/*']
+          '@tools/*': ['tools/*'],
+          '@packages/auth/*': ['packages/auth/*']
         }
       }
     }]
@@ -36,7 +37,8 @@ module.exports = {
     '^@api/(.*)$': '<rootDir>/apps/api/$1',
     '^@core/(.*)$': '<rootDir>/core/$1',
     '^@agents/(.*)$': '<rootDir>/agents/$1',
-    '^@tools/(.*)$': '<rootDir>/tools/$1'
+    '^@tools/(.*)$': '<rootDir>/tools/$1',
+    '^@packages/auth/(.*)$': '<rootDir>/packages/auth/$1'
   },
   collectCoverageFrom: [
     'core/**/*.ts',

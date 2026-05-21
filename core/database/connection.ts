@@ -1,5 +1,5 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
-import type { RequestContext } from '../../apps/core/auth/request-context';
+import type { RequestContext } from '../../packages/auth/request-context';
 
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://telemetry:telemetry@localhost:5433/telemetry_os';
 

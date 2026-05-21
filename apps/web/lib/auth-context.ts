@@ -1,2 +1,2 @@
-// Re-export requireContext from apps/core for convenient access
-export { requireContext } from '../../core/auth/request-context';
+// Re-export requireContext from packages/auth for convenient access
+export { requireContext } from '@packages/auth/request-context';

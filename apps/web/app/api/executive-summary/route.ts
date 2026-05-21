@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createRoute } from '@/lib/api-route-factory';
 import { query } from '@core/database/connection';
 import { ensurePipelineLedgerSchema, getLatestPublishedRun } from '@/lib/pipeline-ledger-service';
-import { requireContext } from '@/lib/auth-context';
+import { requireContext } from '@packages/auth/request-context';
 
 export const GET = createRoute(async (request: NextRequest) => {
   await ensurePipelineLedgerSchema();
