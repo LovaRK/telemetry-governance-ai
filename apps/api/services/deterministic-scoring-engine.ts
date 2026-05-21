@@ -124,7 +124,7 @@ export function computeUtilizationScores(
     weightedSums.set(key, ws);
   }
 
-  const maxWeightedSum = Math.max(...weightedSums.values(), 1); // avoid div/0
+  const maxWeightedSum = Math.max(...Array.from(weightedSums.values()), 1); // avoid div/0
 
   const scores = new Map<string, number>();
   for (const [key, ws] of weightedSums) {

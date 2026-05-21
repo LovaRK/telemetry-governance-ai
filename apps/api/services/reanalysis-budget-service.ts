@@ -391,7 +391,7 @@ export async function captureQueueHealthSnapshot(client: PoolClient): Promise<Qu
 
   let totalPending = 0;
   depthResult.rows.forEach((row: any) => {
-    depthByTier[row.priority_tier] = row.count;
+    depthByTier[row.priority_tier as GovernancePriorityTier] = row.count;
     totalPending += row.count;
   });
 

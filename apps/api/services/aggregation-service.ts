@@ -178,7 +178,7 @@ export async function runAggregation(
   console.log(`[Aggregation] Score weights: util=${weights.utilization}, det=${weights.detection}, qual=${weights.quality}`);
 
   // Fetch knowledge object inventory (alerts, scheduled searches, dashboards, users)
-  const indexNames = [...new Set(allInputs.map(i => i.index))];
+  const indexNames = Array.from(new Set(allInputs.map(i => i.index)));
   const koInventory = await querySavedSearchInventory(splunk, indexNames).catch(e => {
     console.warn('[Aggregation] KO inventory unavailable, using zeros:', e.message);
     return indexNames.map(idx => ({
