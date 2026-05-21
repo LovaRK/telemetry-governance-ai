@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createStreamRoute } from '@/lib/stream-route-factory';
 import { getTraceId } from '@core/guards/trace-context';
-import { requireContext } from '@packages/auth/request-context';
+import { requireSSEContext } from '@packages/auth/request-context';
 import { query } from '@core/database/connection';
 
 /**
@@ -38,7 +38,7 @@ const MAX_STREAM_DURATION_MS = 5 * 60 * 1000; // 5 min max per connection (Verce
 
 export const GET = createStreamRoute(async (request: NextRequest) => {
   // Require authentication: fail-closed if missing tenant context
-  const ctxOrError = await requireContext(request);
+  const ctxOrError = await requireSSEContext(request);
   if (ctxOrError instanceof NextResponse) {
     return ctxOrError;
   }

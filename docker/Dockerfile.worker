@@ -14,6 +14,7 @@ COPY tsconfig*.json ./
 COPY core ./core
 COPY apps/api ./apps/api
 COPY agents ./agents
+COPY packages ./packages
 COPY docker/worker.ts ./docker/worker.ts
 
 CMD ["./node_modules/.bin/ts-node", "-r", "tsconfig-paths/register", "--project", "tsconfig.worker.json", "docker/worker.ts"]

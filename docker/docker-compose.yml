@@ -18,9 +18,11 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@bitso.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-Admin@12345}
     volumes:
-      - ../apps/web:/app/apps/web  # Development hot-reload
-      - ../packages:/app/packages  # Shared packages
-      - /app/apps/web/.next  # Exclude .next build cache from mount (use container version)
+      - ../apps/web:/app/apps/web  # Hot-reload: Next.js app
+      - ../packages:/app/packages  # Hot-reload: shared auth/types packages
+      - ../core:/app/core          # Hot-reload: DB connection, guards (set_config lives here)
+      - ../apps/api:/app/apps/api  # Hot-reload: API services
+      - /app/apps/web/.next        # Exclude .next build cache from mount (use container version)
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,6 +1,7 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createRoute } from '@/lib/api-route-factory';
 import { query } from '@core/database/connection';
+import { requireContext } from '@packages/auth/request-context';
 
 /**
  * Agent Decisions Endpoint
@@ -9,12 +10,19 @@ import { query } from '@core/database/connection';
  * No synthetic data, no fallbacks.
  */
 export const GET = createRoute(async (req: NextRequest) => {
+  // Extract and validate RequestContext (fail-closed)
+  const ctxOrError = await requireContext(req);
+  if (ctxOrError instanceof NextResponse) {
+    return ctxOrError;
+  }
+  const context = ctxOrError;
+
   // Validate database is available - no fallback
   if (!process.env.DATABASE_URL) {
     throw new Error('❌ DATABASE_URL not set - cannot source agent_decisions');
   }
 
-  const res = await query(`SELECT * FROM agent_decisions LIMIT 100`);
+  const res = await query(`SELECT * FROM agent_decisions LIMIT 100`, undefined, context);
 
   if (!res || !res.rows) {
     throw new Error('❌ Database returned invalid result - expected rows');

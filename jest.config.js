@@ -20,14 +20,15 @@ module.exports = {
         resolveJsonModule: true,
         moduleResolution: 'node',
         allowSyntheticDefaultImports: true,
-        baseUrl: '<rootDir>',
+        baseUrl: '.',
         paths: {
           '@/*': ['apps/api/*'],
           '@api/*': ['apps/api/*'],
           '@core/*': ['core/*'],
           '@agents/*': ['agents/*'],
           '@tools/*': ['tools/*'],
-          '@packages/auth/*': ['packages/auth/*']
+          '@packages/auth/*': ['packages/auth/*'],
+          '@packages/*': ['packages/*']
         }
       }
     }]

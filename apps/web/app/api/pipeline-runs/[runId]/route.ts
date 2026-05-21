@@ -4,8 +4,6 @@ import { requireContext } from '@packages/auth/request-context';
 import { ensurePipelineLedgerSchema, getRunById, getRunMetrics } from '@/lib/pipeline-ledger-service';
 
 export const GET = createRoute(async (request: NextRequest, context: { params: Promise<{ runId: string }> }) => {
-  await ensurePipelineLedgerSchema();
-
   // Require authentication: fail-closed if missing tenant context
   const ctxOrError = await requireContext(request);
   if (ctxOrError instanceof NextResponse) {
@@ -14,9 +12,16 @@ export const GET = createRoute(async (request: NextRequest, context: { params: P
   const ctx = ctxOrError;
   const tenantId = ctx.tenantId;
 
+  await ensurePipelineLedgerSchema();
+
   const { runId } = await context.params;
   const run = await getRunById(runId);
-  if (!run) throw new Error('Run not found');
+  if (!run) {
+    return NextResponse.json(
+      { error: 'Run not found' },
+      { status: 404 }
+    );
+  }
   const metrics = await getRunMetrics(run.runId, run.snapshotId, tenantId);
   return {
     data: {

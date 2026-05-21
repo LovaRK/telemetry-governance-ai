@@ -14,14 +14,16 @@
     "paths": {
       "@api/*": ["./apps/api/*"],
       "@core/*": ["./core/*"],
-      "@agents/*": ["./agents/*"]
+      "@agents/*": ["./agents/*"],
+      "@packages/auth/*": ["./packages/auth/*"]
     }
   },
   "include": [
     "docker/worker.ts",
     "apps/api/**/*.ts",
     "core/**/*.ts",
-    "agents/**/*.ts"
+    "agents/**/*.ts",
+    "packages/**/*.ts"
   ],
   "exclude": ["node_modules", "apps/web"]
 }

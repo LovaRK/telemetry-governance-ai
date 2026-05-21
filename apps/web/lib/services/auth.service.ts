@@ -36,10 +36,21 @@ export class AuthService implements IAuthService {
     }
 
     try {
-      const context = await this.apiClient.post<AuthContext>('/api/auth/login', {
+      const response = await this.apiClient.post<any>('/api/auth/login', {
         email,
         password,
       });
+
+      // Map login response to AuthContext
+      const context: AuthContext = {
+        userId: response.user.id,
+        email: response.user.email,
+        role: response.user.role,
+        tenantId: response.user.tenantId,
+        permissions: this.derivePermissions(response.user.role),
+        timestamp: Date.now(),
+        token: response.accessToken,
+      };
 
       this.setAuthContext(context);
       return context;
@@ -101,9 +112,20 @@ export class AuthService implements IAuthService {
     }
 
     try {
-      const context = await this.apiClient.post<AuthContext>('/api/auth/refresh', {
+      const response = await this.apiClient.post<any>('/api/auth/refresh', {
         token: this.authContext.token,
       });
+
+      // Map refresh response to AuthContext
+      const context: AuthContext = {
+        userId: response.user.id,
+        email: response.user.email,
+        role: response.user.role,
+        tenantId: response.user.tenantId,
+        permissions: this.derivePermissions(response.user.role),
+        timestamp: Date.now(),
+        token: response.accessToken,
+      };
 
       this.setAuthContext(context);
       return context;
@@ -163,6 +185,19 @@ export class AuthService implements IAuthService {
     if (!emailRegex.test(email)) {
       throw new AppError('INVALID_EMAIL', 'Invalid email format', 400);
     }
+  }
+
+  /**
+   * Derive permissions from role
+   */
+  private derivePermissions(role: string): string[] {
+    const permissionMap: Record<string, string[]> = {
+      admin: ['read', 'write', 'delete', 'configure', 'manage_users'],
+      analyst: ['read', 'write'],
+      operator: ['read', 'write'],
+      viewer: ['read'],
+    };
+    return permissionMap[role] || [];
   }
 
   /**

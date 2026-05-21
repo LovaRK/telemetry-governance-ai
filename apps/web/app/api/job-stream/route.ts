@@ -2,15 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createStreamRoute } from '@/lib/stream-route-factory';
 import { createRoute } from '@/lib/api-route-factory';
 import { getTraceId } from '@core/guards/trace-context';
-import { requireContext } from '@packages/auth/request-context';
+import { requireSSEContext } from '@packages/auth/request-context';
 import { getJobStatus, getLatestJob, enqueueJob } from '@api/services/job-service';
+import { RequestContext } from '@packages/auth/request-context';
 
 export const dynamic = 'force-dynamic';
 
 // L3 Compliance: Uses createStreamRoute for trace context injection via AsyncLocalStorage
 export const GET = createStreamRoute(async (request: NextRequest) => {
   // Require authentication: fail-closed if missing tenant context
-  const ctxOrError = await requireContext(request);
+  const ctxOrError = await requireSSEContext(request);
   if (ctxOrError instanceof NextResponse) {
     return ctxOrError;
   }
@@ -86,7 +87,14 @@ export const GET = createStreamRoute(async (request: NextRequest) => {
   });
 });
 
-export const POST = createRoute(async (request: Request) => {
+export const POST = createRoute(async (request: NextRequest) => {
+  // Extract and validate RequestContext (fail-closed)
+  const ctxOrError = await requireSSEContext(request);
+  if (ctxOrError instanceof NextResponse) {
+    return ctxOrError;
+  }
+  const context: RequestContext = ctxOrError;
+
   try {
     const body = await request.json();
     const { source = 'splunk', mode = 'live' } = body;
@@ -99,6 +107,7 @@ export const POST = createRoute(async (request: Request) => {
     const runId = await enqueueJob({
       jobType: 'pipeline_run',
       payload: { source, mode, triggeredAt: new Date().toISOString() },
+      context,
     });
     console.log('[POST /api/job-stream] Job enqueued:', runId);
 

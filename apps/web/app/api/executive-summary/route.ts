@@ -48,6 +48,8 @@ export const GET = createRoute(async (request: NextRequest) => {
     return {
       empty: true,
       status: 'NO_PUBLISHED_SNAPSHOT',
+      summary: null,
+      metrics: [],
       title: 'No executive summary available',
       message: 'Run a refresh to generate your first telemetry snapshot.',
       actions: [
@@ -102,6 +104,8 @@ export const GET = createRoute(async (request: NextRequest) => {
     return {
       empty: true,
       status: 'SPLUNK_UNAVAILABLE',
+      summary: null,
+      metrics: [],
       reason: 'SPLUNK_UNAVAILABLE',
       title: 'Unable to load telemetry data',
       message: 'Splunk is currently unavailable. We will retry your refresh when service is restored.',

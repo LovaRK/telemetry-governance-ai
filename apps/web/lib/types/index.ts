@@ -190,6 +190,7 @@ export interface AuthContext {
   email: string;
   role: UserRole;
   permissions: string[];
+  tenantId: string;
   timestamp: number;
   token: string;
 }

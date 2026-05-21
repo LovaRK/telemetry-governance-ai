@@ -35,6 +35,24 @@ function LoginForm() {
       localStorage.setItem('access_token', response.data.accessToken);
       localStorage.setItem('user', JSON.stringify(response.data.user));
 
+      // Store auth_context with tenant info — required for context headers in apiFetch
+      const permissionMap: Record<string, string[]> = {
+        admin: ['read', 'write', 'delete', 'configure', 'manage_users'],
+        analyst: ['read', 'write'],
+        operator: ['read', 'write'],
+        viewer: ['read'],
+      };
+      const authContext = {
+        userId: response.data.user.id,
+        email: response.data.user.email,
+        role: response.data.user.role,
+        tenantId: response.data.user.tenantId,
+        permissions: permissionMap[response.data.user.role] || [],
+        timestamp: Date.now(),
+        token: response.data.accessToken,
+      };
+      localStorage.setItem('auth_context', JSON.stringify(authContext));
+
       const next = searchParams.get('next') || '/';
       router.push(next);
     } catch {

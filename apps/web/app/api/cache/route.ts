@@ -16,6 +16,12 @@ import {
 } from '@/lib/pipeline-ledger-service';
 
 export const GET = createRoute(async (request: NextRequest) => {
+  // Extract and validate RequestContext (fail-closed)
+  const ctxOrError = await requireContext(request);
+  if (ctxOrError instanceof NextResponse) {
+    return ctxOrError;
+  }
+
   const { searchParams } = new URL(request.url);
   const key = searchParams.get('key');
   if (key) {
@@ -33,15 +39,15 @@ export const GET = createRoute(async (request: NextRequest) => {
 });
 
 export const POST = createRoute(async (request: NextRequest) => {
-  const started = Date.now();
-  await ensurePipelineLedgerSchema();
-
-  // Extract and validate RequestContext (fail-closed, no fallbacks)
+  // Extract and validate RequestContext FIRST (fail-closed, no fallbacks)
   const ctxOrError = await requireContext(request);
   if (ctxOrError instanceof NextResponse) {
     return ctxOrError;
   }
   const context = ctxOrError;
+
+  const started = Date.now();
+  await ensurePipelineLedgerSchema();
 
   const body = await request.json();
   if (!body?.mcpUrl) {

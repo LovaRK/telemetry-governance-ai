@@ -132,10 +132,9 @@ export async function middleware(request: NextRequest) {
 
     try {
       const payload = await verifyTokenEdge(token);
-      // Inject tenant + auth context into request headers for downstream use
-      requestHeaders.set('x-tenant-id', payload.tenantId);
-      requestHeaders.set('x-user-id', payload.sub);
-      requestHeaders.set('x-user-role', payload.role);
+      // Verify JWT is valid, but do NOT auto-inject context headers.
+      // Routes must explicitly validate context via requireContext().
+      // This ensures routes validate tenant context at request time, not assuming middleware did it.
       // traceId already set above
       return NextResponse.next({ request: { headers: requestHeaders } });
     } catch {

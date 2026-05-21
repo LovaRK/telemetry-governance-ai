@@ -1,5 +1,5 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
-import type { RequestContext } from '../../packages/auth/request-context';
+import type { RequestContext } from '@packages/auth/request-context';
 
 const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://telemetry:telemetry@localhost:5433/telemetry_os';
 
@@ -15,8 +15,15 @@ pool.on('error', (err) => {
   process.exit(-1);
 });
 
+// set_config() accepts parameterized values ($1) — this is the correct way to
+// write a session variable in PostgreSQL. The alternative (using the SET command)
+// rejects parameterized syntax and causes a runtime error.
+// Third argument (true) = transaction-local: resets when the transaction ends.
 async function setTenantContext(client: PoolClient, tenantId: string): Promise<void> {
-  await client.query('SET app.current_tenant = $1', [tenantId]);
+  await client.query(
+    `SELECT set_config('app.current_tenant', $1, true)`,
+    [tenantId]
+  );
 }
 
 export async function query<T extends QueryResultRow = any>(
