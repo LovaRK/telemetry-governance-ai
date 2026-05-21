@@ -267,7 +267,13 @@ async function runMigration(client, fileName, content, expectedChecksum) {
       throw e;
     }
   } catch (e) {
-    console.error(`[Migration] ✗ FAILED: ${fileName}`, e.message);
+    console.error(`[Migration] ✗ FAILED: ${fileName}`, e.message || e.toString());
+    if (e.detail) {
+      console.error(`  Detail: ${e.detail}`);
+    }
+    if (e.hint) {
+      console.error(`  Hint: ${e.hint}`);
+    }
     await recordMigration(client, fileName, '', Date.now() - start, 'failed');
     throw e;
   }
@@ -302,6 +308,8 @@ async function runMigrations() {
     console.log('\n' + '='.repeat(60));
     console.log('DATABASE MIGRATION SYSTEM (Production Hardened)');
     console.log('='.repeat(60) + '\n');
+    console.log(`[Migration] Database URL: ${process.env.DATABASE_URL || 'default'}`);
+    console.log(`[Migration] Migrations directory: ${migrationsDir}\n`);
 
     // Step 1: Ensure bootstrap tables exist
     await ensureBootstrapMigration();
@@ -401,12 +409,22 @@ async function main() {
     console.error('\n' + '='.repeat(60));
     console.error('✗ DATABASE INITIALIZATION FAILED');
     console.error('='.repeat(60));
-    console.error('Error:', error.message);
+    console.error('Error:', error.message || error.toString());
+    if (error.stack) {
+      console.error('\nStack trace:');
+      console.error(error.stack);
+    }
+    if (error.detail) {
+      console.error('\nPostgreSQL detail:', error.detail);
+    }
+    if (error.hint) {
+      console.error('PostgreSQL hint:', error.hint);
+    }
     console.error('='.repeat(60) + '\n');
 
     // Record failure
     try {
-      await recordHealthCheck('migrations', 'error', error.message).catch(() => {});
+      await recordHealthCheck('migrations', 'error', error.message || error.toString()).catch(() => {});
     } catch (e) {
       // Silently ignore if recording fails
     }
