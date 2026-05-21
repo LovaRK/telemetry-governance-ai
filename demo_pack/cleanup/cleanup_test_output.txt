@@ -1,0 +1,14 @@
+
+> agentic-telemetry-dashboard@1.0.0 cleanup:test
+> node scripts/cleanup-fixtures.js
+
+{
+  "ok": true,
+  "runId": null,
+  "fixtureTag": null,
+  "deleted": {
+    "agent_decisions": 0,
+    "telemetry_snapshots": 0,
+    "executive_kpis": 0
+  }
+}

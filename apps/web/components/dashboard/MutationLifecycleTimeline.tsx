@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from '@/lib/api-client';
 
 interface LifecycleEvent {
   id: string;
@@ -54,12 +55,12 @@ export default function MutationLifecycleTimeline() {
 
   const fetchEvents = useCallback(async () => {
     try {
-      const res = await fetch('/api/governance/mutation-lifecycle?limit=50');
+      const res = await apiFetch('/api/governance/mutation-lifecycle?limit=50');
       if (!res.ok) throw new Error('Failed to fetch mutation lifecycle');
 
       const json = await res.json();
-      setEvents(json.events || []);
-      setTransitionCounts(json.transitionCounts || {});
+      setEvents(json?.data?.events || []);
+      setTransitionCounts(json?.data?.summary?.transitionFrequency || {});
     } catch (e) {
       console.error('Mutation lifecycle fetch error:', e);
     } finally {

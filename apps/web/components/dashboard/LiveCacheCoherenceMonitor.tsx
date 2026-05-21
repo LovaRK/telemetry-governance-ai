@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from '@/lib/api-client';
 
 interface CacheCoherenceData {
   id: string;
@@ -61,12 +62,12 @@ export default function LiveCacheCoherenceMonitor() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/governance/cache-coherence?limit=50');
+      const res = await apiFetch('/api/governance/cache-coherence?limit=50');
       if (!res.ok) throw new Error('Failed to fetch cache coherence');
 
       const json = await res.json();
-      setData(json.records || []);
-      setSummary(json.summary || null);
+      setData(json?.data?.records || []);
+      setSummary(json?.data?.summary || null);
       setLastUpdated(new Date().toISOString());
     } catch (e) {
       console.error('Cache coherence fetch error:', e);

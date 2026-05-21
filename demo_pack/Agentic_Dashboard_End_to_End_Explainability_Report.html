@@ -1,0 +1,217 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Agentic Dashboard End-to-End Explainability Report</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif; color:#0f172a; margin: 28px; line-height: 1.45; }
+    h1,h2,h3 { color:#0b2a5b; margin-top: 22px; }
+    h1 { font-size: 28px; border-bottom: 3px solid #dbeafe; padding-bottom: 8px; }
+    h2 { font-size: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+    h3 { font-size: 16px; }
+    .note { background:#eff6ff; border-left: 4px solid #3b82f6; padding:10px 12px; margin:12px 0; }
+    .warn { background:#fff7ed; border-left: 4px solid #f97316; padding:10px 12px; margin:12px 0; }
+    .ok { background:#ecfeff; border-left: 4px solid #0891b2; padding:10px 12px; margin:12px 0; }
+    pre { background:#0b1020; color:#dbeafe; padding:12px; overflow:auto; border-radius:8px; font-size:12px; }
+    code { background:#f1f5f9; padding:1px 4px; border-radius:4px; }
+    table { border-collapse: collapse; width:100%; margin: 10px 0 16px; font-size: 13px; }
+    th, td { border:1px solid #cbd5e1; padding:8px; vertical-align: top; }
+    th { background:#f8fafc; text-align:left; }
+    .small { font-size:12px; color:#334155; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    img { max-width:100%; border:1px solid #cbd5e1; border-radius:8px; }
+    .page-break { page-break-before: always; }
+  </style>
+</head>
+<body>
+  <h1>Agentic Dashboard End-to-End Explainability Report</h1>
+  <p class="small">Generated on 2026-05-20 for non-technical review. Scope: prove how each dashboard value appears on screen from real backend/API/DB/AI pipeline paths.</p>
+
+  <h2>Section 1: What this application does (simple story)</h2>
+  <p>Think of this system as a smart operations analyst for Splunk. Normal dashboards only show charts. This platform goes one step further: it analyzes telemetry, reasons about waste/risk, recommends actions, and tracks approval/audit history.</p>
+  <div class="note">
+    Splunk telemetry → Backend ingestion → Processing worker → Database → AI reasoning + deterministic scoring → Governance checks → Dashboard cards/charts.
+  </div>
+  <p><b>Problem solved:</b> teams have too much telemetry and high ingest cost, but low clarity on what to keep, optimize, archive, or remove.</p>
+  <p><b>What is agentic decision making here?</b> The system does not just display data; it proposes actions (for example, optimize or eliminate low-value data) with confidence and evidence, then supports human approval workflow.</p>
+
+  <h2>Section 2: Full application sequence (ordered API flow)</h2>
+  <h3>2.1 Login</h3>
+  <p><b>API:</b> <code>POST /api/auth?action=login</code></p>
+  <p><b>Request body:</b> <code>{ email, password, tenant_slug }</code></p>
+  <p><b>Backend call:</b> forwards to backend auth service (<code>/auth/login</code>).</p>
+  <p><b>Response:</b> returns user/session token data used by frontend auth state.</p>
+
+  <h3>2.2 Refresh pipeline trigger</h3>
+  <p><b>API:</b> <code>POST /api/cache</code></p>
+  <p><b>Request body (key fields):</b> <code>mcpUrl, token (or username/password), disableSslVerify, costPerGbPerDay</code></p>
+  <p><b>What happens internally:</b></p>
+  <ol>
+    <li>Refresh lock check (prevents parallel refresh).</li>
+    <li>Splunk connectivity health check.</li>
+    <li>Fast aggregation writes snapshot rows and baseline KPI rows.</li>
+    <li>Enqueues LLM analysis job for decision enrichment.</li>
+    <li>Updates cache metadata state.</li>
+  </ol>
+
+  <h3>2.3 Cache status</h3>
+  <p><b>API:</b> <code>GET /api/cache-status</code></p>
+  <p><b>Meaning of fields:</b></p>
+  <ul>
+    <li><code>hasEverRefreshed</code>: true when data materialized in DB (snapshots/KPIs/decisions), not just transient cache flags.</li>
+    <li><code>recordCount</code>: number of snapshot records currently available.</li>
+    <li><code>status</code>: refresh state (<code>fresh</code>, <code>refreshing</code>, etc.).</li>
+  </ul>
+
+  <h3>2.4 Executive summary</h3>
+  <p><b>API:</b> <code>GET /api/executive-summary</code></p>
+  <p><b>DB reads:</b> latest <code>telemetry_snapshots</code> snapshot, matching <code>executive_kpis</code>, and <code>agent_decisions</code> (with governance status join).</p>
+  <p><b>Output:</b> <code>kpis</code>, <code>snapshots</code>, <code>decisions</code>, <code>savingsStaircase</code>, <code>quickWins</code>.</p>
+
+  <h3>2.5 Governance APIs</h3>
+  <table>
+    <tr><th>Endpoint</th><th>Purpose</th><th>Consumes DB</th><th>Widget</th></tr>
+    <tr><td><code>/api/governance/stream</code></td><td>Live status stream</td><td>Governance pipeline state/events</td><td>Live governance status</td></tr>
+    <tr><td><code>/api/governance/cache-coherence</code></td><td>Drift/coherence summary</td><td>Cache/coherence tables</td><td>Live Cache Coherence</td></tr>
+    <tr><td><code>/api/governance/mutation-lifecycle</code></td><td>Mutation event timeline</td><td>Governance events</td><td>Mutation lifecycle timeline</td></tr>
+    <tr><td><code>/api/decision-lineage</code></td><td>Decision trace history</td><td>Lineage records</td><td>Decision lineage/trace views</td></tr>
+    <tr><td><code>/api/recommendations</code></td><td>Recommendation list</td><td>Decision rows + action status</td><td>Recommendation/Governance cards</td></tr>
+  </table>
+
+  <div class="ok"><b>Current audit evidence:</b> these core endpoints were observed as HTTP 200 in browser audit logs.</div>
+
+  <h2>Section 3: Sequence diagram (non-technical)</h2>
+  <pre>
+User clicks "Fetch & Cache"
+  ↓
+Browser (Next.js UI)
+  ↓ POST /api/cache
+Next.js API Route
+  ↓
+Splunk Client (health + telemetry queries)
+  ↓
+Postgres writes: telemetry_snapshots + executive_kpis baseline
+  ↓
+Job queue enqueue (LLM analysis)
+  ↓
+Worker processes candidate records
+  ↓
+agent_decisions updated (action/tier/confidence/reasoning/evidence)
+  ↓
+GET /api/executive-summary + governance APIs
+  ↓
+Dashboard renders cards/charts/tables from API JSON
+  </pre>
+
+  <h2>Section 4: Dashboard to API to DB mapping</h2>
+  <table>
+    <tr><th>UI Element</th><th>API</th><th>Field</th><th>DB Table/Columns</th><th>How value is derived</th></tr>
+    <tr><td>ROI Score card</td><td><code>/api/executive-summary</code></td><td><code>data.kpis.roiScore</code></td><td><code>executive_kpis.roi_score</code></td><td>Deterministic portfolio KPI from composite scores.</td></tr>
+    <tr><td>Daily Ingest (GB)</td><td><code>/api/executive-summary</code></td><td><code>data.kpis.totalDailyGb</code></td><td><code>executive_kpis.total_daily_gb</code>, fallback <code>telemetry_snapshots.daily_avg_gb</code></td><td>Uses KPI table; if missing/zero, sums snapshot rows.</td></tr>
+    <tr><td>Savings Potential</td><td><code>/api/executive-summary</code></td><td><code>data.kpis.storageSavingsPotential</code></td><td><code>executive_kpis.storage_savings_potential</code> or decisions sum</td><td>Sum of recommendation-level estimated savings.</td></tr>
+    <tr><td>Telemetry table rows</td><td><code>/api/executive-summary</code></td><td><code>data.snapshots[]</code></td><td><code>telemetry_snapshots</code> + matched <code>agent_decisions</code></td><td>Snapshot rows enriched with decision metrics.</td></tr>
+    <tr><td>Confidence badge</td><td><code>/api/executive-summary</code></td><td><code>data.kpis.avgConfidence</code></td><td><code>executive_kpis.avg_confidence</code> or decisions average</td><td>Average confidence from decision set.</td></tr>
+    <tr><td>Governance coherence panel</td><td><code>/api/governance/cache-coherence</code></td><td><code>data.summary</code>, <code>data.records[]</code></td><td>governance/coherence materialized sources</td><td>Shows drift/coherence health over recent decisions.</td></tr>
+    <tr><td>Mutation lifecycle</td><td><code>/api/governance/mutation-lifecycle</code></td><td><code>data.events[]</code></td><td>governance event timeline tables</td><td>Explains approval/reject/override transitions.</td></tr>
+  </table>
+
+  <h2>Section 5: Aggregation formulas (critical)</h2>
+  <p>These formulas are implemented in the deterministic scoring engine.</p>
+  <pre>
+Utilization(st) = (weighted_sum(st) / max_weighted_sum) × 100
+weighted_sum = (alerts×3) + (scheduled×3) + (dashboards×2) + (adhoc×1) + (users×2)
+
+Detection(st) = (0.40 × potential) + (0.60 × realized)
+potential = max(min(100, mitre_count×1.25), min(100, lantern_count×6.0))
+realized = (active_alerts / max_alerts_across_env) × 100
+
+Quality(st) = max(0, 100 − (issue_density × 2000))
+issue_density = weighted_issues / approx_events
+
+Composite(st) = (util_weight × utilization) + (det_weight × detection) + (qual_weight × quality)
+Default weights: utilization=0.35, detection=0.40, quality=0.25
+
+ROI Score = average(composite_score) across scored sourcetypes
+GainScope% = (Tier1+Tier2 GB / Total GB) × 100
+  </pre>
+  <p><b>Plain English example:</b> If an index has high volume, almost no searches, and weak detections, its utilization and detection scores drop. That reduces composite score, which moves it toward low-value tier and produces an optimize/remove recommendation.</p>
+
+  <h2>Section 6: AI reasoning pipeline (observe → reason → decide)</h2>
+  <p><b>Observe:</b> Collect telemetry facts from Splunk (volume, retention, search usage, security coverage, parse quality).</p>
+  <p><b>Reason:</b> Deterministic scores are computed first; LLM receives this structured context.</p>
+  <p><b>Decide:</b> LLM proposes action/tier/savings/confidence/reasoning.</p>
+  <p><b>Guardrails:</b> Savings, quick-win flag, and confidence are clamped to prevent unsafe exaggeration.</p>
+  <p><b>Persist:</b> Decisions written to <code>agent_decisions</code> with evidence and versions.</p>
+  <p><b>Display:</b> Dashboard reads decisions through executive-summary/recommendations APIs.</p>
+  <div class="warn">If Splunk has sparse data, recommendations can be low-volume and savings can appear near zero. That is data reality, not necessarily UI failure.</div>
+
+  <h2>Section 7: Human-in-the-loop governance</h2>
+  <p>Governance states include <code>ALLOW</code>, <code>BLOCKED</code>, and <code>APPROVAL_REQUIRED</code>. Human reviewers approve/reject/defer recommendations, and those actions are written to governance mutation/history endpoints for audit traceability.</p>
+
+  <h2>Section 8: Current failures found (from evidence)</h2>
+  <ul>
+    <li>At least one audit snapshot showed <code>/api/recommendations/audit</code> returning HTTP 500 (needs route-level fix).</li>
+    <li>Low KPI values observed in current dataset (example: very small ingest and cost values) because snapshot input itself is tiny.</li>
+    <li>Potential KPI-source mismatch risk where some KPI fields can remain zero while snapshots exist; executive-summary has fallback logic for some fields.</li>
+  </ul>
+
+  <h2>Section 9: Proof that data is real (UI == API == DB)</h2>
+  <h3>9.1 Live API evidence</h3>
+  <pre class="mono">/api/cache-status
+{"data":{"hasEverRefreshed":true,"hasData":true,"hasAgentDecisions":true,"hasKpis":true,"status":"fresh","recordCount":3,...},"meta":{"source":"postgres","mode":"live"}}</pre>
+
+  <h3>9.2 Live DB evidence</h3>
+  <pre class="mono">telemetry_snapshots_count = 3
+executive_kpis_count = 1
+agent_decisions_count = 3
+
+executive_kpis latest:
+roi_score=0.00, gainscope_score=100.00, total_license_spend=0.02, total_daily_gb=0.0000, avg_confidence=90.00
+
+telemetry_snapshots sample:
+history daily_avg_gb=0.0001 cost_per_year=0.02
+main    daily_avg_gb=0.0000 cost_per_year=0.00
+tutorial daily_avg_gb=0.0000 cost_per_year=0.00</pre>
+
+  <h3>9.3 Dashboard screenshot evidence</h3>
+  <img src="file:///Users/ramakrishna/Desktop/Teja/Dashboards/demo_pack/evidence/after_login.png" alt="dashboard after login" />
+  <p class="small">Screenshot source: <code>demo_pack/evidence/after_login.png</code></p>
+
+  <h2>Section 10: Final certification matrix (current state)</h2>
+  <table>
+    <tr><th>Capability</th><th>Status</th><th>Evidence</th></tr>
+    <tr><td>Login flow</td><td>PASS</td><td>Minimal login dry-run output + dashboard render evidence.</td></tr>
+    <tr><td>Cache refresh pathway</td><td>PASS (with live data)</td><td>Cache status shows refreshed + data present.</td></tr>
+    <tr><td>Executive summary API</td><td>PASS</td><td>Endpoint available; fields map to DB snapshots/KPIs.</td></tr>
+    <tr><td>Governance stream/coherence/lifecycle</td><td>PASS in latest audit</td><td>200 statuses in fresh audit report.</td></tr>
+    <tr><td>Recommendation audit endpoint</td><td>PARTIAL</td><td>One captured run shows HTTP 500.</td></tr>
+    <tr><td>AI decision trace depth</td><td>PARTIAL</td><td>Decision rows present; lineage queue can be sparse under low data.</td></tr>
+    <tr><td>UI-to-data truthfulness</td><td>PASS with caveat</td><td>Values match low-volume backend data; zeroes can be real when input is sparse.</td></tr>
+  </table>
+
+  <h2>Section 11: Recommendations (priority order)</h2>
+  <ol>
+    <li>Fix <code>/api/recommendations/audit</code> stability to eliminate occasional 500.</li>
+    <li>Add explicit “data sparsity” label in UI when ingest volume is near zero to avoid confusion with failures.</li>
+    <li>Add per-card API-value debug tooltip in demo mode for instant trust verification.</li>
+    <li>Keep one-click evidence export (HAR + API payloads + SQL snapshots) after every refresh run.</li>
+  </ol>
+
+  <h2>Appendix A: Endpoints observed in browser audit</h2>
+  <p class="small">From <code>demo_pack/evidence/dashboard_audit_report_fresh.md</code>: cache-status, executive-summary, decision-lineage, governance stream/coherence/lifecycle, recommendations, queue-health, model-health, kpi-history.</p>
+
+  <h2>Appendix B: Source files used for formulas and flow</h2>
+  <ul>
+    <li><code>apps/api/services/deterministic-scoring-engine.ts</code></li>
+    <li><code>apps/api/services/aggregation-service.ts</code></li>
+    <li><code>apps/web/app/api/cache/route.ts</code></li>
+    <li><code>apps/web/app/api/cache-status/route.ts</code></li>
+    <li><code>apps/web/app/api/executive-summary/route.ts</code></li>
+  </ul>
+
+  <div class="page-break"></div>
+  <h2>Answer to the core question</h2>
+  <p><b>“How exactly did this dashboard value appear on the screen?”</b></p>
+  <p>For each card: Browser requests an API route, the API route reads specific Postgres columns (and in refresh flow first writes from Splunk), deterministic formulas and AI decisions produce derived fields, then JSON fields map directly to UI elements. When values are zero, this report distinguishes whether zero comes from true low telemetry volume or from a pipeline/API defect.</p>
+</body>
+</html>

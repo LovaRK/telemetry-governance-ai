@@ -12,11 +12,12 @@ interface JobProgress {
 interface JobStatusToastProps {
   jobId: string;
   onComplete?: () => void;
+  onStatusChange?: (status: JobStatus, progress: JobProgress) => void;
 }
 
 type JobStatus = 'pending' | 'running' | 'partial' | 'complete' | 'failed' | 'not_found' | 'error';
 
-export default function JobStatusToast({ jobId, onComplete }: JobStatusToastProps) {
+export default function JobStatusToast({ jobId, onComplete, onStatusChange }: JobStatusToastProps) {
   const [status, setStatus] = useState<JobStatus>('pending');
   const [progress, setProgress] = useState<JobProgress>({});
   const [dismissed, setDismissed] = useState(false);
@@ -32,6 +33,7 @@ export default function JobStatusToast({ jobId, onComplete }: JobStatusToastProp
         const data = JSON.parse(e.data);
         setStatus(data.status);
         if (data.progress) setProgress(data.progress);
+        onStatusChange?.(data.status, data.progress || {});
         if (data.status === 'complete') {
           es.close();
           onComplete?.();
@@ -48,7 +50,7 @@ export default function JobStatusToast({ jobId, onComplete }: JobStatusToastProp
     };
 
     return () => es.close();
-  }, [jobId, onComplete]);
+  }, [jobId, onComplete, onStatusChange]);
 
   if (dismissed) return null;
 

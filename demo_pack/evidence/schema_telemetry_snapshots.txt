@@ -1,0 +1,42 @@
+                                         Table "public.telemetry_snapshots"
+     Column      |           Type           | Collation | Nullable |                     Default                     
+-----------------+--------------------------+-----------+----------+-------------------------------------------------
+ id              | integer                  |           | not null | nextval('telemetry_snapshots_id_seq'::regclass)
+ snapshot_id     | uuid                     |           | not null | gen_random_uuid()
+ snapshot_date   | date                     |           | not null | 
+ granularity     | character varying(20)    |           | not null | 
+ parent_index    | character varying(200)   |           |          | 
+ index_name      | character varying(200)   |           | not null | 
+ sourcetype      | character varying(200)   |           |          | 
+ total_events    | bigint                   |           | not null | 0
+ daily_avg_gb    | numeric(12,4)            |           | not null | 0
+ retention_days  | integer                  |           | not null | 90
+ utilization_pct | numeric(5,2)             |           | not null | 0
+ cost_per_year   | numeric(12,2)            |           | not null | 0
+ risk_score      | numeric(5,2)             |           | not null | 0
+ classification  | character varying(30)    |           | not null | 
+ confidence      | numeric(5,4)             |           | not null | 0
+ recommendation  | text                     |           |          | 
+ evidence        | jsonb                    |           | not null | '[]'::jsonb
+ raw_metadata    | jsonb                    |           | not null | '{}'::jsonb
+ created_at      | timestamp with time zone |           | not null | now()
+ updated_at      | timestamp with time zone |           | not null | now()
+ tenant_id       | uuid                     |           | not null | '00000000-0000-0000-0000-000000000001'::uuid
+Indexes:
+    "telemetry_snapshots_pkey" PRIMARY KEY, btree (id)
+    "idx_snapshots_classification" btree (classification)
+    "idx_snapshots_created" btree (created_at)
+    "idx_snapshots_date" btree (snapshot_date)
+    "idx_snapshots_date_gran" btree (snapshot_date, granularity)
+    "idx_snapshots_gran_parent" btree (granularity, parent_index)
+    "idx_snapshots_index" btree (index_name)
+    "idx_telemetry_snapshots_tenant" btree (tenant_id)
+    "uq_snapshot_identity" UNIQUE CONSTRAINT, btree (snapshot_date, granularity, index_name, sourcetype)
+Check constraints:
+    "telemetry_snapshots_classification_check" CHECK (classification::text = ANY (ARRAY['KEEP'::character varying, 'OPTIMIZE'::character varying, 'ARCHIVE'::character varying, 'ELIMINATE'::character varying, 'INVESTIGATE'::character varying]::text[]))
+    "telemetry_snapshots_granularity_check" CHECK (granularity::text = ANY (ARRAY['index'::character varying, 'sourcetype'::character varying]::text[]))
+Referenced by:
+    TABLE "decision_history" CONSTRAINT "decision_history_snapshot_id_fkey" FOREIGN KEY (snapshot_id) REFERENCES telemetry_snapshots(id) ON DELETE CASCADE
+Triggers:
+    update_telemetry_snapshots_updated_at BEFORE UPDATE ON telemetry_snapshots FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+

@@ -28,8 +28,13 @@ export default function DetailPage() {
     try {
       setLoading(true);
       const statusRes = await fetch('/api/cache-status');
-      const statusData = await statusRes.json();
-      const everRefreshed = statusData.hasEverRefreshed ?? false;
+      const statusResponse = await statusRes.json();
+      const statusData = statusResponse?.data || statusResponse || {};
+      const everRefreshed =
+        (statusData.hasEverRefreshed ?? false) ||
+        (statusData.hasData ?? false) ||
+        (statusData.hasAgentDecisions ?? false) ||
+        (statusData.hasKpis ?? false);
       setHasEverRefreshed(everRefreshed);
       setHasAgentDecisions(statusData.hasAgentDecisions ?? false);
 
@@ -50,7 +55,8 @@ export default function DetailPage() {
       ]);
 
       if (summaryRes.ok) {
-        const summary = await summaryRes.json();
+        const summaryResponse = await summaryRes.json();
+        const summary = summaryResponse?.data || summaryResponse || {};
         setKpis(summary.kpis || null);
         setSnapshots(summary.snapshots || []);
       }

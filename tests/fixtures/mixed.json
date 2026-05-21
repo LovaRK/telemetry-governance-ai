@@ -1,0 +1,23 @@
+{
+  "name": "mixed_portfolio",
+  "assets": [
+    {
+      "index_name": "app_logs",
+      "search_count_30d": 95,
+      "annual_license_cost": 700,
+      "security_critical": true
+    },
+    {
+      "index_name": "legacy_debug",
+      "search_count_30d": 0,
+      "annual_license_cost": 2400,
+      "security_critical": false
+    }
+  ],
+  "expected": {
+    "requiredDecisions": [
+      { "index_name": "app_logs", "decision": "KEEP" },
+      { "index_name": "legacy_debug", "decision": "REMOVE" }
+    ]
+  }
+}

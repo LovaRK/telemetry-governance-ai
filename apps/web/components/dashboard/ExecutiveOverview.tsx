@@ -64,7 +64,7 @@ function ScoreBar({ label, value, color }: { label: string; value: number; color
 function MiniGauge({ value, max, label, color }: { value: number; max: number; label: string; color: string }) {
   const pct = Math.min(value / max, 1);
   const angle = pct * 180;
-  const r = 34, cx = 44, cy = 44;
+  const r = 28, cx = 36, cy = 36;
   const polarToXY = (deg: number) => {
     const rad = ((deg - 180) * Math.PI) / 180;
     return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
@@ -73,9 +73,9 @@ function MiniGauge({ value, max, label, color }: { value: number; max: number; l
   const largeArc = angle > 90 ? 1 : 0;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <svg width={88} height={54} viewBox="0 0 88 54">
-        <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" stroke="#1e293b" strokeWidth={9} strokeLinecap="round" />
-        {pct > 0 && <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y}`} fill="none" stroke={color} strokeWidth={9} strokeLinecap="round" />}
+      <svg width={72} height={46} viewBox="0 0 72 46">
+        <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" stroke="#1e293b" strokeWidth={8} strokeLinecap="round" />
+        {pct > 0 && <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y}`} fill="none" stroke={color} strokeWidth={8} strokeLinecap="round" />}
         <text x={cx} y={cy - 2} textAnchor="middle" fill="#f8fafc" fontSize={14} fontWeight={700}>{value}</text>
       </svg>
       <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: -6, textAlign: 'center' }}>{label}</div>
@@ -445,7 +445,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         <div style={{ ...card({ borderLeft: '4px solid #f59e0b' }), position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Coverage Gaps</div>
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'space-around' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.4rem', alignItems: 'start' }}>
             <div style={{ cursor: 'pointer' }} onClick={() => setDrawer({
               isOpen: true,
               metric: 'security_gaps',

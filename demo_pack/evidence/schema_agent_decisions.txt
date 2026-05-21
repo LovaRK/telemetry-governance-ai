@@ -1,0 +1,53 @@
+                                              Table "public.agent_decisions"
+          Column          |           Type           | Collation | Nullable |                   Default                   
+--------------------------+--------------------------+-----------+----------+---------------------------------------------
+ id                       | integer                  |           | not null | nextval('agent_decisions_id_seq'::regclass)
+ snapshot_id              | uuid                     |           | not null | 
+ snapshot_date            | date                     |           | not null | 
+ index_name               | character varying(200)   |           | not null | 
+ sourcetype               | character varying(200)   |           |          | 
+ tier                     | character varying(50)    |           |          | 
+ action                   | character varying(30)    |           |          | 
+ composite_score          | numeric(5,2)             |           |          | 0
+ utilization_score        | numeric(5,2)             |           |          | 0
+ detection_score          | numeric(5,2)             |           |          | 0
+ quality_score            | numeric(5,2)             |           |          | 0
+ risk_score               | numeric(5,2)             |           |          | 0
+ annual_license_cost      | numeric(14,2)            |           |          | 0
+ estimated_savings        | numeric(14,2)            |           |          | 0
+ confidence               | numeric(5,4)             |           |          | 0
+ confidence_score         | numeric(5,2)             |           |          | 0
+ recommendation           | text                     |           |          | 
+ reasoning                | text                     |           |          | 
+ evidence                 | jsonb                    |           | not null | '[]'::jsonb
+ is_quick_win             | boolean                  |           |          | false
+ is_s3_candidate          | boolean                  |           |          | false
+ detection_gap            | boolean                  |           |          | false
+ created_at               | timestamp with time zone |           | not null | now()
+ updated_at               | timestamp with time zone |           | not null | now()
+ candidate_reason         | text[]                   |           |          | '{}'::text[]
+ metadata_fingerprint     | character varying(64)    |           |          | 
+ llm_version              | character varying(50)    |           |          | 
+ prompt_version           | character varying(50)    |           |          | 
+ model_version            | character varying(50)    |           |          | 
+ heuristic_version        | character varying(50)    |           |          | 
+ source_checksum          | character varying(64)    |           |          | 
+ last_llm_processed_at    | timestamp with time zone |           |          | 
+ decision_stability_score | numeric(5,2)             |           |          | 50
+ processing_status        | character varying(30)    |           |          | 'unchanged'::character varying
+ candidate_reasons        | jsonb                    |           |          | '[]'::jsonb
+ tenant_id                | uuid                     |           |          | 
+Indexes:
+    "agent_decisions_pkey" PRIMARY KEY, btree (id)
+    "idx_agent_decisions_date" btree (snapshot_date DESC)
+    "idx_agent_decisions_index" btree (index_name)
+    "idx_agent_decisions_reason" gin (candidate_reason)
+    "idx_agent_decisions_tenant" btree (tenant_id)
+    "uq_agent_decision_identity" UNIQUE CONSTRAINT, btree (snapshot_id, index_name, sourcetype)
+Foreign-key constraints:
+    "agent_decisions_tenant_id_fkey" FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+Referenced by:
+    TABLE "pipeline_executions" CONSTRAINT "pipeline_executions_agent_decision_id_fkey" FOREIGN KEY (agent_decision_id) REFERENCES agent_decisions(id)
+Triggers:
+    update_agent_decisions_updated_at BEFORE UPDATE ON agent_decisions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+

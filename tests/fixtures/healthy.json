@@ -1,0 +1,15 @@
+{
+  "name": "healthy_telemetry",
+  "search_count_30d": 120,
+  "alerts_30d": 18,
+  "annual_license_cost": 500,
+  "utilization_score": 86,
+  "detection_score": 82,
+  "quality_score": 90,
+  "security_critical": true,
+  "expected": {
+    "decision": "KEEP",
+    "minConfidence": 0.8,
+    "minSavings": 0
+  }
+}

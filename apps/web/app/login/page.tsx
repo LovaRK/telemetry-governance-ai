@@ -7,8 +7,8 @@ import { Suspense } from 'react';
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [email, setEmail] = useState('admin@demo.local');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('admin@bitso.com');
+  const [password, setPassword] = useState('Admin@12345');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -128,7 +128,7 @@ function LoginForm() {
         </form>
 
         <p style={{ color: '#475569', fontSize: '0.75rem', textAlign: 'center', marginTop: '1.5rem' }}>
-          Default: admin@demo.local / Demo@12345
+          Default: admin@bitso.com / Admin@12345
         </p>
       </div>
     </div>

@@ -35,6 +35,8 @@ import crypto from 'crypto';
 export interface FastAggregationResult {
   snapshotId: string;
   jobId: string;
+  runId?: string;
+  tenantId?: string;
   inserted: number;
   durationMs: number;
 }
@@ -976,10 +978,16 @@ async function updateCacheMetadata(client: PoolClient, key: string, count: numbe
  */
 export async function runFastAggregation(
   splunk: SplunkClient,
-  config: AggregationConfig = DEFAULT_CONFIG
+  config: AggregationConfig = DEFAULT_CONFIG,
+  context?: {
+    snapshotId?: string;
+    runId?: string;
+    tenantId?: string;
+  }
 ): Promise<FastAggregationResult> {
   const start = Date.now();
-  const snapshotId = uuidv4();
+  const snapshotId = context?.snapshotId || uuidv4();
+  const tenantId = context?.tenantId || 'default';
   const today = new Date().toISOString().split('T')[0];
 
   const userConfig = await loadUserConfig();
@@ -1008,18 +1016,18 @@ export async function runFastAggregation(
   // ── 2. Write raw snapshots with tier=PENDING ────────────────────────────
   let inserted = 0;
   await transaction(async (client) => {
-    await client.query(`DELETE FROM telemetry_snapshots WHERE snapshot_date = $1`, [today]);
-
     for (const m of indexMetrics) {
       const annualCost = m.dailyAvgGb * costPerGbPerDay * 365;
       await client.query(`
         INSERT INTO telemetry_snapshots (
+          tenant_id,
           snapshot_id, snapshot_date, granularity, index_name, sourcetype,
           total_events, daily_avg_gb, retention_days,
           utilization_pct, cost_per_year, risk_score,
           classification, confidence, recommendation, evidence, raw_metadata
-        ) VALUES ($1,$2,'index',$3,NULL,$4,$5,$6,0,$7,0,'INVESTIGATE',0.5,'Pending AI analysis','[]','{}')
-      `, [snapshotId, today, m.index, m.totalEvents, m.dailyAvgGb, m.retentionDays, annualCost]);
+        ) VALUES ($1,$2,$3,'index',$4,NULL,$5,$6,$7,0,$8,0,'INVESTIGATE',0.5,'Pending AI analysis','[]','{}')
+        ON CONFLICT (tenant_id, snapshot_id, granularity, index_name, sourcetype) DO NOTHING
+      `, [tenantId, snapshotId, today, m.index, m.totalEvents, m.dailyAvgGb, m.retentionDays, annualCost]);
       inserted++;
     }
 
@@ -1050,13 +1058,16 @@ export async function runFastAggregation(
 
     // Write baseline KPIs (volume/cost only, LLM scores will come from worker)
     await client.query(`
-      INSERT INTO executive_kpis (snapshot_date, snapshot_id, total_license_spend)
-      VALUES ($1, $2, (SELECT COALESCE(SUM(cost_per_year),0) FROM telemetry_snapshots WHERE snapshot_date=$1))
-      ON CONFLICT (snapshot_date) DO UPDATE SET
-        snapshot_id = EXCLUDED.snapshot_id,
+      INSERT INTO executive_kpis (tenant_id, snapshot_date, snapshot_id, total_license_spend)
+      VALUES ($1, $2, $3, (
+        SELECT COALESCE(SUM(cost_per_year),0)
+        FROM telemetry_snapshots
+        WHERE tenant_id = $1 AND snapshot_id = $3
+      ))
+      ON CONFLICT (tenant_id, snapshot_id) DO UPDATE SET
         total_license_spend = EXCLUDED.total_license_spend,
         updated_at = NOW()
-    `, [today, snapshotId]);
+    `, [tenantId, today, snapshotId]);
 
     // Mark cache as fast_complete
     await client.query(`
@@ -1130,6 +1141,8 @@ export async function runFastAggregation(
     jobType: 'llm_analysis',
     snapshotId,
     payload: {
+      runId: context?.runId || null,
+      tenantId,
       inputs: candidates.length > 0 ? candidates : allInputs.slice(0, MAX_INDEXES),
       candidateReasons: candidates.length > 0 ? candidateReasons : [],
       config: { lookbackDays: config.lookbackDays, costPerGbPerDay },
@@ -1140,7 +1153,7 @@ export async function runFastAggregation(
 
   console.log(`[FastAgg] Done in ${Date.now() - start}ms. Snapshot ${snapshotId}, job ${jobId}, ${inserted} snapshots written.`);
 
-  return { snapshotId, jobId, inserted, durationMs: Date.now() - start };
+  return { snapshotId, jobId, runId: context?.runId, tenantId, inserted, durationMs: Date.now() - start };
 }
 
 /**

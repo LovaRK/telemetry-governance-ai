@@ -1,0 +1,15 @@
+{
+  "name": "risky_removal",
+  "search_count_30d": 0,
+  "alerts_30d": 0,
+  "annual_license_cost": 3500,
+  "utilization_score": 8,
+  "detection_score": 12,
+  "quality_score": 65,
+  "security_critical": true,
+  "expected": {
+    "decision": "APPROVAL_REQUIRED",
+    "minConfidence": 0.7,
+    "minSavings": 800
+  }
+}

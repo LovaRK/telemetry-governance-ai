@@ -1,0 +1,39 @@
+                                              Table "public.executive_kpis"
+          Column           |           Type           | Collation | Nullable |                  Default                   
+---------------------------+--------------------------+-----------+----------+--------------------------------------------
+ id                        | integer                  |           | not null | nextval('executive_kpis_id_seq'::regclass)
+ snapshot_id               | uuid                     |           | not null | gen_random_uuid()
+ snapshot_date             | date                     |           | not null | 
+ roi_score                 | numeric(5,2)             |           | not null | 0
+ gainscope_score           | numeric(5,2)             |           | not null | 0
+ total_license_spend       | numeric(14,2)            |           | not null | 0
+ license_spend_low_value   | numeric(14,2)            |           | not null | 0
+ storage_savings_potential | numeric(14,2)            |           | not null | 0
+ total_daily_gb            | numeric(12,4)            |           | not null | 0
+ total_sourcetypes         | integer                  |           | not null | 0
+ tier_critical             | integer                  |           | not null | 0
+ tier_important            | integer                  |           | not null | 0
+ tier_nice_to_have         | integer                  |           | not null | 0
+ tier_low_value            | integer                  |           | not null | 0
+ security_gaps             | integer                  |           | not null | 0
+ operational_gaps          | integer                  |           | not null | 0
+ avg_utilization           | numeric(5,2)             |           | not null | 0
+ avg_detection             | numeric(5,2)             |           | not null | 0
+ avg_quality               | numeric(5,2)             |           | not null | 0
+ avg_confidence            | numeric(5,2)             |           | not null | 0
+ quick_wins                | jsonb                    |           | not null | '[]'::jsonb
+ savings_staircase         | jsonb                    |           | not null | '[]'::jsonb
+ agent_reasoning           | text                     |           |          | 
+ created_at                | timestamp with time zone |           | not null | now()
+ updated_at                | timestamp with time zone |           | not null | now()
+ tenant_id                 | uuid                     |           |          | 
+Indexes:
+    "executive_kpis_pkey" PRIMARY KEY, btree (id)
+    "executive_kpis_snapshot_date_key" UNIQUE CONSTRAINT, btree (snapshot_date)
+    "idx_exec_kpis_date" btree (snapshot_date DESC)
+    "idx_exec_kpis_tenant" btree (tenant_id)
+Foreign-key constraints:
+    "executive_kpis_tenant_id_fkey" FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+Triggers:
+    update_executive_kpis_updated_at BEFORE UPDATE ON executive_kpis FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+

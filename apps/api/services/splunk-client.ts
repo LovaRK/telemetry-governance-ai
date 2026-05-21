@@ -182,7 +182,14 @@ export class SplunkClient {
       const data = JSON.parse(res.text);
       const entries: any[] = data.entry || [];
 
-      // Filter out internal Splunk indexes (start with _)
+      // Try to enrich with real 24h ingest bytes from license_usage (if permissions allow).
+      const ingestGbByIndex = await this.getRecentDailyIngestGbByIndex().catch(() => new Map<string, number>());
+      // Stronger fallback for demo/small environments: derive 24h bytes directly from event payload.
+      const sampledGbByIndex = await this.getRecentRawBytesGbByIndex(
+        entries.filter(e => e.name && !e.name.startsWith('_')).map((e) => e.name).slice(0, 30)
+      ).catch(() => new Map<string, number>());
+
+      // Filter out internal Splunk indexes
       return entries
         .filter(e => e.name && !e.name.startsWith('_'))
         .map(e => {
@@ -190,7 +197,10 @@ export class SplunkClient {
           const currentSizeMB = parseFloat(content.currentDBSizeMB || content.maxTotalDataSizeMB || '0');
           const retentionSecs = parseInt(content.frozenTimePeriodInSecs || '7776000', 10);
           const retentionDays = Math.max(1, Math.round(retentionSecs / 86400));
-          const dailyAvgGb = currentSizeMB > 0 ? parseFloat((currentSizeMB / 1024 / retentionDays).toFixed(4)) : 0;
+          const metadataDailyGb = currentSizeMB > 0 ? parseFloat((currentSizeMB / 1024 / retentionDays).toFixed(4)) : 0;
+          const licenseDailyGb = ingestGbByIndex.get(e.name) ?? 0;
+          const sampledDailyGb = sampledGbByIndex.get(e.name) ?? 0;
+          const dailyAvgGb = Math.max(metadataDailyGb, licenseDailyGb, sampledDailyGb);
 
           return {
             index: e.name,
@@ -203,6 +213,53 @@ export class SplunkClient {
         })
         .filter(r => r.totalEvents > 0 || r.dailyAvgGb > 0); // skip completely empty indexes
     }, 'getIndexMetrics');
+  }
+
+  /**
+   * Sample recent raw event bytes directly from indexes (last 24h).
+   * This makes low-volume demo ingestion visible faster than license/index metadata alone.
+   */
+  private async getRecentRawBytesGbByIndex(indexes: string[]): Promise<Map<string, number>> {
+    if (indexes.length === 0) return new Map();
+    const where = indexes.map((idx) => `index="${idx}"`).join(' OR ');
+    const spl = `search (${where}) earliest=-24h latest=now()
+| eval _bytes=len(_raw)
+| stats sum(_bytes) as raw_bytes count as observed_events by index`;
+
+    const rows = await this.runSearchJob(spl);
+    const out = new Map<string, number>();
+    for (const row of rows) {
+      const index = row.index;
+      if (!index) continue;
+      const rawBytes = parseFloat(row.raw_bytes || '0');
+      if (!Number.isFinite(rawBytes) || rawBytes <= 0) continue;
+      const gb = parseFloat((rawBytes / (1024 * 1024 * 1024)).toFixed(4));
+      if (gb > 0) out.set(index, gb);
+    }
+    return out;
+  }
+
+  /**
+   * Query Splunk license usage for last 24h and derive daily ingest GB per index.
+   * This reflects fresh writes better than currentDBSize-based approximation.
+   */
+  private async getRecentDailyIngestGbByIndex(): Promise<Map<string, number>> {
+    const spl = `search index=_internal source=*license_usage.log type=Usage earliest=-24h latest=now()
+| eval index=coalesce(idx, index)
+| where isnotnull(index) AND index!="_internal"
+| stats sum(b) as bytes by index`;
+
+    const rows = await this.runSearchJob(spl);
+    const out = new Map<string, number>();
+    for (const row of rows) {
+      const index = row.index;
+      if (!index) continue;
+      const bytes = parseFloat(row.bytes || '0');
+      if (!Number.isFinite(bytes) || bytes <= 0) continue;
+      const gb = parseFloat((bytes / (1024 * 1024 * 1024)).toFixed(4));
+      if (gb > 0) out.set(index, gb);
+    }
+    return out;
   }
 
   /**

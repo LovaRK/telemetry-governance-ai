@@ -250,6 +250,11 @@ async function runMigration(client, fileName, content, expectedChecksum) {
     // Execute migration in transaction
     await client.query('BEGIN');
     try {
+      // Optional session context for governance bootstrap migrations.
+      if (process.env.GOVERNANCE_BOOTSTRAP_KEY) {
+        await client.query('SET LOCAL app.governance_bootstrap_key = $1', [process.env.GOVERNANCE_BOOTSTRAP_KEY]);
+      }
+
       await client.query(content);
       await recordMigration(client, fileName, checksum, Date.now() - start, 'success');
       await client.query('COMMIT');

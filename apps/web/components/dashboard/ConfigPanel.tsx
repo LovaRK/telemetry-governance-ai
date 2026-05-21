@@ -35,12 +35,13 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
     try {
       const response = await apiFetch('/api/config');
       if (!response.ok) throw new Error('Failed to load configuration');
-      const data = await response.json();
+      const responseBody = await response.json();
+      const data = responseBody?.data ?? responseBody;
       setConfig(data);
       setFormState({
-        costPerGbPerDay: data.costPerGbPerDay,
-        maxIndexesPerRun: data.maxIndexesPerRun,
-        llmTimeoutMs: data.llmTimeoutMs,
+        costPerGbPerDay: Number(data?.costPerGbPerDay ?? 0.5),
+        maxIndexesPerRun: Number(data?.maxIndexesPerRun ?? 1000),
+        llmTimeoutMs: Number(data?.llmTimeoutMs ?? 30000),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -60,7 +61,8 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
         body: JSON.stringify(formState),
       });
       if (!response.ok) throw new Error('Failed to save configuration');
-      const data = await response.json();
+      const responseBody = await response.json();
+      const data = responseBody?.data ?? responseBody;
       setConfig(data);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (err) {
@@ -72,6 +74,8 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
   };
 
   if (!isOpen) return null;
+  const costPerGbPerDay = Number(formState.costPerGbPerDay ?? 0.5);
+  const llmTimeoutMs = Number(formState.llmTimeoutMs ?? 30000);
 
   return (
     <div
@@ -159,7 +163,7 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
                 min="0.1"
                 max="2"
                 step="0.05"
-                value={formState.costPerGbPerDay}
+                value={costPerGbPerDay}
                 onChange={(e) =>
                   setFormState((prev) => ({
                     ...prev,
@@ -171,7 +175,7 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#94a3b8' }}>
                 <span>$0.10</span>
                 <span style={{ fontWeight: 600, color: '#3b82f6' }}>
-                  ${formState.costPerGbPerDay.toFixed(2)}
+                  ${costPerGbPerDay.toFixed(2)}
                 </span>
                 <span>$2.00</span>
               </div>
@@ -237,7 +241,7 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
                 }}
               />
               <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
-                {(formState.llmTimeoutMs / 1000).toFixed(1)}s per LLM batch
+                {(llmTimeoutMs / 1000).toFixed(1)}s per LLM batch
               </div>
             </div>
 

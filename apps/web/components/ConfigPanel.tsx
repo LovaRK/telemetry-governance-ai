@@ -39,10 +39,11 @@ export default function ConfigPanel({ open, onClose }: Props) {
       setLoading(true);
       const res = await apiFetch('/api/config');
       if (!res.ok) throw new Error('Failed to load config');
-      const data = await res.json();
+      const responseBody = await res.json();
+      const data = responseBody?.data ?? responseBody;
       setConfig(data);
-      setCost(parseFloat(data.costPerGbPerDay));
-      setRetentionDays(parseInt(data.maxRetentionDays));
+      setCost(Number(data?.costPerGbPerDay ?? 0.5));
+      setRetentionDays(Number(data?.maxRetentionDays ?? 730));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
@@ -66,7 +67,8 @@ export default function ConfigPanel({ open, onClose }: Props) {
         const err = await res.json();
         throw new Error(err.error || 'Failed to save');
       }
-      const data = await res.json();
+      const responseBody = await res.json();
+      const data = responseBody?.data ?? responseBody;
       setConfig(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save');
@@ -76,6 +78,7 @@ export default function ConfigPanel({ open, onClose }: Props) {
   };
 
   if (!open) return null;
+  const safeCost = Number.isFinite(cost) ? cost : 0.5;
 
   return (
     <div style={{
@@ -114,12 +117,12 @@ export default function ConfigPanel({ open, onClose }: Props) {
                   min="0.10"
                   max="2.00"
                   step="0.05"
-                  value={cost}
+                  value={safeCost}
                   onChange={(e) => setCost(parseFloat(e.target.value))}
                   style={{ flex: 1 }}
                 />
                 <span style={{ fontSize: '0.875rem', fontWeight: 600, minWidth: 60, textAlign: 'right' }}>
-                  ${cost.toFixed(2)}
+                  ${safeCost.toFixed(2)}
                 </span>
               </div>
               <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem' }}>

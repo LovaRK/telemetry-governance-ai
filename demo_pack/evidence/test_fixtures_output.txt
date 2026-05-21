@@ -1,0 +1,4 @@
+
+> agentic-telemetry-dashboard@1.0.0 test:fixtures
+> jest -c jest.gates.config.js tests/agent_reasoning/recommendation.test.ts
+

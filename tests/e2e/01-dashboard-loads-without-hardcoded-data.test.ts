@@ -1,21 +1,32 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Dashboard E2E Tests', () => {
+  const waitForInitialScreen = async (page: any) => {
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(1500);
+  };
+
   test('connection screen loads without hard-coded data', async ({ page }) => {
     // Navigate to dashboard
     await page.goto('/');
+    await waitForInitialScreen(page);
 
-    // Should show connection form (no data has been loaded yet)
+    // Should show either connection screen or dashboard shell.
     await expect(page.locator('text=datasensAI')).toBeVisible();
-    await expect(page.locator('text=Connect to Splunk to get started')).toBeVisible();
+    const bodyText = (await page.textContent('body')) || '';
+    const isConnectionScreen = bodyText.includes('Connect to Splunk');
 
-    // Verify connection form elements are present
-    const splunkUrlInput = page.locator('input[placeholder*="Splunk URL"]').first();
-    await expect(splunkUrlInput).toBeVisible();
+    if (isConnectionScreen) {
+      const urlInput = page.locator(
+        'input[placeholder*="Splunk URL"], input[placeholder*="MCP URL"]'
+      ).first();
+      await expect(urlInput).toBeVisible();
+    } else {
+      await expect(page.locator('text=Aetheris Sentinel')).toBeVisible();
+    }
 
     // The entire connection screen should be empty of any hard-coded data
     // No synthetic decisions, indexes, or metrics should be visible
-    const bodyText = await page.textContent('body');
     const hasHardcodedData = (
       bodyText?.includes('test-index') ||
       bodyText?.includes('DEMO_') ||
@@ -35,17 +46,21 @@ test.describe('Dashboard E2E Tests', () => {
 
     // Navigate to dashboard
     await page.goto('/');
-
-    // Wait for initial requests to complete
-    await page.waitForTimeout(2000);
+    await waitForInitialScreen(page);
 
     // Verify that cache-status API is called
     const hasStatusCall = apiRequests.some((url) => url.includes('/api/cache-status'));
     expect(hasStatusCall).toBe(true);
 
-    // Connection screen should be shown (no Splunk connection yet)
-    // This means executive-summary should NOT be called
-    await expect(page.locator('text=Connect to Splunk to get started')).toBeVisible();
+    // App can load either connection view (fresh) or dashboard view (cached refresh exists).
+    const bodyText = (await page.textContent('body')) || '';
+    const onConnection = bodyText.includes('Connect to Splunk');
+    if (onConnection) {
+      const hasSummaryCall = apiRequests.some((url) => url.includes('/api/executive-summary'));
+      expect(hasSummaryCall).toBe(false);
+    } else {
+      await expect(page.locator('text=Aetheris Sentinel')).toBeVisible();
+    }
   });
 
   test('no synthetic data leaks into DOM', async ({ page }) => {

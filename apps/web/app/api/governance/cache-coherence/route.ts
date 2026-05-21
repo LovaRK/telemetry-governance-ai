@@ -18,9 +18,12 @@ export const GET = createRoute(async (request: NextRequest) => {
   if (indexFilter) params.push(indexFilter);
 
   const res = await query<any>(
-    `SELECT id, index_name, cache_tier, coherence_score, staleness_seconds,
-            hit_rate, miss_rate, eviction_count, drift_detected, drift_severity,
-            last_validated_at, recorded_at
+    `SELECT coherence_id, index_name, correlation_id,
+            total_divergence_window_ms, is_divergent,
+            invalidation_failed, refetch_failed, ui_still_stale,
+            server_commit_to_invalidation_ms, invalidation_to_client_awareness_ms,
+            client_awareness_to_refetch_ms, refetch_to_ui_reconciliation_ms,
+            mutation_committed_at, ui_acknowledged_at, recorded_at
      FROM cache_coherence_telemetry
      ${where}
      ORDER BY recorded_at DESC LIMIT $1`,
@@ -28,33 +31,60 @@ export const GET = createRoute(async (request: NextRequest) => {
   );
 
   const rows = res.rows || [];
-  const avgCoherence = rows.length > 0
-    ? rows.reduce((s: number, r: any) => s + parseFloat(r.coherence_score || '0'), 0) / rows.length : 0;
+  const normalized = rows.map((r: any) => {
+    const divergenceMs = parseInt(r.total_divergence_window_ms || '0', 10);
+    const coherenceScore = r.is_divergent ? 0 : 1;
+    const stalenessSeconds = Math.max(0, divergenceMs / 1000);
+    const driftSeverity = divergenceMs >= 300000
+      ? 'CRITICAL'
+      : divergenceMs >= 120000
+        ? 'HIGH'
+        : divergenceMs >= 30000
+          ? 'MEDIUM'
+          : r.is_divergent
+            ? 'LOW'
+            : null;
+    const missRate = r.refetch_failed ? 1 : 0;
+    const hitRate = 1 - missRate;
+
+    return {
+      id: r.coherence_id,
+      indexName: r.index_name,
+      correlationId: r.correlation_id,
+      coherenceScore,
+      stalenessSeconds,
+      hitRate,
+      missRate,
+      evictionCount: 0,
+      driftDetected: Boolean(r.is_divergent),
+      driftSeverity,
+      invalidationFailed: Boolean(r.invalidation_failed),
+      refetchFailed: Boolean(r.refetch_failed),
+      uiStillStale: Boolean(r.ui_still_stale),
+      serverCommitToInvalidationMs: parseInt(r.server_commit_to_invalidation_ms || '0', 10),
+      invalidationToClientAwarenessMs: parseInt(r.invalidation_to_client_awareness_ms || '0', 10),
+      clientAwarenessToRefetchMs: parseInt(r.client_awareness_to_refetch_ms || '0', 10),
+      refetchToUiReconciliationMs: parseInt(r.refetch_to_ui_reconciliation_ms || '0', 10),
+      mutationCommittedAt: r.mutation_committed_at,
+      lastValidatedAt: r.ui_acknowledged_at || r.recorded_at,
+      recordedAt: r.recorded_at,
+    };
+  });
+
+  const avgCoherence = normalized.length > 0
+    ? normalized.reduce((s: number, r: any) => s + r.coherenceScore, 0) / normalized.length : 0;
 
   return {
     data: {
       summary: {
         avgCoherenceScore: Math.round(avgCoherence * 100) / 100,
-        driftDetectedCount: rows.filter((r: any) => r.drift_detected).length,
-        avgHitRatePct: rows.length > 0
-          ? Math.round(rows.reduce((s: number, r: any) => s + parseFloat(r.hit_rate || '0'), 0) / rows.length * 10000) / 100
+        driftDetectedCount: normalized.filter((r: any) => r.driftDetected).length,
+        avgHitRatePct: normalized.length > 0
+          ? Math.round(normalized.reduce((s: number, r: any) => s + r.hitRate, 0) / normalized.length * 10000) / 100
           : 0,
-        totalRecords: rows.length,
+        totalRecords: normalized.length,
       },
-      records: rows.map((r: any) => ({
-        id: r.id,
-        indexName: r.index_name,
-        cacheTier: r.cache_tier,
-        coherenceScore: parseFloat(r.coherence_score || '0'),
-        stalenessSeconds: parseFloat(r.staleness_seconds || '0'),
-        hitRate: parseFloat(r.hit_rate || '0'),
-        missRate: parseFloat(r.miss_rate || '0'),
-        evictionCount: parseInt(r.eviction_count || '0', 10),
-        driftDetected: Boolean(r.drift_detected),
-        driftSeverity: r.drift_severity || null,
-        lastValidatedAt: r.last_validated_at,
-        recordedAt: r.recorded_at,
-      })),
+      records: normalized,
       lastUpdate: new Date().toISOString(),
     },
     meta: { source: 'postgres' },

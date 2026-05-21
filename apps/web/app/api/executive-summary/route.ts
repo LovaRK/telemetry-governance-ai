@@ -1,151 +1,93 @@
 import { NextRequest } from 'next/server';
 import { createRoute } from '@/lib/api-route-factory';
 import { query } from '@core/database/connection';
+import { ensurePipelineLedgerSchema, getLatestPublishedRun } from '@/lib/pipeline-ledger-service';
 
 export const GET = createRoute(async (request: NextRequest) => {
-  const tenantId = request.headers.get('x-tenant-id');
-  const userId = request.headers.get('x-user-id');
+  await ensurePipelineLedgerSchema();
 
-  // Check if database is available
-  if (!query) {
-    throw new Error('Database not available: Run in full-stack mode with DATABASE_URL set');
+  const tenantId = request.headers.get('x-tenant-id') || 'default';
+  const publishedRun = await getLatestPublishedRun(tenantId);
+
+  if (!publishedRun) {
+    throw new Error('No published snapshot available: run a refresh first');
   }
 
-  // Fetch latest snapshot and KPIs from PostgreSQL (tenant-scoped via migration 107)
-  let snapshotResult = await query(
-    tenantId
-      ? `SELECT * FROM telemetry_snapshots WHERE tenant_id = $1 ORDER BY snapshot_date DESC LIMIT 1`
-      : `SELECT * FROM telemetry_snapshots ORDER BY snapshot_date DESC LIMIT 1`,
-    tenantId ? [tenantId] : []
+  const snapshotId = publishedRun.snapshotId;
+
+  const snapshotRowsResult = await query(
+    `SELECT * FROM telemetry_snapshots
+     WHERE tenant_id = $1 AND snapshot_id = $2
+     ORDER BY index_name ASC, sourcetype ASC NULLS FIRST`,
+    [tenantId, snapshotId]
   );
+  const snapshotRows = snapshotRowsResult.rows || [];
 
-  // If tenant-scoped query returned no results, fall back to querying all data
-  if (snapshotResult.rows.length === 0 && tenantId) {
-    snapshotResult = await query(
-      `SELECT * FROM telemetry_snapshots ORDER BY snapshot_date DESC LIMIT 1`,
-      []
-    );
+  const kpisResult = await query(
+    `SELECT * FROM executive_kpis WHERE tenant_id = $1 AND snapshot_id = $2 LIMIT 1`,
+    [tenantId, snapshotId]
+  );
+  const kpi = kpisResult.rows[0] || {};
+
+  const decisionsResult = await query(
+    `SELECT ad.*,
+            ra.status      AS gov_status,
+            ra.action_note AS gov_note,
+            ra.actor_email AS gov_actor,
+            ra.updated_at  AS gov_updated_at
+     FROM agent_decisions ad
+     LEFT JOIN LATERAL (
+       SELECT status, action_note, actor_email, updated_at
+       FROM recommendation_actions
+       WHERE index_name = ad.index_name
+         AND (sourcetype = ad.sourcetype OR (sourcetype IS NULL AND ad.sourcetype IS NULL))
+       ORDER BY updated_at DESC
+       LIMIT 1
+     ) ra ON true
+     WHERE ad.tenant_id = $1 AND ad.snapshot_id = $2
+     ORDER BY ad.composite_score DESC`,
+    [tenantId, snapshotId]
+  );
+  const decisions = decisionsResult.rows || [];
+
+  const tierCounts = {
+    critical: decisions.filter((d: any) => d.tier?.toUpperCase() === 'CRITICAL').length,
+    important: decisions.filter((d: any) => d.tier?.toUpperCase() === 'IMPORTANT').length,
+    niceToHave: decisions.filter((d: any) => d.tier?.toUpperCase() === 'NICE_TO_HAVE' || d.tier?.toUpperCase() === 'NICE-TO-HAVE').length,
+    lowValue: decisions.filter((d: any) => d.tier?.toUpperCase() === 'LOW_VALUE' || d.tier?.toUpperCase() === 'LOW-VALUE').length,
+  };
+
+  const totalDailyGbFromSnapshots = snapshotRows.reduce((sum: number, s: any) => sum + (parseFloat(s.daily_avg_gb) || 0), 0);
+  const totalSourcetypesFromSnapshots = snapshotRows.length;
+
+  const decisionsByKey = new Map<string, any>();
+  for (const d of decisions) {
+    const key = `${d.index_name}::${d.sourcetype || ''}`;
+    if (!decisionsByKey.has(key)) decisionsByKey.set(key, d);
   }
 
-  if (snapshotResult.rows.length === 0) {
-    throw new Error('No data available: Run a refresh from the connection screen first');
-  }
-
-    const snapshot = snapshotResult.rows[0];
-    const snapshotId = snapshot.snapshot_id;
-
-    // Fetch KPIs for this snapshot
-    let kpisResult = await query(
-      `SELECT * FROM executive_kpis WHERE snapshot_id = $1`,
-      [snapshotId]
-    );
-    let kpi = kpisResult.rows[0];
-
-    // Fetch decisions for this snapshot — LEFT JOIN governance status
-    let decisionsResult = await query(
-      `SELECT ad.*,
-              ra.status        AS gov_status,
-              ra.action_note   AS gov_note,
-              ra.actor_email   AS gov_actor,
-              ra.updated_at    AS gov_updated_at
-       FROM agent_decisions ad
-       LEFT JOIN LATERAL (
-         SELECT status, action_note, actor_email, updated_at
-         FROM recommendation_actions
-         WHERE index_name = ad.index_name
-           AND (sourcetype = ad.sourcetype OR (sourcetype IS NULL AND ad.sourcetype IS NULL))
-         ORDER BY updated_at DESC
-         LIMIT 1
-       ) ra ON true
-       WHERE ad.snapshot_id = $1
-       ORDER BY ad.composite_score DESC`,
-      [snapshotId]
-    );
-    let decisions = decisionsResult.rows;
-
-    // Build staircase data from decisions
-    const staircase = [
-      {
-        stage: 'Quick Wins',
-        amount: decisions.filter((d: any) => d.is_quick_win).reduce((sum: number, d: any) => sum + (d.estimated_savings || 0), 0),
-      },
-      {
-        stage: 'Archive',
-        amount: decisions.filter((d: any) => d.action === 'ARCHIVE').reduce((sum: number, d: any) => sum + (d.estimated_savings || 0), 0),
-      },
-      {
-        stage: 'Optimize',
-        amount: decisions.filter((d: any) => d.action === 'OPTIMIZE').reduce((sum: number, d: any) => sum + (d.estimated_savings || 0), 0),
-      },
-      {
-        stage: 'S3 Candidate',
-        amount: decisions.filter((d: any) => d.is_s3_candidate).reduce((sum: number, d: any) => sum + (d.estimated_savings || 0), 0),
-      },
-    ];
-
-    // Quick wins: tier=CRITICAL + is_quick_win
-    const quickWins = decisions
-      .filter((d: any) => d.is_quick_win)
-      .sort((a: any, b: any) => (b.estimated_savings || 0) - (a.estimated_savings || 0))
-      .slice(0, 5)
-      .map((d: any) => ({
-        indexName: d.index_name,
-        action: d.action,
-        savings: d.estimated_savings || 0,
-        tier: d.tier || 'CRITICAL',
-        reasoning: d.recommendation || '',
-      }));
-
-    // Calculate tier counts and aggregate metrics from decisions
-    const tierCounts = {
-      critical: decisions.filter((d: any) => d.tier?.toUpperCase() === 'CRITICAL').length,
-      important: decisions.filter((d: any) => d.tier?.toUpperCase() === 'IMPORTANT').length,
-      niceToHave: decisions.filter((d: any) => d.tier?.toUpperCase() === 'NICE_TO_HAVE' || d.tier?.toUpperCase() === 'NICE-TO-HAVE').length,
-      lowValue: decisions.filter((d: any) => d.tier?.toUpperCase() === 'LOW_VALUE' || d.tier?.toUpperCase() === 'LOW-VALUE').length,
-    };
-
-    const lowValueSpend = decisions
-      .filter((d: any) => d.tier?.toUpperCase() === 'LOW_VALUE' || d.tier?.toUpperCase() === 'LOW-VALUE')
-      .reduce((sum: number, d: any) => sum + (parseFloat(d.annual_license_cost) || 0), 0);
-
-    const totalSavings = decisions.reduce((sum: number, d: any) => sum + (parseFloat(d.estimated_savings) || 0), 0);
-
-    const avgUtilization = decisions.length > 0
-      ? decisions.reduce((sum: number, d: any) => sum + (parseFloat(d.utilization_score) || 0), 0) / decisions.length
-      : 0;
-
-    const avgDetection = decisions.length > 0
-      ? decisions.reduce((sum: number, d: any) => sum + (parseFloat(d.detection_score) || 0), 0) / decisions.length
-      : 0;
-
-    const avgQuality = decisions.length > 0
-      ? decisions.reduce((sum: number, d: any) => sum + (parseFloat(d.quality_score) || 0), 0) / decisions.length
-      : 0;
-
-    const avgConfidence = decisions.length > 0
-      ? decisions.reduce((sum: number, d: any) => sum + (parseFloat(d.confidence || 0)), 0) / decisions.length
-      : 0;
-
-    return {
-      data: {
-        kpis: {
+  return {
+    data: {
+      kpis: {
         roiScore: parseFloat(kpi?.roi_score || '0'),
         gainScopeScore: parseFloat(kpi?.gainscope_score || '0'),
         totalLicenseSpend: parseFloat(kpi?.total_license_spend || '0'),
-        licenseSpendLowValue: lowValueSpend,
-        storageSavingsPotential: totalSavings,
-        totalDailyGb: parseFloat(kpi?.total_daily_gb || '0'),
-        totalSourcetypes: decisions.length,
+        licenseSpendLowValue: parseFloat(kpi?.license_spend_low_value || '0'),
+        storageSavingsPotential: parseFloat(kpi?.storage_savings_potential || '0'),
+        totalDailyGb: parseFloat(kpi?.total_daily_gb || String(totalDailyGbFromSnapshots) || '0'),
+        totalSourcetypes: parseInt(kpi?.total_sourcetypes || String(totalSourcetypesFromSnapshots) || '0', 10),
         tierCounts,
         securityGaps: parseInt(kpi?.security_gaps || '0', 10),
         operationalGaps: parseInt(kpi?.operational_gaps || '0', 10),
-        avgUtilization,
-        avgDetection,
-        avgQuality,
-        avgConfidence,
+        avgUtilization: parseFloat(kpi?.avg_utilization || '0'),
+        avgDetection: parseFloat(kpi?.avg_detection || '0'),
+        avgQuality: parseFloat(kpi?.avg_quality || '0'),
+        avgConfidence: parseFloat(kpi?.avg_confidence || '0'),
       },
-      snapshots: [
-        {
+      snapshots: snapshotRows.map((snapshot: any) => {
+        const key = `${snapshot.index_name}::${snapshot.sourcetype || ''}`;
+        const d = decisionsByKey.get(key);
+        return {
           snapshotId: snapshot.snapshot_id,
           indexName: snapshot.index_name,
           sourcetype: snapshot.sourcetype,
@@ -156,23 +98,23 @@ export const GET = createRoute(async (request: NextRequest) => {
           retentionDays: parseInt(snapshot.retention_days || '90', 10),
           utilizationPct: parseFloat(snapshot.utilization_pct || '0'),
           costPerYear: parseFloat(snapshot.cost_per_year || '0'),
-          riskScore: parseFloat(snapshot.risk_score || '0'),
+          riskScore: d ? parseFloat(d.risk_score || '0') : parseFloat(snapshot.risk_score || '0'),
           classification: snapshot.classification,
-          confidence: parseFloat(snapshot.confidence || '0'),
-          recommendation: snapshot.recommendation,
-          tier: decisions[0]?.tier || snapshot.classification,
-          action: decisions[0]?.action || 'KEEP',
-          reasoning: snapshot.raw_metadata?.reasoning || '',
-          estimatedSavings: decisions.reduce((s: number, d: any) => s + (parseFloat(d.estimated_savings) || 0), 0),
-          compositeScore: decisions.length > 0 ? parseFloat(decisions[0].composite_score || '0') : 0,
-          utilizationScore: decisions.length > 0 ? parseFloat(decisions[0].utilization_score || '0') : parseFloat(snapshot.utilization_pct || '0'),
-          detectionScore: decisions.length > 0 ? parseFloat(decisions[0].detection_score || '0') : 0,
-          qualityScore: decisions.length > 0 ? parseFloat(decisions[0].quality_score || '0') : 0,
-          isQuickWin: decisions.length > 0 && decisions[0].is_quick_win,
-          isS3Candidate: decisions.length > 0 && decisions[0].is_s3_candidate,
-          detectionGap: decisions.length > 0 && decisions[0].detection_gap,
-        },
-      ],
+          confidence: d ? parseFloat(d.confidence || '0') : parseFloat(snapshot.confidence || '0'),
+          recommendation: d?.recommendation || snapshot.recommendation,
+          tier: d?.tier || snapshot.classification,
+          action: d?.action || snapshot.classification || 'KEEP',
+          reasoning: d?.reasoning || snapshot.raw_metadata?.reasoning || '',
+          estimatedSavings: d ? (parseFloat(d.estimated_savings) || 0) : 0,
+          compositeScore: d ? (parseFloat(d.composite_score) || 0) : 0,
+          utilizationScore: d ? (parseFloat(d.utilization_score) || 0) : parseFloat(snapshot.utilization_pct || '0'),
+          detectionScore: d ? (parseFloat(d.detection_score) || 0) : 0,
+          qualityScore: d ? (parseFloat(d.quality_score) || 0) : 0,
+          isQuickWin: Boolean(d?.is_quick_win),
+          isS3Candidate: Boolean(d?.is_s3_candidate),
+          detectionGap: Boolean(d?.detection_gap),
+        };
+      }),
       decisions: decisions.map((d: any) => ({
         index: d.index_name,
         sourcetype: d.sourcetype,
@@ -192,17 +134,31 @@ export const GET = createRoute(async (request: NextRequest) => {
         isQuickWin: d.is_quick_win,
         isS3Candidate: d.is_s3_candidate,
         detectionGap: d.detection_gap,
-        // Governance lifecycle status
         governanceStatus: d.gov_status || 'NEW',
         governanceNote: d.gov_note || null,
         governanceActor: d.gov_actor || null,
         governanceUpdatedAt: d.gov_updated_at || null,
       })),
-        savingsStaircase: staircase,
-        quickWins,
-        snapshotDate: snapshot.snapshot_date || new Date().toISOString(),
-        agentReasoning: snapshot.snapshot_metadata?.agentReasoning || '',
-      },
-      meta: { source: 'postgres' },
-    };
+      quickWins: decisions
+        .filter((d: any) => d.is_quick_win)
+        .sort((a: any, b: any) => (b.estimated_savings || 0) - (a.estimated_savings || 0))
+        .slice(0, 5)
+        .map((d: any) => ({
+          indexName: d.index_name,
+          action: d.action,
+          savings: d.estimated_savings || 0,
+          tier: d.tier || 'CRITICAL',
+          reasoning: d.recommendation || '',
+        })),
+      snapshotDate: publishedRun.publishedAt || publishedRun.startedAt,
+      agentReasoning: kpi?.agent_reasoning || '',
+    },
+    meta: {
+      source: 'postgres',
+      runId: publishedRun.runId,
+      snapshotId: publishedRun.snapshotId,
+      publishedAt: publishedRun.publishedAt,
+      tenantId,
+    },
+  };
 });

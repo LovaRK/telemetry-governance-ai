@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { apiFetch } from '@/lib/api-client';
 
 export interface GovernanceStreamEvent {
   type: 'governance' | 'decision' | 'drift' | 'heartbeat' | 'connected' | 'error' | 'close';
@@ -39,6 +40,7 @@ export function useGovernanceStream({
   const esRef = useRef<EventSource | null>(null);
   const lastEventIdRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectingRef = useRef(false);
 
   const addEvent = useCallback((type: GovernanceStreamEvent['type'], data: Record<string, any>) => {
     setEvents(prev => [...prev.slice(-99), { type, data, receivedAt: new Date().toISOString() }]);
@@ -56,12 +58,25 @@ export function useGovernanceStream({
     esRef.current = es;
 
     es.onopen = () => setConnected(true);
-    es.onerror = () => {
+    es.onerror = async () => {
       setConnected(false);
       es.close();
       esRef.current = null;
-      // Reconnect after 8 seconds
-      reconnectTimerRef.current = setTimeout(connect, 8000);
+
+      if (!reconnectingRef.current) {
+        reconnectingRef.current = true;
+        try {
+          // Trigger token refresh path when auth expired (apiFetch auto-refreshes on 401).
+          await apiFetch('/api/cache-status');
+        } catch {
+          // ignore; reconnect attempts still continue
+        } finally {
+          reconnectingRef.current = false;
+        }
+      }
+
+      // Reconnect after 5 seconds
+      reconnectTimerRef.current = setTimeout(connect, 5000);
     };
 
     es.addEventListener('connected', (e) => {

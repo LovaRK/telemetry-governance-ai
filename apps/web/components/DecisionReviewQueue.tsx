@@ -309,7 +309,7 @@ export function DecisionReviewQueue() {
                     </div>
                     <div style={{ fontSize: '13px', color: '#666' }}>
                       <div style={{ marginBottom: '8px' }}>
-                        <strong>Confidence Score:</strong> {decision.cognitiveSignals.confidence_score.toFixed(2)} / 1.0
+                        <strong>Confidence Score:</strong> {Number(decision.cognitiveSignals?.confidence_score ?? 0).toFixed(2)} / 1.0
                       </div>
                       <div style={{ marginBottom: '8px' }}>
                         <strong>Model:</strong> {decision.cognitiveSignals.model_version}

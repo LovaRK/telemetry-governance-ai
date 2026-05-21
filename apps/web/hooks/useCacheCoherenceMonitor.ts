@@ -15,6 +15,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { apiFetch } from '@/lib/api-client';
 
 export type CoherenceTier = 'NOMINAL' | 'DEGRADED' | 'STALE' | 'SEVERE';
 
@@ -46,7 +47,7 @@ function classifyCoherenceTier(latencyMs: number): CoherenceTier {
 
 async function emitCoherenceTelemetry(telemetry: CacheCoherenceTelemetry): Promise<void> {
   try {
-    await fetch('/api/governance/cache-coherence', {
+    await apiFetch('/api/governance/cache-coherence', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -106,14 +107,15 @@ export function useCacheCoherenceMetrics(indexName: string, windowMs: number = 6
 
   const fetchMetrics = useCallback(async () => {
     try {
-      const res = await fetch(`/api/governance/cache-coherence?indexName=${encodeURIComponent(indexName)}&windowMs=${windowMs}`);
+      const res = await apiFetch(`/api/governance/cache-coherence?indexName=${encodeURIComponent(indexName)}&windowMs=${windowMs}`);
       if (!res.ok) throw new Error('Failed to fetch coherence metrics');
       const json = await res.json();
+      const payload = json?.data ?? {};
       setData({
-        averageLatencyMs: json.summary?.avgCoherenceScore != null ? (1 - json.summary.avgCoherenceScore) * 10000 : 0,
-        verificationFailureRate: json.summary?.driftRate ?? 0,
-        records: json.records ?? [],
-        summary: json.summary ?? {},
+        averageLatencyMs: payload.summary?.avgCoherenceScore != null ? (1 - payload.summary.avgCoherenceScore) * 10000 : 0,
+        verificationFailureRate: payload.summary?.driftRate ?? 0,
+        records: payload.records ?? [],
+        summary: payload.summary ?? {},
       });
       setError(null);
     } catch (e) {

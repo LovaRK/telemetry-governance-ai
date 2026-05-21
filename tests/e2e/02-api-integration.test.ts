@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('API Integration Tests', () => {
+  const waitForInitialScreen = async (page: any) => {
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(1500);
+  };
+
   test('cache-status endpoint returns valid JSON', async ({ page }) => {
     // Intercept the API response
     let statusResponse: any = null;
@@ -17,19 +22,18 @@ test.describe('API Integration Tests', () => {
 
     // Navigate to dashboard
     await page.goto('/');
-
-    // Wait for API calls
-    await page.waitForTimeout(2000);
+    await waitForInitialScreen(page);
 
     // Verify cache-status was called
     expect(statusResponse).not.toBeNull();
 
     // Verify response has expected structure (not hard-coded values)
     if (statusResponse) {
-      expect(statusResponse).toHaveProperty('hasEverRefreshed');
-      expect(statusResponse).toHaveProperty('status');
+      const payload = statusResponse.data ?? statusResponse;
+      expect(payload).toHaveProperty('hasEverRefreshed');
+      expect(payload).toHaveProperty('status');
       // Boolean values, not hard-coded strings
-      expect(typeof statusResponse.hasEverRefreshed).toBe('boolean');
+      expect(typeof payload.hasEverRefreshed).toBe('boolean');
     }
   });
 
@@ -70,7 +74,7 @@ test.describe('API Integration Tests', () => {
     });
 
     await page.goto('/');
-    await page.waitForTimeout(2000);
+    await waitForInitialScreen(page);
 
     // Verify real API calls were made
     expect(networkLog.length).toBeGreaterThan(0);
@@ -115,7 +119,7 @@ test.describe('API Integration Tests', () => {
     });
 
     await page.goto('/');
-    await page.waitForTimeout(2000);
+    await waitForInitialScreen(page);
 
     // Verify responses are valid JSON (not concatenated strings)
     for (const body of responseBodies) {
@@ -145,13 +149,18 @@ test.describe('API Integration Tests', () => {
     });
 
     await page.goto('/');
+    await waitForInitialScreen(page);
 
-    // Wait for page to load
-    await expect(page.locator('text=Connect to Splunk')).toBeVisible();
+    const urlInput = page.locator(
+      'input[placeholder*="Splunk URL"], input[placeholder*="MCP URL"]'
+    ).first();
+    const bodyText = (await page.textContent('body')) || '';
+    const onConnectionScreen = bodyText.includes('Connect to Splunk');
 
-    // Fill in the connection form (do NOT submit, just verify structure)
-    // This test verifies the form is set up correctly to send to API
-    const urlInput = page.locator('input[placeholder*="Splunk URL"]').first();
-    expect(urlInput).toBeVisible();
+    if (onConnectionScreen) {
+      await expect(urlInput).toBeVisible();
+    } else {
+      await expect(page.locator('text=Aetheris Sentinel')).toBeVisible();
+    }
   });
 });

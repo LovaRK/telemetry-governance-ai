@@ -12,10 +12,13 @@
 import { claimNextJob, updateJobProgress, checkpointJob, setJobComplete, setJobFailed } from '../apps/api/services/job-service';
 import { runLLMDecisionAgent, RawTelemetryInput } from '../apps/api/agents/llm-decision-agent';
 import { loadUserConfig } from '../apps/api/services/config-service';
-import { query, transaction } from '../core/database/connection';
+import { pool, query, transaction } from '../core/database/connection';
+import { ModelGovernanceService, RuntimeFingerprint } from '../apps/api/services/model-governance-service';
+import { appendStageEvent, markRunFailed, publishRunAtomic } from '../apps/api/services/pipeline-ledger-service';
 
 const POLL_INTERVAL_MS = parseInt(process.env.WORKER_POLL_INTERVAL_MS || '5000', 10);
 const BATCH_SIZE = 1; // One index at a time — local Ollama memory constraint
+const governanceService = new ModelGovernanceService(pool);
 
 async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -31,6 +34,37 @@ async function processJob(job: any): Promise<void> {
 
   const today = new Date().toISOString().split('T')[0];
   const snapshotId = job.snapshotId || job.payload.snapshotId;
+  const runId = (job.payload as any)?.runId || null;
+  const tenantId = (job.payload as any)?.tenantId || 'default';
+  // Phase 1G-C: Resolve authoritative runtime fingerprint at job boundary.
+  // If no active pointer exists, fail fast to avoid ungoverned decisions.
+  let runtime: RuntimeFingerprint;
+  try {
+    if (runId) {
+      await appendStageEvent({
+        runId,
+        stage: 'AI_DECISIONS',
+        status: 'IN_PROGRESS',
+        metadata: { jobId: job.jobId, snapshotId },
+      });
+    }
+    runtime = await governanceService.getActiveRuntime();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (runId) {
+      await appendStageEvent({
+        runId,
+        stage: 'AI_DECISIONS',
+        status: 'FAILED',
+        errorType: 'UNKNOWN',
+        errorCode: 'NO_ACTIVE_MODEL_POINTER',
+        errorMessage: msg,
+        metadata: { jobId: job.jobId, snapshotId },
+      });
+      await markRunFailed(runId, msg);
+    }
+    throw err;
+  }
 
   // Map candidate reasons for quick lookup
   const reasonsMap = new Map<string, string[]>();
@@ -66,7 +100,7 @@ async function processJob(job: any): Promise<void> {
         for (const decision of decisions) {
           const reasonKey = decision.sourcetype ? `${decision.index}:${decision.sourcetype}` : decision.index;
           const candidateReason = reasonsMap.get(reasonKey) || [];
-          await writeDecisionToDb(client, decision, snapshotId, today, candidateReason);
+          await writeDecisionToDb(client, decision, snapshotId, today, candidateReason, runtime);
         }
       });
 
@@ -106,11 +140,61 @@ async function processJob(job: any): Promise<void> {
     console.warn('[Worker] Secondary tables warning:', err instanceof Error ? err.message : err);
   }
 
+  if (runId) {
+    await appendStageEvent({
+      runId,
+      stage: 'AI_DECISIONS',
+      status: 'SUCCESS',
+      recordsProcessed: totalDecisions,
+      metadata: {
+        jobId: job.jobId,
+        snapshotId,
+        modelId: runtime.modelId,
+        promptId: runtime.promptId,
+        promotionId: runtime.promotionId,
+        contractVersion: runtime.contractVersion,
+      },
+    });
+    await appendStageEvent({
+      runId,
+      stage: 'GOVERNANCE_SYNC',
+      status: 'SUCCESS',
+      metadata: {
+        modelId: runtime.modelId,
+        promptId: runtime.promptId,
+        promotionId: runtime.promotionId,
+      },
+    });
+    await appendStageEvent({ runId, stage: 'PUBLISH', status: 'IN_PROGRESS' });
+    try {
+      await publishRunAtomic({ runId, snapshotId, tenantId });
+      await appendStageEvent({ runId, stage: 'PUBLISH', status: 'SUCCESS' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await appendStageEvent({
+        runId,
+        stage: 'PUBLISH',
+        status: 'FAILED',
+        errorType: 'UNKNOWN',
+        errorCode: 'PUBLISH_FAILED',
+        errorMessage: msg,
+      });
+      await markRunFailed(runId, msg);
+      throw err;
+    }
+  }
   await setJobComplete(job.jobId, snapshotId);
   console.log(`[Worker] Job ${job.jobId} complete — ${totalDecisions} decisions written`);
 }
 
-async function writeDecisionToDb(client: any, decision: any, snapshotId: string, today: string, candidateReason: string[] = []) {
+async function writeDecisionToDb(
+  client: any,
+  decision: any,
+  snapshotId: string,
+  today: string,
+  candidateReason: string[] = [],
+  runtime?: RuntimeFingerprint
+) {
   const confidenceMap: Record<string, number> = { 'HIGH': 0.9, 'MEDIUM': 0.5, 'LOW': 0.3 };
   const classificationMap: Record<string, string> = {
     KEEP: 'KEEP', OPTIMIZE: 'OPTIMIZE', ARCHIVE: 'ARCHIVE',
@@ -161,8 +245,10 @@ async function writeDecisionToDb(client: any, decision: any, snapshotId: string,
       tier, action, composite_score, utilization_score, detection_score,
       quality_score, risk_score, annual_license_cost, estimated_savings,
       confidence, confidence_score, recommendation, reasoning, evidence,
-      is_quick_win, is_s3_candidate, detection_gap, candidate_reason
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+      is_quick_win, is_s3_candidate, detection_gap, candidate_reason,
+      model_governance_id, prompt_governance_id, promotion_id,
+      decision_contract_version, model_version, prompt_version, system_prompt_hash
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
     ON CONFLICT (snapshot_id, index_name, sourcetype) DO UPDATE SET
       tier              = EXCLUDED.tier,
       action            = EXCLUDED.action,
@@ -180,7 +266,14 @@ async function writeDecisionToDb(client: any, decision: any, snapshotId: string,
       is_quick_win      = EXCLUDED.is_quick_win,
       is_s3_candidate   = EXCLUDED.is_s3_candidate,
       detection_gap     = EXCLUDED.detection_gap,
-      candidate_reason  = EXCLUDED.candidate_reason
+      candidate_reason  = EXCLUDED.candidate_reason,
+      model_governance_id = EXCLUDED.model_governance_id,
+      prompt_governance_id = EXCLUDED.prompt_governance_id,
+      promotion_id        = EXCLUDED.promotion_id,
+      decision_contract_version = EXCLUDED.decision_contract_version,
+      model_version       = EXCLUDED.model_version,
+      prompt_version      = EXCLUDED.prompt_version,
+      system_prompt_hash  = EXCLUDED.system_prompt_hash
   `, [
     snapshotId, today, decision.index, decision.sourcetype || null,
     decision.tier, decision.action,
@@ -200,6 +293,13 @@ async function writeDecisionToDb(client: any, decision: any, snapshotId: string,
     Boolean(decision.isS3Candidate),
     Boolean(decision.detectionGap),
     candidateReason,
+    runtime?.modelId || null,
+    runtime?.promptId || null,
+    runtime?.promotionId || null,
+    runtime?.contractVersion || null,
+    runtime?.modelVersion || null,
+    runtime?.promptVersion || null,
+    runtime?.systemPromptHash || null,
   ]);
 }
 
@@ -347,7 +447,13 @@ async function main() {
       }
 
       console.log(`[Worker] Claimed job ${job.jobId} (type: ${job.jobType})`);
-      await processJob(job);
+      try {
+        await processJob(job);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await setJobFailed(job.jobId, msg);
+        throw err;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[Worker] Unhandled error in poll loop:', msg);
@@ -360,3 +466,14 @@ main().catch(err => {
   console.error('[Worker] Fatal error:', err);
   process.exit(1);
 });
+
+const shutdown = async () => {
+  try {
+    await governanceService.shutdown();
+  } catch (e) {
+    console.error('[Worker] Governance shutdown warning:', e);
+  }
+};
+
+process.once('SIGTERM', () => void shutdown());
+process.once('SIGINT', () => void shutdown());

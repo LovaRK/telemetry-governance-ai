@@ -11,6 +11,7 @@ const PUBLIC_ROUTES = [
   '/api/test-connection',  // needed for Splunk connection test before auth
   '/api/cache-status',     // needed for initial connection check
   '/api/job-stream',       // Job trigger endpoint
+  '/api/governance/stream', // SSE stream for live governance updates
   '/api/setup/',           // Setup endpoints (tenant creation, admin user creation)
   '/login',
   '/_next',
@@ -33,18 +34,15 @@ function validateStartupConfig(): ValidationResult {
   const warnings: string[] = [];
 
   const llmModel = process.env.LLM_MODEL;
-  if (llmModel) {
-    const supported = ['gemma2:9b', 'gemma:2b', 'gemma4:e4b', 'mistral', 'llama2'];
-    if (!supported.includes(llmModel)) {
-      warnings.push(`LLM_MODEL="${llmModel}" is not in the standard list. Proceeding.`);
-    }
-    if (llmModel === 'gemma4:e4b') {
-      warnings.push('LLM_MODEL=gemma4:e4b requires 32GB+ GPU. If you have only 16GB, switch to "gemma2:9b".');
-    }
-  } else {
+  const enforcedLocalModel = 'gemma2:9b';
+  if (llmModel && llmModel !== enforcedLocalModel) {
     warnings.push(
-      'LLM_MODEL is not set. Running in DEMO_MODE without LLM inference. ' +
-      'Set to "gemma2:9b" for full-stack mode.'
+      `LLM_MODEL="${llmModel}" is configured, but the runtime enforces local model "${enforcedLocalModel}" for decision authority.`
+    );
+  }
+  if (!llmModel) {
+    warnings.push(
+      `LLM_MODEL is not set. Defaulting to local model "${enforcedLocalModel}".`
     );
   }
 
@@ -52,8 +50,8 @@ function validateStartupConfig(): ValidationResult {
     warnings.push('DATABASE_URL is not set. Running in DEMO_MODE without database access. Set it for full-stack mode.');
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    warnings.push('ANTHROPIC_API_KEY is not set. Fallback to Anthropic will be unavailable.');
+  if (process.env.ENABLE_ANTHROPIC_FALLBACK === 'true' && !process.env.ANTHROPIC_API_KEY) {
+    warnings.push('ENABLE_ANTHROPIC_FALLBACK=true but ANTHROPIC_API_KEY is not set. Anthropic fallback is unavailable.');
   }
 
   // No hard errors for web-only mode — let APIs handle DEMO_MODE gracefully
@@ -71,7 +69,7 @@ function logValidation(result: ValidationResult): void {
     result.warnings.forEach((warn) => console.warn(`  ⚠ ${warn}`));
   }
   if (result.valid) {
-    console.log(`${tag} ✓ Configuration valid. LLM_MODEL=${process.env.LLM_MODEL || '(default)'}`);
+    console.log(`${tag} ✓ Configuration valid. LLM_MODEL=${process.env.LLM_MODEL || 'gemma2:9b (default)'}`);
   }
 }
 

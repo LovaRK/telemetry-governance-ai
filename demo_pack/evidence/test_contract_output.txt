@@ -1,0 +1,4 @@
+
+> agentic-telemetry-dashboard@1.0.0 test:contract
+> jest -c jest.gates.config.js tests/contract
+

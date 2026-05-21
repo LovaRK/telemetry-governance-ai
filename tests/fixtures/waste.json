@@ -1,0 +1,15 @@
+{
+  "name": "waste_telemetry",
+  "search_count_30d": 0,
+  "alerts_30d": 0,
+  "annual_license_cost": 2000,
+  "utilization_score": 5,
+  "detection_score": 3,
+  "quality_score": 40,
+  "security_critical": false,
+  "expected": {
+    "decision": "REMOVE",
+    "minConfidence": 0.8,
+    "minSavings": 500
+  }
+}

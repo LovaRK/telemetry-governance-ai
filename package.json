@@ -28,7 +28,18 @@
     "test:e2e": "playwright test",
     "test:e2e:watch": "playwright test --watch",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:debug": "playwright test --debug"
+    "test:e2e:debug": "playwright test --debug",
+    "test:contract": "jest -c jest.gates.config.js tests/contract",
+    "test:fixtures": "jest -c jest.gates.config.js tests/agent_reasoning/recommendation.test.ts",
+    "test:agent": "jest -c jest.gates.config.js tests/agent_reasoning",
+    "test:pipeline": "jest -c jest.gates.config.js tests/pipeline",
+    "test:ui": "playwright test --config playwright.ui.config.ts",
+    "test:all-gates": "npm run test:contract && npm run test:fixtures && npm run test:agent && npm run test:pipeline && npm run test:ui && npm run test:e2e",
+    "seed:test": "node scripts/seed-fixtures.js",
+    "cleanup:test": "node scripts/cleanup-fixtures.js",
+    "verify:clean": "node scripts/verify-clean.js",
+    "test:all-gates:clean": "npm run seed:test && npm run test:all-gates && npm run cleanup:test && npm run verify:clean",
+    "pre-release-check": "bash scripts/pre-release-check.sh"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",

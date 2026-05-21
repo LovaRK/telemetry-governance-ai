@@ -326,7 +326,7 @@ export async function runLLMDecisionAgent(
 
   const healthy = await router.isHealthy();
   if (!healthy) {
-    throw new Error('No LLM available: Ollama is not running AND ANTHROPIC_API_KEY is not configured. Dashboard unavailable. Start Ollama or set ANTHROPIC_API_KEY.');
+    throw new Error('No local LLM available: Ollama is not running. Dashboard unavailable. Start Ollama. Anthropic is optional and only used when explicitly enabled in settings.');
   }
 
   const BATCH_SIZE = 1; // Reduced from 5 for local Ollama memory constraint (gemma2:9b is 5.4GB + batch overhead)

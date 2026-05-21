@@ -21,7 +21,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     navigationTimeout: 60000,  // 60 seconds for navigation
     actionTimeout: 30000,  // 30 seconds for actions
-    headless: false,  // Launch visible browser
+    headless: true,  // Keep CI/local runs non-interactive and predictable
   },
 
   projects: [

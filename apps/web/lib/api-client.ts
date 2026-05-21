@@ -16,11 +16,18 @@ export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<
   if (res.status === 401 && token) {
     const refreshRes = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
     if (refreshRes.ok) {
-      const { accessToken } = await refreshRes.json();
+      const refreshBody = await refreshRes.json();
+      const accessToken = refreshBody?.data?.accessToken || refreshBody?.accessToken;
+      if (!accessToken) {
+        throw new Error('Refresh succeeded but no access token returned');
+      }
       localStorage.setItem('access_token', accessToken);
 
       const retryHeaders = new Headers(init?.headers);
       retryHeaders.set('Authorization', `Bearer ${accessToken}`);
+      if (!retryHeaders.has('Content-Type') && !(init?.body instanceof FormData)) {
+        retryHeaders.set('Content-Type', 'application/json');
+      }
       res = await fetch(input, { ...init, headers: retryHeaders });
     } else {
       // Refresh failed — redirect to login

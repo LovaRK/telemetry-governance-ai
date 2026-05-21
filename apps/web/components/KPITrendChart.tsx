@@ -35,6 +35,11 @@ export default function KPITrendChart({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Keep local period in sync when parent controls days (showPeriodToggle=false path).
+  useEffect(() => {
+    setDays(initialDays);
+  }, [initialDays]);
+
   useEffect(() => {
     const loadHistory = async () => {
       try {
@@ -102,6 +107,9 @@ export default function KPITrendChart({
         <div style={{ fontSize: '2.5rem', fontWeight: 800, color: config.color }}>{display}</div>
         <div style={{ fontSize: '0.72rem', color: '#64748b', textAlign: 'center' }}>
           Current snapshot · {new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+        </div>
+        <div style={{ fontSize: '0.65rem', color: '#475569', textAlign: 'center' }}>
+          Selected period: last {days} days
         </div>
         <div style={{ fontSize: '0.65rem', color: '#334155', textAlign: 'center', fontStyle: 'italic' }}>
           Trend chart available after multiple refreshes
