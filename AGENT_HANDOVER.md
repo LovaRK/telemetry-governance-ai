@@ -6,6 +6,24 @@
 
 ---
 
+## Stable Baseline Freeze
+
+- **Tag:** `v0.9-trust-baseline`
+- **Commit:** `ef98572`
+- **Frozen scope:**
+  - `D1` truth agent
+  - `D2` expandability
+  - `D5` coverage
+  - `D3` history
+  - Explainability mode
+  - KPI gating
+  - Chart gating
+  - AI reasoning gating
+
+**Rule for P7:** Do not modify explainability subsystem behavior during incremental aggregation work.
+
+---
+
 ## 1. Project Overview
 
 This is a multi-tenant observability dashboard for Bitso. It ingests Splunk telemetry, runs AI/LLM analysis, and presents governance-gated KPIs. The stack is:
