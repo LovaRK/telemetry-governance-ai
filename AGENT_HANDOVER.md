@@ -258,6 +258,64 @@ ANTHROPIC_API_KEY=  (optional — Ollama used by default)
 
 ## 7. What To Do Next (Priority Order)
 
+### Known Working Baseline (Freeze)
+
+Use this as the last known healthy rollback target for demos and triage:
+
+| Item | Value |
+|---|---|
+| Branch | `feature/data-purity-phase-2c-1` |
+| Last stable commit | `bd9f5d0` |
+| Docker health | `web: healthy`, `postgres: healthy`, `worker: healthy (can be disabled for pure sync path validation)` |
+| Contract tests | `174 passed`, `8 suites passed` |
+| TypeScript | `tsc clean` (use latest local check before release) |
+| Feature flags | `ENABLE_CANONICAL_NORMALIZATION=false`, `NORMALIZATION_SHADOW_COMPARE=true` |
+| Pipeline mode | synchronous `/api/cache` is active default; queue worker path exists but is not universal default substrate |
+
+### Do NOT Change Without Tests (Protected Contracts)
+
+These formulas are contract-protected and must not be modified without updating tests and benchmarks in the same change set:
+
+```text
+ROI = avg(composite_score)
+GainScope = (Tier1+Tier2 GB / Total GB) * 100
+Detection = 0.4 * potential + 0.6 * realized
+Savings = deterministic only
+```
+
+### Performance Limits (Current Envelope)
+
+Current practical operating envelope before P7–P10 scaling work:
+
+| Volume | Status |
+|---|---|
+| `<2TB/day` | Safe |
+| `10–20TB/day` | Stress |
+| `>20TB/day` | Risk |
+| `200TB/day+` | Not supported |
+
+### Next Architectural Bottleneck
+
+Primary bottleneck is **sequential Splunk fetch**.  
+It is not currently formula correctness, normalization governance, or core deterministic scoring.
+
+### Status Drift Corrections (Authoritative)
+
+The following streams were previously completed and must not be treated as pending:
+
+| Stream | Status |
+|---|---|
+| Savings Engine (P3 deterministic savings) | **COMPLETE** |
+| Normalization Layer (P4 normalization engine + variance persistence) | **COMPLETE** |
+| Normalization Governance (P4.5–P4.12 rollback/confidence/drift/replay/CI gates) | **COMPLETE** |
+
+Current verified contract baseline from latest local run:
+
+```text
+Contract suites: 8 passed
+Contract tests: 174 passed, 0 failed
+```
+
 ### P0 — Wire CI gate into build pipeline
 Add to `package.json`:
 ```json
@@ -321,9 +379,59 @@ CREATE POLICY tenant_isolation ON job_queue
 ### P6 — Dashboard → CSV → Splunk validation
 (User mentioned wanting to validate the full Splunk data pipeline through the dashboard UI. Upload fresh screenshots/PDFs of the dashboard to resume this work — prior uploads expired.)
 
+### P7 — Incremental aggregation (Enterprise milestone)
+Implement changed-index processing only:
+- Persist `last_processed_at` per index/sourcetype.
+- Compute snapshot diffs before aggregation.
+- Skip unchanged partitions.
+
+### P8 — Parallel Splunk fetch
+Replace sequential index loops with bounded concurrency:
+- Use `Promise.allSettled()` with a concurrency limiter.
+- Preserve partial-success semantics and stage-level error accounting.
+
+### P9 — Materialized KPI layer
+Precompute and persist frequently read KPI vectors:
+- `daily_gb`, `utilization`, `detection`, `roi`.
+- Read dashboard KPIs from the materialized layer first, with controlled refresh.
+
+### P10 — Async execution substrate
+Move refresh back to queue-driven execution as the default path:
+- `POST /api/cache` enqueues and returns quickly.
+- Worker performs aggregation/AI/governance/publish.
+- UI tracks state from ledger and pointer updates.
+
 ---
 
-## 8. Known Issues / Gotchas
+## 8. Current Maturity Snapshot
+
+| Area | Actual |
+|---|---|
+| Deterministic scoring | High |
+| Formula correctness | High |
+| Savings engine | High |
+| Normalization | High |
+| Governance/drift | High |
+| Tenant/RLS | Medium-High |
+| LLM abstraction | Medium |
+| Incremental aggregation | Low |
+| Parallel Splunk fetch | Low |
+| Enterprise ingestion substrate | Low |
+
+## 9. Outstanding Risks
+
+1. Sequential Splunk index fetch
+2. Full refresh recomputes all indexes
+3. No incremental aggregation in primary path
+4. No materialized KPI cache
+5. Synchronous `/api/cache` path can still block UX under load
+6. Queue-based execution substrate is not yet the default for all refresh paths
+7. Backpressure controls are limited
+8. LLM inline execution can increase refresh latency when candidate volume grows
+
+---
+
+## 10. Known Issues / Gotchas
 
 1. **`agent_decisions` schema change needed**: The table has `tenant_id` as `character varying` (not `uuid`). Other tables may differ. Always check the type before writing RLS policy casts.
 
@@ -343,7 +451,7 @@ CREATE POLICY tenant_isolation ON job_queue
 
 ---
 
-## 9. Prior Sessions Summary
+## 11. Prior Sessions Summary
 
 | Session | Phase | What was done |
 |---|---|---|
@@ -462,10 +570,15 @@ Results:
 
 ```text
 Tenant context gate: PASS
-Contract tests: 5 suites, 31 tests passing
+Contract tests: 8 suites, 174 tests passing
 Pipeline tests: 2 suites, 2 tests passing
 ```
 
 ### Known Presentation Note
 
 The current live Splunk dataset is very small (`0.0351 GB/day`, `$6.41/year`). The dashboard intentionally skips LLM analysis for this low-materiality dataset and displays server-derived telemetry only. This is presentation-safe and avoids the previous refresh hang. If a larger Splunk dataset crosses the materiality thresholds, the local Ollama path will run AI decisions with bounded timeouts.
+
+## D1 Stabilization Note (2026-05-22)
+- Known blocker resolved: test environment login instability ( returning 500) caused by stale web container serving an older truth-agent import.
+- Resolution: restarted web service after D1 code sync; validated with successful login response.
+- Verification gate:  and  both passing.
