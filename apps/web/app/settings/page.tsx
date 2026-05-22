@@ -19,6 +19,8 @@ function SettingsPageContent() {
   const [saved, setSaved] = useState(false);
   const [userFullName, setUserFullName] = useState('');
   const [userSaved, setUserSaved] = useState(false);
+  const [explainabilityMode, setExplainabilityMode] = useState(false);
+  const [explainabilitySaved, setExplainabilitySaved] = useState(false);
 
   // Scoring weights state (must sum to 1.0)
   const [utilWeight, setUtilWeight] = useState(0.35);
@@ -51,6 +53,11 @@ function SettingsPageContent() {
         // Invalid config, ignore
       }
     }
+
+    apiFetch('/api/settings/explainability')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setExplainabilityMode(Boolean(data?.data?.explainabilityMode ?? false)))
+      .catch(() => {});
 
     // Load scoring weights from API
     apiFetch('/api/settings/weights')
@@ -198,6 +205,20 @@ function SettingsPageContent() {
             User Settings
           </button>
           <button
+            onClick={() => router.push('/settings?tab=governance')}
+            style={{
+              padding: '0.5rem 1rem',
+              background: activeTab === 'governance' ? '#1e293b' : 'transparent',
+              color: activeTab === 'governance' ? '#f8fafc' : '#64748b',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontWeight: 500,
+            }}
+          >
+            🧭 AI / Governance
+          </button>
+          <button
             onClick={() => router.push('/settings?tab=scoring')}
             style={{
               padding: '0.5rem 1rem',
@@ -212,6 +233,65 @@ function SettingsPageContent() {
             ⚖️ Scoring Weights
           </button>
         </div>
+
+        {/* Governance Tab */}
+        {activeTab === 'governance' && (
+          <div
+            style={{
+              background: '#1e293b',
+              border: '1px solid #334155',
+              borderRadius: 8,
+              padding: '2rem',
+            }}
+          >
+            <h3 style={{ color: '#f8fafc', marginTop: 0 }}>Dashboard Explainability</h3>
+            <p style={{ color: '#94a3b8', fontSize: '0.86rem' }}>
+              Toggle engineering/audit explainability overlays for this user.
+            </p>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', color: '#cbd5e1', marginTop: '1rem' }}>
+              <input
+                type="checkbox"
+                checked={explainabilityMode}
+                onChange={(e) => setExplainabilityMode(e.target.checked)}
+              />
+              Enable Explainability Mode
+            </label>
+            <ul style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: '0.75rem', lineHeight: 1.6 }}>
+              <li>Show formulas and KPI provenance</li>
+              <li>Show confidence and source table origins</li>
+              <li>Show historical changes and validation context</li>
+            </ul>
+            <button
+              onClick={async () => {
+                const res = await apiFetch('/api/settings/explainability', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ explainabilityMode }),
+                });
+                if (res.ok) {
+                  setExplainabilitySaved(true);
+                  setTimeout(() => setExplainabilitySaved(false), 1500);
+                }
+              }}
+              style={{
+                marginTop: '1rem',
+                padding: '0.55rem 1rem',
+                border: '1px solid #334155',
+                borderRadius: 6,
+                background: '#0f172a',
+                color: '#f8fafc',
+                cursor: 'pointer',
+              }}
+            >
+              Save Explainability Mode
+            </button>
+            {explainabilitySaved ? (
+              <div style={{ color: '#22c55e', marginTop: '0.65rem', fontSize: '0.82rem' }}>
+                ✓ Explainability mode saved.
+              </div>
+            ) : null}
+          </div>
+        )}
 
         {/* Splunk Settings Tab */}
         {activeTab === 'splunk' && (
