@@ -169,3 +169,20 @@ export interface DashboardData {
   summary?: any;
   requiresRefresh?: boolean;
 }
+
+export interface KPIExplainabilityRecord {
+  metricId: string;
+  value: number;
+  formulaId: string;
+  formulaExpression: string;
+  inputs: Array<{ key: string; value: number }>;
+  computedValue: number;
+  sourceTable: string;
+  sourceRunId: string;
+  sourceSnapshotId: string;
+  updatedAt: string;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  sourceOrigin?: string;
+  variance?: string;
+  displayLabel?: string;
+}

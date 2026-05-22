@@ -25,6 +25,8 @@ import { useGovernanceStream } from '../lib/use-governance-stream';
 import { GovernanceToastNotification, useGovernanceToastManager } from '../components/dashboard/GovernanceToastNotification';
 import { ToastProvider } from '../lib/toast-context';
 import EmptyState from '../components/state/EmptyState';
+import KPIExplanationPanel from '../components/explainability/KPIExplanationPanel';
+import { KPIExplainabilityRecord } from '../lib/types';
 
 type Tab = 'overview' | 'telemetry' | 'governance';
 type PipelineStage = 'idle' | 'splunk_fetch' | 'snapshot_write' | 'kpi_aggregation' | 'ai_decisions' | 'governance_sync' | 'dashboard_publish' | 'complete' | 'failed';
@@ -77,6 +79,8 @@ function Home() {
   });
   const [kpiDiffs, setKpiDiffs] = useState<Array<{ label: string; before: number; after: number }>>([]);
   const [pulseTick, setPulseTick] = useState(0);
+  const [kpiExplain, setKpiExplain] = useState<KPIExplainabilityRecord[]>([]);
+  const showExplainabilityPanel = process.env.NEXT_PUBLIC_ENABLE_KPI_EXPLAINABILITY_PANEL === 'true';
 
   // Toast notification manager
   const toastManager = useGovernanceToastManager();
@@ -159,6 +163,17 @@ function Home() {
           }
         }
         setSummary(summaryData as ExecutiveSummary);
+        if (showExplainabilityPanel) {
+          try {
+            const explainRes = await apiFetch('/api/executive-summary/explain');
+            if (explainRes.ok) {
+              const explainPayload = await explainRes.json();
+              setKpiExplain(explainPayload?.data || []);
+            }
+          } catch {
+            setKpiExplain([]);
+          }
+        }
       } else {
         setSummary(null);
       }
@@ -714,6 +729,11 @@ function Home() {
         {/* Dashboard tabs */}
         {!loading && hasData && summary && (
           <>
+            {showExplainabilityPanel && (
+              <div style={{ marginBottom: '1rem' }}>
+                <KPIExplanationPanel records={kpiExplain} kpis={summary?.kpis || null} snapshotDate={summary?.snapshotDate || null} />
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {(['overview', 'telemetry', 'governance'] as Tab[]).map((tab) => (
