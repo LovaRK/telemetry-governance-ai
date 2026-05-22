@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createRoute } from '@/lib/api-route-factory';
 import { getCacheStatus, listCacheStatuses, setCacheRefreshing, setCacheFresh, setCacheError, isRefreshing } from '@api/services/cache-service';
 import { runFastAggregation } from '@api/services/aggregation-service';
+import { triggerDashboardTruthAgent } from '@api/services/dashboard-truth-agent-service';
 import { SplunkClient } from '@api/services/splunk-client';
 import { getRuntimeConfig } from '@/lib/runtime-config';
 import { requireContext } from '@packages/auth/request-context';
@@ -167,6 +168,9 @@ export const POST = createRoute(async (request: NextRequest) => {
   // Worker will execute AI_DECISIONS -> GOVERNANCE_SYNC -> PUBLISH atomically on success.
   // Finalize refresh metadata so cache-status can declare the first successful refresh attempt.
   await setCacheFresh(cacheKey, result.inserted);
+
+  // Non-blocking trust validation: fire-and-forget, never impact refresh response path.
+  triggerDashboardTruthAgent(tenantId);
 
   return {
     data: {
