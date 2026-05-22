@@ -553,7 +553,31 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                 { metric: 'ingest'    as const, title: '📦 Daily Ingest (GB)' },
               ].map(({ metric, title }) => (
                 <div key={metric} style={{ padding: '1rem 1.25rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10 }}>
-                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{title}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</div>
+                    {explainabilityEnabled ? (
+                      <button
+                        data-testid={`chart-explain-${metric}`}
+                        onClick={() => openDrawer({
+                          isOpen: true,
+                          metric: `${metric}_trend_chart`,
+                          value: 'Trend',
+                          title: `${title} Trend`,
+                          howCalculated: `Chart: ${title}\nX-axis: Date\nY-axis: ${title}\nFormula: derived from executive_kpis history`,
+                          evidence: [
+                            `Inputs: executive_kpis snapshots (${trendDays} days)`,
+                            `Source origin: executive_kpis`,
+                            `Confidence: ${(kpis.avgConfidence * 100).toFixed(0)}%`,
+                            `Variance: Not computed`,
+                          ],
+                          confidence: kpis.avgConfidence * 100,
+                        })}
+                        style={{ border: '1px solid #334155', background: '#0b1220', color: '#cbd5e1', borderRadius: 6, padding: '0.2rem 0.45rem', cursor: 'pointer', fontSize: '0.72rem' }}
+                      >
+                        ⓘ
+                      </button>
+                    ) : null}
+                  </div>
                   <KPITrendChart metric={metric} days={trendDays} height={200} showPeriodToggle={false} />
                 </div>
               ))}
@@ -567,7 +591,31 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                 { metric: 'confidence'  as const, title: '🤖 Avg AI Confidence' },
               ].map(({ metric, title }) => (
                 <div key={metric} style={{ padding: '1rem 1.25rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10 }}>
-                  <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{title}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</div>
+                    {explainabilityEnabled ? (
+                      <button
+                        data-testid={`chart-explain-${metric}`}
+                        onClick={() => openDrawer({
+                          isOpen: true,
+                          metric: `${metric}_trend_chart`,
+                          value: 'Trend',
+                          title: `${title} Trend`,
+                          howCalculated: `Chart: ${title}\nX-axis: Date\nY-axis: ${title}\nFormula: derived from executive_kpis history`,
+                          evidence: [
+                            `Inputs: executive_kpis snapshots (${trendDays} days)`,
+                            `Source origin: executive_kpis`,
+                            `Confidence: ${(kpis.avgConfidence * 100).toFixed(0)}%`,
+                            `Variance: Not computed`,
+                          ],
+                          confidence: kpis.avgConfidence * 100,
+                        })}
+                        style={{ border: '1px solid #334155', background: '#0b1220', color: '#cbd5e1', borderRadius: 6, padding: '0.2rem 0.45rem', cursor: 'pointer', fontSize: '0.72rem' }}
+                      >
+                        ⓘ
+                      </button>
+                    ) : null}
+                  </div>
                   <KPITrendChart metric={metric} days={trendDays} height={160} showPeriodToggle={false} />
                 </div>
               ))}
