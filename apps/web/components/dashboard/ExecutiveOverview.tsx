@@ -1195,8 +1195,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
         </div>
       )}
 
-      {/* Row 7 — Agent Reasoning */}
-      {agentReasoning && (
+      {/* Row 7 — Agent Reasoning (Explainability Mode only) */}
+      {explainabilityEnabled && agentReasoning && (
         <div style={{ ...card(), borderLeft: '4px solid #3b82f6', position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>🧠 Agent Reasoning</div>
@@ -1212,12 +1212,12 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
         value={drawer.value}
         title={drawer.title}
         howCalculated={drawer.howCalculated}
-        llmReasoning={drawer.llmReasoning}
-        evidence={drawer.evidence}
-        confidence={drawer.confidence}
+        llmReasoning={explainabilityEnabled ? drawer.llmReasoning : undefined}
+        evidence={explainabilityEnabled ? drawer.evidence : []}
+        confidence={explainabilityEnabled ? drawer.confidence : undefined}
         tier={drawer.tier}
         action={drawer.action}
-        candidateReason={drawer.candidateReason}
+        candidateReason={explainabilityEnabled ? drawer.candidateReason : undefined}
         rawData={drawer.rawData}
       />
     </div>
