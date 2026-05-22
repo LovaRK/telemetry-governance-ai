@@ -3,9 +3,18 @@ import { createRoute } from '@/lib/api-route-factory';
 import { requireContext } from '@packages/auth/request-context';
 import { query } from '@core/database/connection';
 
+async function ensureExplainabilitySchema(): Promise<void> {
+  await query(`
+    ALTER TABLE user_config
+      ADD COLUMN IF NOT EXISTS user_id VARCHAR(128),
+      ADD COLUMN IF NOT EXISTS explainability_mode BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+}
+
 export const GET = createRoute(async (request: NextRequest) => {
   const ctxOrError = await requireContext(request);
   if (ctxOrError instanceof NextResponse) return ctxOrError;
+  await ensureExplainabilitySchema();
 
   const row = await query<any>(
     `SELECT explainability_mode
@@ -26,6 +35,7 @@ export const GET = createRoute(async (request: NextRequest) => {
 export const POST = createRoute(async (request: NextRequest) => {
   const ctxOrError = await requireContext(request);
   if (ctxOrError instanceof NextResponse) return ctxOrError;
+  await ensureExplainabilitySchema();
 
   const body = await request.json().catch(() => ({}));
   const mode = Boolean(body?.explainabilityMode);
@@ -33,8 +43,9 @@ export const POST = createRoute(async (request: NextRequest) => {
   await query(
     `INSERT INTO user_config (config_key, tenant_id, user_id, explainability_mode, updated_at)
      VALUES ('default', $1, $2, $3, NOW())
-     ON CONFLICT (tenant_id, config_key)
+     ON CONFLICT (config_key)
      DO UPDATE SET
+       tenant_id = EXCLUDED.tenant_id,
        user_id = EXCLUDED.user_id,
        explainability_mode = EXCLUDED.explainability_mode,
        updated_at = NOW()`,
