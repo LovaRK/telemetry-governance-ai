@@ -32,7 +32,7 @@ export function computeDetectionScores(inputs: DetectionInputs[]): Map<string, D
     const lanternPotential = Math.min(100, inp.lanternUsecaseCount * 6.0);
     const potential = Math.max(mitrePotential, lanternPotential);
     const realized = (inp.activeAlertCount / maxAlertCount) * 100;
-    const score = Math.round(0.4 * potential + 0.6 * realized * 10) / 10;
+    const score = Math.round((0.4 * potential + 0.6 * realized) * 10) / 10;
 
     const coveragePct = inp.mitreTechniqueCount > 0 ? (inp.activeAlertCount / inp.mitreTechniqueCount) * 100 : 0;
     const detectionGap = inp.mitreTechniqueCount >= DETECTION_GAP_TECHNIQUE_MIN && coveragePct < DETECTION_GAP_COVERAGE_MAX;

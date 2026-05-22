@@ -22,6 +22,21 @@ export {
   type PortfolioKPIs,
 } from './kpi';
 
+// Savings functions
+export {
+  computeDeterministicSavings,
+  computeRetentionExcessGb,
+  computeRetentionSavings,
+  computeUnusedFieldGb,
+  computeFieldSavings,
+  computeCompressionOpportunityGb,
+  computeCompressionSavings,
+  type DeterministicSavings,
+} from './savings/storage';
+
+// Attribution validation
+export { validateAttribution } from './attribution/validation';
+
 export type {
   UtilizationInputs,
   DetectionInputs,
