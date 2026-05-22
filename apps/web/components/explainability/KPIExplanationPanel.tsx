@@ -9,6 +9,14 @@ interface Props {
   records: KPIExplainabilityRecord[];
   kpis?: ExecutiveKPIs | null;
   snapshotDate?: string | null;
+  coverage?: {
+    totalKpis: number;
+    expandableKpis: number;
+    coveragePercent: number;
+    missingProvenance: number;
+    missingConfidence: number;
+    missingFormulas: number;
+  } | null;
 }
 
 const KPI_KEYS = [
@@ -40,12 +48,12 @@ function fallbackRecord(metricId: string, label: string, kpis?: ExecutiveKPIs | 
   };
 
   return {
-    metricId: metricId.toUpperCase() as any,
+    metricId: metricId.toUpperCase(),
     value: valMap[metricId] ?? 0,
     formulaId: 'UNKNOWN',
     formulaExpression: 'Unavailable',
     inputs: [],
-    computedValue: NaN,
+    computedValue: Number.NaN,
     sourceTable: 'Unknown',
     sourceRunId: 'Unknown',
     sourceSnapshotId: 'Unknown',
@@ -57,7 +65,7 @@ function fallbackRecord(metricId: string, label: string, kpis?: ExecutiveKPIs | 
   };
 }
 
-export default function KPIExplanationPanel({ records, kpis, snapshotDate }: Props) {
+export default function KPIExplanationPanel({ records, kpis, snapshotDate, coverage }: Props) {
   const [selected, setSelected] = useState<KPIExplainabilityRecord | null>(null);
 
   const merged = useMemo(() => {
@@ -70,13 +78,21 @@ export default function KPIExplanationPanel({ records, kpis, snapshotDate }: Pro
   }, [records, kpis, snapshotDate]);
 
   const traced = merged.filter((m) => m.formulaExpression !== 'Unavailable').length;
+  const coverageText = coverage
+    ? `${coverage.expandableKpis}/${coverage.totalKpis} (${coverage.coveragePercent}%)`
+    : `${traced}/${merged.length}`;
 
   return (
     <div style={{ background: '#08111f', border: '1px solid #1e293b', borderRadius: 10, padding: '0.9rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
         <h4 style={{ margin: 0, color: '#f8fafc', fontSize: '0.9rem' }}>KPI Explainability</h4>
-        <span style={{ fontSize: '0.72rem', color: '#64748b' }} data-testid="explainability-coverage">ExplainabilityCoverage: {traced}/{merged.length} widgets expandable</span>
+        <span style={{ fontSize: '0.72rem', color: '#64748b' }} data-testid="explainability-coverage">ExplainabilityCoverage: {coverageText}</span>
       </div>
+      {coverage ? (
+        <div style={{ color: '#94a3b8', fontSize: '0.74rem', marginBottom: '0.6rem' }} data-testid="explainability-missing">
+          Missing provenance: {coverage.missingProvenance} | Missing confidence: {coverage.missingConfidence} | Missing formulas: {coverage.missingFormulas}
+        </div>
+      ) : null}
       <div style={{ display: 'grid', gap: '0.6rem', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
         {merged.map((r) => (
           <ProvenanceCard key={`${r.metricId}-${r.displayLabel || ''}`} record={r} onOpen={setSelected} />

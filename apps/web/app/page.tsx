@@ -80,6 +80,7 @@ function Home() {
   const [kpiDiffs, setKpiDiffs] = useState<Array<{ label: string; before: number; after: number }>>([]);
   const [pulseTick, setPulseTick] = useState(0);
   const [kpiExplain, setKpiExplain] = useState<KPIExplainabilityRecord[]>([]);
+  const [explainabilityCoverage, setExplainabilityCoverage] = useState<{ totalKpis: number; expandableKpis: number; coveragePercent: number; missingProvenance: number; missingConfidence: number; missingFormulas: number } | null>(null);
   const showExplainabilityPanel = process.env.NEXT_PUBLIC_ENABLE_KPI_EXPLAINABILITY_PANEL === 'true';
 
   // Toast notification manager
@@ -165,13 +166,21 @@ function Home() {
         setSummary(summaryData as ExecutiveSummary);
         if (showExplainabilityPanel) {
           try {
-            const explainRes = await apiFetch('/api/executive-summary/explain');
+            const [explainRes, coverageRes] = await Promise.all([
+              apiFetch('/api/executive-summary/explain'),
+              apiFetch('/api/explainability/coverage'),
+            ]);
             if (explainRes.ok) {
               const explainPayload = await explainRes.json();
               setKpiExplain(explainPayload?.data || []);
             }
+            if (coverageRes.ok) {
+              const coveragePayload = await coverageRes.json();
+              setExplainabilityCoverage(coveragePayload?.data || null);
+            }
           } catch {
             setKpiExplain([]);
+            setExplainabilityCoverage(null);
           }
         }
       } else {
@@ -731,7 +740,7 @@ function Home() {
           <>
             {showExplainabilityPanel && (
               <div style={{ marginBottom: '1rem' }}>
-                <KPIExplanationPanel records={kpiExplain} kpis={summary?.kpis || null} snapshotDate={summary?.snapshotDate || null} />
+                <KPIExplanationPanel records={kpiExplain} kpis={summary?.kpis || null} snapshotDate={summary?.snapshotDate || null} coverage={explainabilityCoverage} />
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
