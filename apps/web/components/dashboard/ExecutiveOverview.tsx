@@ -23,7 +23,11 @@ function fmtGB(v: number | string | null | undefined): string {
   return `${n.toFixed(1)} GB`;
 }
 
-interface Props { summary: ExecutiveSummary; hasAgentDecisions?: boolean; }
+interface Props {
+  summary: ExecutiveSummary;
+  hasAgentDecisions?: boolean;
+  explainabilityEnabled?: boolean;
+}
 
 function Gauge({ value, max = 100, label, color, onClick }: { value: number; max?: number; label: string; color: string; onClick?: () => void }) {
   const pct = Math.min(value / max, 1);
@@ -165,9 +169,13 @@ interface DrawerState {
   rawData?: Record<string, unknown>;
 }
 
-export default function ExecutiveOverview({ summary, hasAgentDecisions = false }: Props) {
+export default function ExecutiveOverview({ summary, hasAgentDecisions = false, explainabilityEnabled = false }: Props) {
   const { kpis, quickWins = [], savingsStaircase = [], agentReasoning = '', snapshotDate, snapshots = [] } = summary;
   const [drawer, setDrawer] = useState<DrawerState>({ isOpen: false, metric: '', value: '', title: '', howCalculated: '' });
+  const openDrawer = (next: DrawerState): void => {
+    if (!explainabilityEnabled) return;
+    setDrawer(next);
+  };
 
   const tierTotal = kpis.tierCounts.critical + kpis.tierCounts.important + kpis.tierCounts.niceToHave + kpis.tierCounts.lowValue;
   const tierBars = [
@@ -331,7 +339,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             value={kpis.roiScore}
             label=""
             color="#22c55e"
-            onClick={() => setDrawer({
+            onClick={() => openDrawer({
               isOpen: true,
               metric: 'roi_score',
               value: kpis.roiScore,
@@ -361,7 +369,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             value={kpis.gainScopeScore}
             label=""
             color="#3b82f6"
-            onClick={() => setDrawer({
+            onClick={() => openDrawer({
               isOpen: true,
               metric: 'gainscope_score',
               value: kpis.gainScopeScore,
@@ -387,7 +395,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Low-Value Spend</div>
-          <div style={{ cursor: 'pointer' }} onClick={() => setDrawer({
+          <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
             isOpen: true,
             metric: 'license_spend_low_value',
             value: kpis.licenseSpendLowValue,
@@ -413,7 +421,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
         <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Savings Potential</div>
-          <div style={{ cursor: 'pointer' }} onClick={() => setDrawer({
+          <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
             isOpen: true,
             metric: 'storage_savings_potential',
             value: kpis.storageSavingsPotential,
@@ -446,7 +454,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Coverage Gaps</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.4rem', alignItems: 'start' }}>
-            <div style={{ cursor: 'pointer' }} onClick={() => setDrawer({
+            <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
               isOpen: true,
               metric: 'security_gaps',
               value: kpis.securityGaps,
@@ -466,7 +474,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             })}>
               <MiniGauge value={kpis.securityGaps} max={Math.max(kpis.securityGaps * 2, 20)} label="Security" color="#ef4444" />
             </div>
-            <div style={{ cursor: 'pointer' }} onClick={() => setDrawer({
+            <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
               isOpen: true,
               metric: 'operational_gaps',
               value: kpis.operationalGaps,
@@ -486,7 +494,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             })}>
               <MiniGauge value={kpis.operationalGaps} max={Math.max(kpis.operationalGaps * 2, 20)} label="Ops" color="#f59e0b" />
             </div>
-            <div style={{ cursor: 'pointer' }} onClick={() => setDrawer({
+            <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
               isOpen: true,
               metric: 'avg_confidence',
               value: Math.round(kpis.avgConfidence * 100),
@@ -591,7 +599,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
             const tierSnaps = snapshots.filter(s => new RegExp(t.label.toLowerCase(), 'i').test(s.tier));
             const tierSpend = tierSnaps.reduce((s, v) => s + v.costPerYear, 0);
             return (
-              <div key={t.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', fontSize: '0.8rem', cursor: 'pointer', padding: '0.25rem 0.5rem', borderRadius: 4, transition: 'background 0.15s' }} onMouseEnter={(e) => e.currentTarget.style.background = '#ffffff03'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'} onClick={() => setDrawer({
+              <div key={t.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', fontSize: '0.8rem', cursor: 'pointer', padding: '0.25rem 0.5rem', borderRadius: 4, transition: 'background 0.15s' }} onMouseEnter={(e) => e.currentTarget.style.background = '#ffffff03'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'} onClick={() => openDrawer({
                 isOpen: true,
                 metric: `tier_${t.key}`,
                 value: t.value,
@@ -797,7 +805,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
                           const step = d.activePayload[0]?.payload;
                           if (!step) return;
                           const actionCount = snapshots.filter(s => s.action === step.action).length;
-                          setDrawer({
+                          openDrawer({
                             isOpen: true,
                             metric: `${step.action.toLowerCase()}_savings`,
                             value: step.savings,
@@ -914,7 +922,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
                       return (
                         <div key={i} style={{ background: '#0f172a', borderRadius: 6, padding: '0.6rem 0.75rem', border: `1px solid ${approved ? '#22c55e40' : '#1e293b'}`, transition: 'border-color 0.3s' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                            <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => setDrawer({
+                            <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => openDrawer({
                               isOpen: true,
                               metric: 'quick_win',
                               value: qw.savings,
@@ -1015,7 +1023,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false }
                       const bR = Math.min(Math.max(Math.sqrt(s.dailyAvgGb / maxGb) * 16 + 3, 4), 18);
                       const col = tierColor(s.tier);
                       return (
-                        <g key={i} style={{ cursor: 'pointer' }} onClick={() => setDrawer({
+                        <g key={i} style={{ cursor: 'pointer' }} onClick={() => openDrawer({
                           isOpen: true,
                           metric: 'scatter_bubble',
                           value: `U:${s.utilizationScore.toFixed(0)}% D:${s.detectionScore.toFixed(0)}%`,

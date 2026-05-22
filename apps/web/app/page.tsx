@@ -27,6 +27,7 @@ import { ToastProvider } from '../lib/toast-context';
 import EmptyState from '../components/state/EmptyState';
 import KPIExplanationPanel from '../components/explainability/KPIExplanationPanel';
 import { KPIExplainabilityRecord } from '../lib/types';
+import { useExplainability } from '../lib/explainability-context';
 
 type Tab = 'overview' | 'telemetry' | 'governance';
 type PipelineStage = 'idle' | 'splunk_fetch' | 'snapshot_write' | 'kpi_aggregation' | 'ai_decisions' | 'governance_sync' | 'dashboard_publish' | 'complete' | 'failed';
@@ -81,7 +82,10 @@ function Home() {
   const [pulseTick, setPulseTick] = useState(0);
   const [kpiExplain, setKpiExplain] = useState<KPIExplainabilityRecord[]>([]);
   const [explainabilityCoverage, setExplainabilityCoverage] = useState<{ totalKpis: number; expandableKpis: number; coveragePercent: number; missingProvenance: number; missingConfidence: number; missingFormulas: number } | null>(null);
-  const showExplainabilityPanel = process.env.NEXT_PUBLIC_ENABLE_KPI_EXPLAINABILITY_PANEL === 'true';
+  const { enabled: explainabilityEnabled } = useExplainability();
+  const showExplainabilityPanel =
+    process.env.NEXT_PUBLIC_ENABLE_EXPLAINABILITY === 'true' &&
+    explainabilityEnabled;
 
   // Toast notification manager
   const toastManager = useGovernanceToastManager();
@@ -807,7 +811,7 @@ function Home() {
             {activeTab === 'overview' && (
               <>
                 <AgentIntelligencePanel snapshots={summary.snapshots} kpis={summary.kpis} hasAgentDecisions={hasAgentDecisions} />
-                <ExecutiveOverview summary={summary} hasAgentDecisions={hasAgentDecisions} />
+              <ExecutiveOverview summary={summary} hasAgentDecisions={hasAgentDecisions} explainabilityEnabled={showExplainabilityPanel} />
                 {hasAgentDecisions && summary.decisions && summary.decisions.length > 0 && (
                   <div style={{ marginTop: '1.5rem' }}>
                     <DecisionExplainabilityPanel decisions={summary.decisions} />
