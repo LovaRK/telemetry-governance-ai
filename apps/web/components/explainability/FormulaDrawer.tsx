@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { KPIExplainabilityRecord } from '@/lib/types';
+import { apiFetch } from '@/lib/api-client';
 
 interface Props {
   record: KPIExplainabilityRecord | null;
@@ -9,8 +10,31 @@ interface Props {
 }
 
 export default function FormulaDrawer({ record, onClose }: Props) {
+  const [history, setHistory] = useState<any | null>(null);
+  const [loading, setLoading] = useState(false);
+
   if (!record) return null;
   const inputs = record.inputs || [];
+
+  const loadHistory = async () => {
+    const id = String(record.metricId || '').toLowerCase();
+    if (!id) return;
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/kpi/history/${encodeURIComponent(id)}`);
+      if (!res.ok) {
+        setHistory({ error: 'Unavailable' });
+      } else {
+        const body = await res.json();
+        setHistory(body?.data || null);
+      }
+    } catch {
+      setHistory({ error: 'Unavailable' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.75)', zIndex: 60 }} onClick={onClose}>
       <div
@@ -43,6 +67,22 @@ export default function FormulaDrawer({ record, onClose }: Props) {
           <div><b>Confidence:</b> {record.confidence || 'Unknown'}</div>
           <div><b>Variance:</b> {record.variance || 'Not computed'}</div>
         </div>
+
+        <div style={{ marginTop: '0.85rem' }}>
+          <button data-testid="why-changed" onClick={loadHistory} style={{ background: '#1d4ed8', color: '#fff', border: 0, borderRadius: 6, padding: '0.4rem 0.6rem', cursor: 'pointer' }}>
+            Why changed?
+          </button>
+          {loading ? <div style={{ marginTop: 8, color: '#94a3b8' }}>Loading history…</div> : null}
+          {history ? (
+            <div style={{ marginTop: 10, padding: '0.6rem', border: '1px solid #1e293b', borderRadius: 8 }} data-testid="kpi-history-block">
+              <div style={{ color: '#cbd5e1', fontSize: '0.85rem' }}><b>Before:</b> {history.before ?? 'Unavailable'}</div>
+              <div style={{ color: '#cbd5e1', fontSize: '0.85rem' }}><b>After:</b> {history.after ?? 'Unavailable'}</div>
+              <div style={{ color: '#cbd5e1', fontSize: '0.85rem' }}><b>Delta:</b> {history.delta ?? 'Not computed'}</div>
+              <div style={{ color: '#cbd5e1', fontSize: '0.85rem' }}><b>Reason:</b> {history.reason || history.error || 'Unavailable'}</div>
+            </div>
+          ) : null}
+        </div>
+
         <div style={{ marginTop: '1rem' }}>
           <div style={{ color: '#94a3b8', fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Inputs</div>
           {inputs.length === 0 ? (
