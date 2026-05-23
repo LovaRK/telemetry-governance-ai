@@ -196,7 +196,25 @@ export function buildIdempotencyHash(input: { tenantId: string; trigger: string;
   return crypto.createHash('sha256').update(`${input.tenantId}:${input.window}:${input.trigger}`).digest('hex');
 }
 
+async function recoverStalePipelineRuns(maxAgeMinutes: number = 5): Promise<number> {
+  const result = await query<{ count: string }>(`
+    WITH stale AS (
+      UPDATE pipeline_runs
+      SET status = 'FAILED',
+          published = false,
+          error_message = COALESCE(error_message, 'Recovered stale pipeline run after refresh restart'),
+          idempotency_hash = NULL
+      WHERE status IN ('PENDING','RUNNING')
+        AND started_at < NOW() - ($1::text || ' minutes')::interval
+      RETURNING 1
+    )
+    SELECT COUNT(*)::text AS count FROM stale
+  `, [String(maxAgeMinutes)]);
+  return Number(result.rows[0]?.count || '0');
+}
+
 export async function getActiveRunByHash(hash: string): Promise<PipelineRunRecord | null> {
+  await recoverStalePipelineRuns(5);
   const result = await query<any>(
     `SELECT run_id as "runId", snapshot_id as "snapshotId", tenant_id as "tenantId", status, published,
             started_at as "startedAt", published_at as "publishedAt", superseded_by_run_id as "supersededByRunId",

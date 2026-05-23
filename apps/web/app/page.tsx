@@ -34,11 +34,23 @@ type PipelineStage = 'idle' | 'splunk_fetch' | 'snapshot_write' | 'kpi_aggregati
 type PipelineStatus = 'idle' | 'running' | 'complete' | 'failed';
 
 const PIPELINE_STATE_KEY = 'pipeline_run_state_v1';
+const STALE_PIPELINE_RUN_MS = 5 * 60 * 1000;
 
 function stageFromJobStatus(status: string): PipelineStage {
   if (status === 'failed') return 'failed';
   if (status === 'complete') return 'dashboard_publish';
   return 'ai_decisions';
+}
+
+function isStaleTimestamp(timestamp?: string | number | null): boolean {
+  if (!timestamp) return false;
+  const createdAt = typeof timestamp === 'number' ? timestamp : new Date(timestamp).getTime();
+  if (!Number.isFinite(createdAt)) return false;
+  return Date.now() - createdAt > STALE_PIPELINE_RUN_MS;
+}
+
+function isStaleJob(job: { createdAt?: string | number | null; startedAt?: string | number | null }): boolean {
+  return isStaleTimestamp(job.startedAt || job.createdAt);
 }
 
 function Home() {
@@ -248,6 +260,28 @@ function Home() {
       if (!job?.jobId || !job?.status) return;
 
       if (job.status === 'pending' || job.status === 'running' || job.status === 'partial') {
+        if (isStaleJob(job)) {
+          try {
+            sessionStorage.removeItem(PIPELINE_STATE_KEY);
+          } catch {
+            // Ignore storage failures.
+          }
+          setActiveJobId(null);
+          setPipelineRun((prev) => ({
+            ...prev,
+            runId: job.jobId,
+            startedAt: job.startedAt ? new Date(job.startedAt).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : prev.startedAt),
+            completedAt: Date.now(),
+            status: 'complete',
+            stage: 'complete',
+          }));
+          setPipelineEvents((prev) => {
+            const msg = 'Discarded stale in-progress pipeline run after reload';
+            if (prev.some((p) => p.msg === msg)) return prev;
+            return [...prev.slice(-9), { ts: new Date().toLocaleTimeString(), msg, level: 'warn' }];
+          });
+          return;
+        }
         setActiveJobId(job.jobId);
         setPipelineRun((prev) => ({
           runId: job.jobId,
@@ -295,9 +329,21 @@ function Home() {
         const raw = sessionStorage.getItem(PIPELINE_STATE_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (parsed?.pipelineRun) setPipelineRun(parsed.pipelineRun);
-          if (Array.isArray(parsed?.pipelineEvents)) setPipelineEvents(parsed.pipelineEvents);
-          if (typeof parsed?.activeJobId === 'string' && parsed.activeJobId) setActiveJobId(parsed.activeJobId);
+          const pipelineRun = parsed?.pipelineRun;
+          const activeJobId = typeof parsed?.activeJobId === 'string' ? parsed.activeJobId : null;
+          const isRunning = pipelineRun?.status === 'running';
+          const runStartedAt = pipelineRun?.startedAt ?? null;
+          const isStale = isRunning && isStaleTimestamp(runStartedAt);
+          if (!isStale && pipelineRun) setPipelineRun(pipelineRun);
+          if (!isStale && Array.isArray(parsed?.pipelineEvents)) setPipelineEvents(parsed.pipelineEvents);
+          if (!isStale && activeJobId) setActiveJobId(activeJobId);
+          if (isStale) {
+            try {
+              sessionStorage.removeItem(PIPELINE_STATE_KEY);
+            } catch {
+              // Ignore storage failures.
+            }
+          }
         }
       } catch {
         // Ignore invalid persisted state
@@ -306,6 +352,30 @@ function Home() {
     };
     loadInitialState();
   }, []);
+
+  useEffect(() => {
+    if (loading || !cacheStatus) return;
+
+    const shouldFinalizeBackgroundAiJob =
+      cacheStatus.status === 'fresh' &&
+      pipelineRun.status === 'running' &&
+      pipelineRun.stage === 'ai_decisions';
+
+    if (!shouldFinalizeBackgroundAiJob) return;
+
+    setActiveJobId(null);
+    setPipelineRun((prev) => ({
+      ...prev,
+      stage: 'complete',
+      status: 'complete',
+      completedAt: prev.completedAt || Date.now(),
+    }));
+    setPipelineEvents((prev) => {
+      const msg = 'Dashboard snapshot published; AI decisions continue in background';
+      if (prev.some((p) => p.msg === msg)) return prev;
+      return [...prev.slice(-9), { ts: new Date().toLocaleTimeString(), msg, level: 'ok' }];
+    });
+  }, [loading, cacheStatus, pipelineRun.status, pipelineRun.stage]);
 
   useEffect(() => {
     if (pipelineRun.status !== 'running') return;

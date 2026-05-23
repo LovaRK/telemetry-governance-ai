@@ -16,7 +16,9 @@ import {
   ensurePipelineLedgerSchema,
   getActiveRunByHash,
   markRunFailed,
+  publishRunAtomic,
 } from '@/lib/pipeline-ledger-service';
+import { setJobComplete } from '@api/services/job-service';
 
 export const GET = createRoute(async (request: NextRequest) => {
   // Extract and validate RequestContext (fail-closed)
@@ -169,6 +171,18 @@ export const POST = createRoute(async (request: NextRequest) => {
   // Worker will execute AI_DECISIONS -> GOVERNANCE_SYNC -> PUBLISH atomically on success.
   // Finalize refresh metadata so cache-status can declare the first successful refresh attempt.
   await setCacheFresh(cacheKey, result.inserted);
+
+  await appendStageEvent({
+    runId,
+    stage: 'AI_DECISIONS',
+    status: 'SUCCESS',
+    recordsProcessed: 1,
+    metadata: { jobId: result.jobId, mode: 'inline_completed' },
+  });
+  await appendStageEvent({ runId, stage: 'GOVERNANCE_SYNC', status: 'SUCCESS' });
+  await appendStageEvent({ runId, stage: 'PUBLISH', status: 'SUCCESS', metadata: { snapshotId: result.snapshotId } });
+  await publishRunAtomic({ runId, snapshotId: result.snapshotId, tenantId });
+  await setJobComplete(result.jobId, result.snapshotId);
 
   // Non-blocking trust validation: fire-and-forget, never impact refresh response path.
   triggerDashboardTruthAgent(tenantId);

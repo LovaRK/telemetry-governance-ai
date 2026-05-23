@@ -143,7 +143,7 @@ export async function recoverStaleJobs(maxAgeMinutes: number = 5): Promise<numbe
       SET status = 'failed',
           error_message = COALESCE(error_message, 'Recovered stale running/partial job after worker restart'),
           completed_at = NOW()
-      WHERE status IN ('running','partial')
+      WHERE status IN ('pending','running','partial')
         AND COALESCE(started_at, created_at) < NOW() - ($1::text || ' minutes')::interval
       RETURNING 1
     )
@@ -154,6 +154,11 @@ export async function recoverStaleJobs(maxAgeMinutes: number = 5): Promise<numbe
 
 /** Get most recent job for a given snapshot date (for SSE reconnect). */
 export async function getLatestJob(snapshotDate?: string): Promise<JobRecord | null> {
+  // Recover stale in-flight jobs before reading the latest state.
+  // The current architecture completes the dashboard synchronously on refresh,
+  // so old pending jobs should not keep the UI in a running state forever.
+  await recoverStaleJobs(5);
+
   const result = await query<any>(`
     SELECT id, job_id as "jobId", job_type as "jobType", status,
            snapshot_id as "snapshotId", snapshot_date as "snapshotDate",
