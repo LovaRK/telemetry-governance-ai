@@ -22,7 +22,7 @@ test.describe('Dashboard E2E Tests', () => {
       ).first();
       await expect(urlInput).toBeVisible();
     } else {
-      await expect(page.locator('text=Aetheris Sentinel')).toBeVisible();
+      await expect(page.locator('text=datasensAI')).toBeVisible();
     }
 
     // The entire connection screen should be empty of any hard-coded data
@@ -59,7 +59,7 @@ test.describe('Dashboard E2E Tests', () => {
       const hasSummaryCall = apiRequests.some((url) => url.includes('/api/executive-summary'));
       expect(hasSummaryCall).toBe(false);
     } else {
-      await expect(page.locator('text=Aetheris Sentinel')).toBeVisible();
+      await expect(page.locator('text=datasensAI')).toBeVisible();
     }
   });
 

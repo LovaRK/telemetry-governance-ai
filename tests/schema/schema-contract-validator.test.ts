@@ -12,16 +12,15 @@ describe('SchemaContractValidator', () => {
   });
 
   test('fails when table is missing', async () => {
-    mockPool.query.mockResolvedValueOnce({ rows: [] }); // First table check fails
+    mockPool.query.mockResolvedValueOnce({ rows: [] });
 
     await expect(validator.validate()).rejects.toThrow('Schema contract validation failed');
   });
 
   test('fails when migration is missing', async () => {
-    // All other checks pass by default mockResolvedValue
     mockPool.query.mockImplementation((sql: string) => {
-      if (sql.includes('schema_migrations')) {
-        return Promise.resolve({ rows: [{ max_version: 113 }] }); // Old migration
+      if (sql.includes('applied_migrations')) {
+        return Promise.resolve({ rows: [{ migration_num: 113 }] });
       }
       return Promise.resolve({ rows: [{}] });
     });
@@ -31,8 +30,8 @@ describe('SchemaContractValidator', () => {
 
   test('passes when all contracts are valid', async () => {
     mockPool.query.mockImplementation((sql: string) => {
-      if (sql.includes('schema_migrations')) {
-        return Promise.resolve({ rows: [{ max_version: 115 }] });
+      if (sql.includes('applied_migrations')) {
+        return Promise.resolve({ rows: [{ migration_num: 225 }] });
       }
       return Promise.resolve({ rows: [{}] });
     });

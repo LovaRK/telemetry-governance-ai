@@ -27,7 +27,7 @@ export default function DetailPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const statusRes = await fetch('/api/cache-status');
+      const statusRes = await apiFetch('/api/cache-status');
       const statusResponse = await statusRes.json();
       const statusData = statusResponse?.data || statusResponse || {};
       const everRefreshed =

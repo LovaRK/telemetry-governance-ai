@@ -1,5 +1,17 @@
 import { NextRequest } from 'next/server';
 import { createRoute } from '@/lib/api-route-factory';
+import { verifyTokenEdge, extractBearerToken } from '@packages/auth/auth-edge';
+
+export const GET = createRoute(async (request: NextRequest) => {
+  const url = new URL(request.url);
+  const action = url.searchParams.get('action');
+
+  if (action === 'me') {
+    return await handleGetMe(request);
+  }
+
+  throw new Error('Invalid action');
+});
 
 export const POST = createRoute(async (request: NextRequest) => {
   const url = new URL(request.url);
@@ -81,30 +93,31 @@ async function handleLogout(request: NextRequest) {
 }
 
 async function handleGetMe(request: NextRequest) {
-  const token = request.cookies.get('auth_token')?.value;
+  // Try cookie first (for browser-side fetches via useAuth hook), then Authorization header
+  const token =
+    request.cookies.get('accessToken')?.value ??
+    extractBearerToken(request.headers.get('authorization'));
 
   if (!token) {
     throw new Error('Not authenticated');
   }
 
-  // Call backend to verify session
-  const response = await fetch(
-    `${process.env.BACKEND_URL || 'http://localhost:3001'}/auth/me`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error('Unauthorized');
+  let payload;
+  try {
+    payload = await verifyTokenEdge(token);
+  } catch {
+    throw new Error('Token expired or invalid');
   }
 
-  const user = await response.json();
   return {
-    data: user,
-    meta: { source: 'system' },
+    data: {
+      user_id: payload.sub,
+      email: payload.email,
+      role: payload.role,
+      tenant_id: payload.tenantId,
+      name: null,
+    },
+    meta: { source: 'jwt' },
   };
 }
 

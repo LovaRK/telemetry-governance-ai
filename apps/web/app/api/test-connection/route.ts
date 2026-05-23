@@ -1,3 +1,4 @@
+import { NextResponse } from 'next/server';
 import { createRoute } from '@/lib/api-route-factory';
 import { SplunkClient } from '@api/services/splunk-client';
 
@@ -21,7 +22,10 @@ export const POST = createRoute(async (request: any) => {
 
   const url = splunkUrl || mcpUrl;
   if (!url) {
-    throw new Error('Splunk URL is required');
+    return NextResponse.json(
+      { error: 'Splunk URL is required', meta: { source: 'system', mode: 'live' } },
+      { status: 400 }
+    );
   }
 
   // Build auth header
@@ -35,7 +39,10 @@ export const POST = createRoute(async (request: any) => {
       ? token
       : `Bearer ${token}`;
   } else {
-    throw new Error('Authentication credentials are required');
+    return NextResponse.json(
+      { error: 'Authentication credentials are required', meta: { source: 'system', mode: 'live' } },
+      { status: 400 }
+    );
   }
   const splunk = new SplunkClient({
     mcpUrl: url,
@@ -48,7 +55,10 @@ export const POST = createRoute(async (request: any) => {
   const health = await splunk.healthCheckFast();
 
   if (!health.success) {
-    throw new Error(`Connection failed: ${health.error || 'Unknown error'}`);
+    return NextResponse.json(
+      { error: `Connection failed: ${health.error || 'Unknown error'}`, meta: { source: 'system', mode: 'live', retryable: true } },
+      { status: 503 }
+    );
   }
 
   return {

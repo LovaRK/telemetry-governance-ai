@@ -84,10 +84,11 @@ function LoginForm() {
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, fontWeight: 500 }}>
+            <label htmlFor="login-email" style={{ display: 'block', color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, fontWeight: 500 }}>
               EMAIL
             </label>
             <input
+              id="login-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -102,10 +103,11 @@ function LoginForm() {
           </div>
 
           <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{ display: 'block', color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, fontWeight: 500 }}>
+            <label htmlFor="login-password" style={{ display: 'block', color: '#94a3b8', fontSize: '0.8rem', marginBottom: 6, fontWeight: 500 }}>
               PASSWORD
             </label>
             <input
+              id="login-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

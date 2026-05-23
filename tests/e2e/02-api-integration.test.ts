@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
+import { login } from './helpers/login';
 
 test.describe('API Integration Tests', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page, process.env.BASE_URL ?? 'http://localhost:3002');
+  });
+
   const waitForInitialScreen = async (page: any) => {
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(1500);
@@ -160,7 +165,7 @@ test.describe('API Integration Tests', () => {
     if (onConnectionScreen) {
       await expect(urlInput).toBeVisible();
     } else {
-      await expect(page.locator('text=Aetheris Sentinel')).toBeVisible();
+      await expect(page.locator('text=datasensAI')).toBeVisible();
     }
   });
 });

@@ -632,7 +632,7 @@ function Home() {
         {!loading && (
           <div style={{ marginBottom: '1rem', padding: '0.85rem 1rem', background: '#0f172a', border: '1px solid #1e293b', borderRadius: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', gap: '0.55rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(120px, 1fr))', gap: '0.45rem 0.7rem', alignItems: 'center', width: '100%', maxWidth: 640 }}>
                 {[
                   { key: 'splunk_fetch', label: 'Splunk Fetch' },
                   { key: 'snapshot_write', label: 'Snapshot Write' },
@@ -747,8 +747,8 @@ function Home() {
                 <KPIExplanationPanel records={kpiExplain} kpis={summary?.kpis || null} snapshotDate={summary?.snapshotDate || null} coverage={explainabilityCoverage} />
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', maxWidth: '100%' }}>
                 {(['overview', 'telemetry', 'governance'] as Tab[]).map((tab) => (
                   <button key={tab} onClick={() => setActiveTab(tab)}
                     style={{ padding: '0.5rem 1.25rem', background: activeTab === tab ? '#3b82f6' : 'transparent', color: activeTab === tab ? '#fff' : '#64748b', border: activeTab === tab ? 'none' : '1px solid #1e293b', borderRadius: 8, cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', position: 'relative' }}>

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login } from './helpers/login';
+import { TEST_TENANT_ID } from '../contract/_helpers';
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3002';
 
@@ -18,6 +19,9 @@ test.describe('Track 5: Pipeline Refresh E2E', () => {
     const headers = {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'x-tenant-id': TEST_TENANT_ID,
+      'x-user-id': 'e2e-track5-user',
+      'x-user-role': 'admin',
     };
 
     // Capture initial state
@@ -64,6 +68,9 @@ test.describe('Track 5: Pipeline Refresh E2E', () => {
     const headers = {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'x-tenant-id': TEST_TENANT_ID,
+      'x-user-id': 'e2e-track5-user',
+      'x-user-role': 'admin',
     };
 
     // Trigger pipeline
@@ -88,7 +95,12 @@ test.describe('Track 5: Pipeline Refresh E2E', () => {
       return localStorage.getItem('access_token');
     });
 
-    const headers = { 'Authorization': `Bearer ${token}` };
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'x-tenant-id': TEST_TENANT_ID,
+      'x-user-id': 'e2e-track5-user',
+      'x-user-role': 'admin',
+    };
 
     // Get executive summary
     const response = await request.get(`${BASE_URL}/api/executive-summary`, { headers });
