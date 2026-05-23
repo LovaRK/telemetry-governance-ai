@@ -1,26 +1,60 @@
-# Agent Handover — Phase 2C-1: Tenant Isolation Hardening
+# Agent Handover — Phase 1 Complete: Runtime Certification
 **Branch:** `feature/data-purity-phase-2c-1`
-**Last updated:** 2026-05-21
-**Handed off from:** Claude Sonnet 4.6 (session `5c0d6cbd`)
+**Last updated:** 2026-05-23
+**Handed off from:** deepseek-v4-flash-free
 **Intended recipient:** Codex (or next Claude agent)
 
 ---
 
-## Stable Baseline Freeze
+## Stable Baseline Freezes
 
-- **Tag:** `v0.9-trust-baseline`
-- **Commit:** `ef98572`
-- **Frozen scope:**
-  - `D1` truth agent
-  - `D2` expandability
-  - `D5` coverage
-  - `D3` history
-  - Explainability mode
-  - KPI gating
-  - Chart gating
-  - AI reasoning gating
+| Tag | Scope | Status |
+|-----|-------|--------|
+| `v0.9-trust-baseline` | Trust + Explainability (D1, D2, D3, D5) | ✅ Frozen |
+| `v1.0-incremental-baseline` | Incremental aggregation + parallel fetch | ✅ Frozen |
+| `v1.0-refactor-plan` | Phased architecture refactor roadmap | ✅ Frozen |
+| **`v1.1-runtime-stable`** | **Phase 1 Runtime QA certification** | **✅ Frozen (new)** |
 
-**Rule for P7:** Do not modify explainability subsystem behavior during incremental aggregation work.
+**v1.1-runtime-stable frozen scope:**
+- Login form accessibility (htmlFor/id) — all 6 fixes applied
+- E2E test locators, localStorage key, hydration regex, SSE disconnect filter
+- test-connection returns 503 (external dep unavailable), not 500
+- Auth route: GET handler + cookie fix for `/api/auth?action=me`
+- Detail page: `fetch`→`apiFetch` for authenticated cache-status calls
+- 55/55 E2E tests | 227/227 contract tests | Typecheck clean
+- Runtime QA evidence: 8-tab validation, 7-case settings, 3-state empty, 4-scenario slow-network
+- `artifacts/runtime-qa/MANIFEST.md` with full evidence
+
+---
+
+## Latest Verified State (Phase 1 + P3 Complete)
+
+- **Tag:** `v1.1-runtime-stable`
+- **Commit:** `058252b`
+- **Contract tests:** `227/227` passing (34 suites)
+- **E2E tests:** `55/55` passing
+- **Typecheck:** `npx tsc --noEmit` clean
+- **Certification gates:** 7/7 pass — typecheck, contracts, E2E, Docker, health, LLM settings, executive summary
+- **Runtime evidence:** `artifacts/runtime-qa/MANIFEST.md`
+- **Freeze status:** valid
+
+### P3 Query Consolidation Closeout (New)
+
+- **Status:** Implemented + validated + freeze eligible
+- **Scope:** Web app orchestration only (`dashboard-query-service`) using existing API routes
+- **No architecture drift:** no cache redesign, no backend route rewrites, no AI/provider changes
+- **Validation gates:**
+  - `npx tsc --noEmit` ✅
+  - `npm run test:contract` ✅ `197/197`
+  - `npm run test:e2e` ✅ `55/55`
+- **Artifacts:**
+  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-fetch-map.md`
+  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-query-design.md`
+  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-request-comparison.md`
+  - `/Users/ramakrishna/Desktop/Teja/Dashboards/artifacts/runtime/p3-request-metrics.json`
+- **Measured result (stream-excluded):**
+  - requests: `52 -> 49`
+  - `/api/cache-status`: `32 -> 29`
 
 ---
 

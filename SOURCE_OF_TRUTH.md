@@ -1,15 +1,41 @@
 # 📖 GOVERNANCE OBSERVABILITY PLATFORM — Complete System Guide
 
-**Last Updated**: 2026-05-21 (Session 6 — LLM Pipeline Complete)  
-**Status**: **Production-Ready (Data Layer)** — System fully operational  
+**Last Updated**: 2026-05-23 (Phase 1 Runtime QA + P3 Query Consolidation Complete)  
+**Status**: **Runtime Certified + P3 Consolidated** — baseline `v1.1-runtime-stable`  
 **Architecture**: Event-Driven Agentic System with Crash-Safe Recovery  
 **Type Safety**: 100% TypeScript, 0 Errors  
-**Test Coverage**: Unit + Integration + Contract Testing (19/19 ✅)  
-**LLM Integration**: ✅ Ollama (gemma2:9b) running, generating real decisions
+**Test Coverage**: 197/197 Contract Tests + 55/55 E2E Tests  
+**LLM Integration**: ✅ Local Ollama default, Anthropic opt-in (verified via Settings UI)
 
 ---
 
-## 📋 CURRENT SYSTEM STATUS (Session 6 Update)
+## Baseline Tags
+
+| Tag | Date | Scope | Evidence |
+|-----|------|-------|----------|
+| `v0.9-trust-baseline` | 2026-05-20 | Trust + Explainability frozen | Contract gate |
+| `v1.0-incremental-baseline` | 2026-05-21 | Incremental aggregation + parallel fetch | Contract gate |
+| `v1.0-refactor-plan` | 2026-05-23 | Approved phased architecture roadmap | `docs/refactor-plan.md` |
+| `v1.1-runtime-stable` | 2026-05-23 | **Phase 1 Runtime QA** | `artifacts/runtime-qa/MANIFEST.md` |
+
+### P3 Query Consolidation (Closeout)
+
+- Introduced app-layer orchestration service:
+  - `/Users/ramakrishna/Desktop/Teja/Dashboards/apps/web/lib/services/dashboard-query-service.ts`
+- `page.tsx` mount and post-refresh reload now share one orchestration path (`getDashboardState`) over existing routes.
+- Validation:
+  - `npx tsc --noEmit` ✅
+  - `npm run test:contract` ✅ `197/197`
+  - `npm run test:e2e` ✅ `55/55`
+- Evidence artifacts:
+  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-fetch-map.md`
+  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-query-design.md`
+  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-request-comparison.md`
+  - `/Users/ramakrishna/Desktop/Teja/Dashboards/artifacts/runtime/p3-request-metrics.json`
+
+---
+
+## 📋 CURRENT SYSTEM STATUS (Phase 1 Complete)
 
 ### ✅ What's Working Right Now
 
