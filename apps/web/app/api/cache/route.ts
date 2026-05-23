@@ -4,6 +4,8 @@ import { getCacheStatus, listCacheStatuses, setCacheRefreshing, setCacheFresh, s
 import { runFastAggregation } from '@api/services/aggregation-service';
 import { triggerDashboardTruthAgent } from '@api/services/dashboard-truth-agent-service';
 import { SplunkClient } from '@api/services/splunk-client';
+import { SplunkConfigService } from '@api/services/splunk-config-service';
+import { pool } from '@core/database/connection';
 import { getRuntimeConfig } from '@/lib/runtime-config';
 import { requireContext } from '@packages/auth/request-context';
 import { v4 as uuidv4 } from 'uuid';
@@ -51,21 +53,7 @@ export const POST = createRoute(async (request: NextRequest) => {
   await ensurePipelineLedgerSchema();
 
   const body = await request.json();
-  if (!body?.mcpUrl) {
-    throw new Error('mcpUrl is required');
-  }
-
-  let authToken = body.token;
-  if (!authToken && body.username && body.password) {
-    const credentials = Buffer.from(`${body.username}:${body.password}`).toString('base64');
-    authToken = `Basic ${credentials}`;
-  }
-
-  if (!authToken) {
-    throw new Error('Authentication required: Provide token OR (username + password)');
-  }
-
-  const { mcpUrl, disableSslVerify = false, costPerGbPerDay } = body;
+  const { disableSslVerify = false, costPerGbPerDay } = body;
   const runtimeConfig = getRuntimeConfig();
   const tenantId = context.tenantId;
   const trigger = body.trigger || 'manual';
@@ -114,7 +102,20 @@ export const POST = createRoute(async (request: NextRequest) => {
 
   await setCacheRefreshing(cacheKey);
 
-  const splunk = new SplunkClient({ mcpUrl, token: authToken, allowInsecureTls: !!disableSslVerify });
+  const splunkConfigService = new SplunkConfigService(pool);
+  const tenantSplunkConfig = await splunkConfigService.getSplunkConfig(tenantId);
+  if (!tenantSplunkConfig?.url || !tenantSplunkConfig?.hec_token) {
+    await appendStageEvent({ runId, stage: 'SPLUNK_FETCH', status: 'FAILED', errorMessage: 'Tenant Splunk configuration is missing' });
+    await markRunFailed(runId, 'Tenant Splunk configuration is missing');
+    await setCacheError(cacheKey, 'Tenant Splunk configuration is missing');
+    throw new Error('Tenant Splunk configuration is missing');
+  }
+
+  const splunk = new SplunkClient({
+    mcpUrl: tenantSplunkConfig.url,
+    token: tenantSplunkConfig.hec_token,
+    allowInsecureTls: tenantSplunkConfig.ssl_verify === false ? true : !!disableSslVerify,
+  });
 
   await appendStageEvent({ runId, stage: 'SPLUNK_FETCH', status: 'IN_PROGRESS' });
   const health = await splunk.healthCheckFast();

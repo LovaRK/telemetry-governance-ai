@@ -21,6 +21,11 @@ function SettingsPageContent() {
   const [userSaved, setUserSaved] = useState(false);
   const [explainabilityMode, setExplainabilityMode] = useState(false);
   const [explainabilitySaved, setExplainabilitySaved] = useState(false);
+  const [llmProvider, setLlmProvider] = useState<'local' | 'anthropic'>('local');
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
+  const [anthropicModel, setAnthropicModel] = useState('claude-3-5-sonnet-20241022');
+  const [llmSaved, setLlmSaved] = useState(false);
+  const [llmError, setLlmError] = useState<string | null>(null);
 
   // Scoring weights state (must sum to 1.0)
   const [utilWeight, setUtilWeight] = useState(0.35);
@@ -32,18 +37,6 @@ function SettingsPageContent() {
   const weightsSum = Math.round((utilWeight + detWeight + qualWeight) * 100) / 100;
 
   useEffect(() => {
-    const config = localStorage.getItem('splunk_config');
-    if (config) {
-      try {
-        const parsed = JSON.parse(config);
-        setMcpUrl(parsed.mcpUrl || '');
-        setToken(parsed.token || '');
-        setDisableSslVerify(parsed.disableSslVerify || false);
-      } catch {
-        // Invalid config, ignore
-      }
-    }
-
     const userConfig = localStorage.getItem('datasensai_user');
     if (userConfig) {
       try {
@@ -54,9 +47,34 @@ function SettingsPageContent() {
       }
     }
 
+    apiFetch('/api/splunk/config')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const cfg = data?.data ?? data;
+        if (!cfg) return;
+        setMcpUrl(cfg.url || '');
+        setDisableSslVerify(cfg.ssl_verify === false);
+        const draftToken = localStorage.getItem('splunk_token_draft');
+        if (draftToken) {
+          setToken(draftToken);
+        }
+      })
+      .catch(() => {});
+
     apiFetch('/api/settings/explainability')
       .then(r => r.ok ? r.json() : null)
       .then(data => setExplainabilityMode(Boolean(data?.data?.explainabilityMode ?? false)))
+      .catch(() => {});
+
+    apiFetch('/api/settings/llm')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const cfg = data?.data;
+        if (!cfg) return;
+        setLlmProvider(cfg.llmProvider === 'anthropic' ? 'anthropic' : 'local');
+        setAnthropicApiKey(cfg.anthropicApiKey || '');
+        setAnthropicModel(cfg.anthropicModel || 'claude-3-5-sonnet-20241022');
+      })
       .catch(() => {});
 
     // Load scoring weights from API
@@ -110,16 +128,32 @@ function SettingsPageContent() {
       setTestResult({ success: false, message: 'MCP URL and token are required' });
       return;
     }
-
-    localStorage.setItem(
-      'splunk_config',
-      JSON.stringify({ mcpUrl, token, disableSslVerify })
-    );
-    setSaved(true);
-    setTimeout(() => {
-      setSaved(false);
-      router.push('/');
-    }, 1500);
+    apiFetch('/api/splunk/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: mcpUrl,
+        hec_token: token,
+        username: null,
+        password: null,
+        ssl_verify: !disableSslVerify,
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d?.error || 'Failed to save Splunk configuration');
+        }
+        localStorage.setItem('splunk_token_draft', token);
+        setSaved(true);
+        setTimeout(() => {
+          setSaved(false);
+          router.push('/');
+        }, 1500);
+      })
+      .catch((err) => {
+        setTestResult({ success: false, message: err instanceof Error ? err.message : 'Failed to save Splunk configuration' });
+      });
   };
 
   const handleSaveWeights = async () => {
@@ -287,9 +321,78 @@ function SettingsPageContent() {
             </button>
             {explainabilitySaved ? (
               <div style={{ color: '#22c55e', marginTop: '0.65rem', fontSize: '0.82rem' }}>
-                ✓ Explainability mode saved.
+              ✓ Explainability mode saved.
               </div>
             ) : null}
+
+            <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
+              <h3 style={{ color: '#f8fafc', marginTop: 0 }}>Cloud LLM (Optional)</h3>
+              <p style={{ color: '#94a3b8', fontSize: '0.86rem' }}>
+                Default is Local model. Cloud provider is used only when explicitly enabled here.
+              </p>
+              <div style={{ display: 'grid', gap: '0.75rem', maxWidth: 520 }}>
+                <label style={{ color: '#cbd5e1', fontSize: '0.82rem' }}>
+                  Provider
+                  <select
+                    value={llmProvider}
+                    onChange={(e) => setLlmProvider(e.target.value as 'local' | 'anthropic')}
+                    style={{ width: '100%', marginTop: 6, padding: '0.55rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#f8fafc' }}
+                  >
+                    <option value="local">Local (Ollama)</option>
+                    <option value="anthropic">Cloud (Anthropic)</option>
+                  </select>
+                </label>
+                {llmProvider === 'anthropic' && (
+                  <>
+                    <label style={{ color: '#cbd5e1', fontSize: '0.82rem' }}>
+                      Anthropic API Key
+                      <input
+                        type="password"
+                        value={anthropicApiKey}
+                        onChange={(e) => setAnthropicApiKey(e.target.value)}
+                        placeholder="sk-ant-..."
+                        style={{ width: '100%', marginTop: 6, padding: '0.55rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#f8fafc' }}
+                      />
+                    </label>
+                    <label style={{ color: '#cbd5e1', fontSize: '0.82rem' }}>
+                      Anthropic Model
+                      <input
+                        type="text"
+                        value={anthropicModel}
+                        onChange={(e) => setAnthropicModel(e.target.value)}
+                        style={{ width: '100%', marginTop: 6, padding: '0.55rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#f8fafc' }}
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+              <button
+                onClick={async () => {
+                  setLlmError(null);
+                  if (llmProvider === 'anthropic' && !anthropicApiKey.trim()) {
+                    setLlmError('Anthropic API key is required when Cloud provider is selected.');
+                    return;
+                  }
+                  const res = await apiFetch('/api/settings/llm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ llmProvider, anthropicApiKey: anthropicApiKey || null, anthropicModel }),
+                  });
+                  if (res.ok) {
+                    setLlmSaved(true);
+                    setTimeout(() => setLlmSaved(false), 1500);
+                  } else {
+                    const d = await res.json().catch(() => ({}));
+                    setLlmError(d?.error || 'Failed to save LLM settings');
+                  }
+                }}
+                style={{ marginTop: '1rem', padding: '0.55rem 1rem', border: '1px solid #334155', borderRadius: 6, background: '#0f172a', color: '#f8fafc', cursor: 'pointer' }}
+              >
+                Save LLM Provider
+              </button>
+              {llmSaved && <div style={{ color: '#22c55e', marginTop: '0.65rem', fontSize: '0.82rem' }}>✓ LLM settings saved.</div>}
+              {llmError && <div style={{ color: '#ef4444', marginTop: '0.65rem', fontSize: '0.82rem' }}>✕ {llmError}</div>}
+            </div>
           </div>
         )}
 

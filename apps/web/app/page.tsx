@@ -43,9 +43,6 @@ function stageFromJobStatus(status: string): PipelineStage {
 
 function Home() {
   useAuthGuard();
-  const envMcpUrl = process.env.NEXT_PUBLIC_SPLUNK_MCP_URL || '';
-  const envToken = process.env.NEXT_PUBLIC_SPLUNK_TOKEN || '';
-  const envDisableSsl = (process.env.NEXT_PUBLIC_SPLUNK_DISABLE_SSL_VERIFY || '').toLowerCase() === 'true';
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [summary, setSummary] = useState<ExecutiveSummary | null>(null);
@@ -59,6 +56,8 @@ function Home() {
   });
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null);
+  const [splunkConfigLoaded, setSplunkConfigLoaded] = useState(false);
+  const [splunkConfigured, setSplunkConfigured] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [configPanelOpen, setConfigPanelOpen] = useState(false);
   const [showConnectionEditor, setShowConnectionEditor] = useState(false);
@@ -197,6 +196,37 @@ function Home() {
     }
   };
 
+  const fetchSplunkConfig = async () => {
+    try {
+      const res = await apiFetch('/api/splunk/config');
+      if (!res.ok) {
+        setSplunkConfigured(false);
+        setSplunkConfigLoaded(true);
+        return;
+      }
+      const payload = await res.json();
+      const cfg = payload?.data || payload;
+      const configured = Boolean(cfg?.url);
+      setSplunkConfigured(configured);
+      setSplunkConfigLoaded(true);
+      setFormData((prev) => {
+        const nextUrl = typeof cfg?.url === 'string' ? cfg.url : prev.mcp_url;
+        const nextDisableSsl = typeof cfg?.ssl_verify === 'boolean' ? !cfg.ssl_verify : prev.disable_ssl_verify;
+        const nextAuthType = typeof cfg?.username === 'string' && cfg.username ? 'basic' : prev.auth_type;
+        return {
+          ...prev,
+          mcp_url: nextUrl,
+          auth_type: nextAuthType,
+          disable_ssl_verify: nextDisableSsl,
+        };
+      });
+    } catch (e) {
+      console.error('Failed to load Splunk config:', e);
+      setSplunkConfigured(false);
+      setSplunkConfigLoaded(true);
+    }
+  };
+
   const fetchPendingDecisionsCount = async () => {
     try {
       const res = await apiFetch('/api/decision-lineage?limit=1');
@@ -254,48 +284,27 @@ function Home() {
   };
 
   useEffect(() => {
-    // Load config from localStorage
-    const savedConfig = localStorage.getItem('splunk_config');
-    if (savedConfig) {
+    const loadInitialState = async () => {
+      await Promise.all([
+        fetchSplunkConfig(),
+        fetchSummary(),
+        fetchPendingDecisionsCount(),
+        hydrateLatestJob(),
+      ]);
       try {
-        const parsed = JSON.parse(savedConfig);
-        setFormData({
-          mcp_url: parsed.mcpUrl || '',
-          auth_type: parsed.authType || 'basic',
-          token: parsed.token || '',
-          username: parsed.username || '',
-          password: parsed.password || '',
-          disable_ssl_verify: parsed.disableSslVerify !== undefined ? parsed.disableSslVerify : true,
-        });
+        const raw = sessionStorage.getItem(PIPELINE_STATE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.pipelineRun) setPipelineRun(parsed.pipelineRun);
+          if (Array.isArray(parsed?.pipelineEvents)) setPipelineEvents(parsed.pipelineEvents);
+          if (typeof parsed?.activeJobId === 'string' && parsed.activeJobId) setActiveJobId(parsed.activeJobId);
+        }
       } catch {
-        // Invalid config, ignore
+        // Ignore invalid persisted state
       }
-    } else if (envMcpUrl && envToken) {
-      // Fallback to env-provided defaults so Refresh remains usable on first load/demo mode.
-      setFormData({
-        mcp_url: envMcpUrl,
-        auth_type: 'token',
-        token: envToken,
-        username: '',
-        password: '',
-        disable_ssl_verify: envDisableSsl,
-      });
-    }
-    try {
-      const raw = sessionStorage.getItem(PIPELINE_STATE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.pipelineRun) setPipelineRun(parsed.pipelineRun);
-        if (Array.isArray(parsed?.pipelineEvents)) setPipelineEvents(parsed.pipelineEvents);
-        if (typeof parsed?.activeJobId === 'string' && parsed.activeJobId) setActiveJobId(parsed.activeJobId);
-      }
-    } catch {
-      // Ignore invalid persisted state
-    }
-
-    fetchSummary().finally(() => setLoading(false));
-    fetchPendingDecisionsCount();
-    hydrateLatestJob();
+      setLoading(false);
+    };
+    loadInitialState();
   }, []);
 
   useEffect(() => {
@@ -355,45 +364,12 @@ function Home() {
     }
   }, [activeJobId, pipelineEvents, pipelineRun]);
 
-  const canRefresh = !!formData.mcp_url &&
-    (formData.auth_type === 'token' ? !!formData.token : (!!formData.username && !!formData.password));
-  const canRefreshFromEnvFallback = !canRefresh && !!envMcpUrl && !!envToken;
-  const canRefreshEffective = canRefresh || canRefreshFromEnvFallback;
+  const canRefresh = splunkConfigLoaded && splunkConfigured;
 
   const handleRefresh = async () => {
-    if (refreshing || !canRefreshEffective) return;
+    if (refreshing || !canRefresh) return;
     setRefreshing(true);
     setError(null);
-
-    // Save config to localStorage for next visit
-    localStorage.setItem('splunk_config', JSON.stringify({
-      mcpUrl: formData.mcp_url,
-      authType: formData.auth_type,
-      token: formData.token,
-      username: formData.username,
-      password: formData.password,
-      disableSslVerify: formData.disable_ssl_verify,
-    }));
-
-    const effectiveMcpUrl = formData.mcp_url || envMcpUrl;
-    const effectiveDisableSsl = formData.mcp_url ? formData.disable_ssl_verify : envDisableSsl;
-    const body: Record<string, unknown> = {
-      mcpUrl: effectiveMcpUrl,
-      disableSslVerify: effectiveDisableSsl,
-    };
-    if (formData.auth_type === 'token' && formData.token) {
-      body.token = formData.token;
-    } else if (formData.auth_type === 'basic' && formData.username && formData.password) {
-      body.username = formData.username;
-      body.password = formData.password;
-    } else if (envToken) {
-      // Final fallback path for demo/profile sessions where only env token is available.
-      body.token = envToken;
-    } else {
-      setError('Missing credentials. Click Change and enter Splunk token or username/password.');
-      setRefreshing(false);
-      return;
-    }
 
     try {
       const runStart = Date.now();
@@ -420,7 +396,7 @@ function Home() {
       const res = await apiFetch('/api/cache', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ costPerGbPerDay: undefined }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -489,7 +465,7 @@ function Home() {
             Splunk Connection
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <input type="text" placeholder="Splunk URL (e.g., https://splunk:8089)"
+            <input type="text" placeholder="Splunk URL (managed in Settings)"
               value={formData.mcp_url} onChange={(e) => setFormData(p => ({ ...p, mcp_url: e.target.value }))}
               style={inputStyle} />
             <select value={formData.auth_type}
@@ -535,17 +511,17 @@ function Home() {
   // ── Main app (refresh has run at least once) ─────────────────────────────
   const mainContent = (
     <main style={{ minHeight: '100vh', background: '#050a14' }}>
-      <TopAppBar cacheStatus={cacheStatus} loading={refreshing} hasConfig={canRefreshEffective} />
+      <TopAppBar cacheStatus={cacheStatus} loading={refreshing} hasConfig={canRefresh} />
 
       <div style={{ padding: '1.25rem', maxWidth: 1440, margin: '0 auto' }}>
 
         {/* Compact connection bar */}
         <div style={{ marginBottom: '1.5rem', padding: '0.625rem 1rem', background: '#0f172a', borderRadius: 10, border: '1px solid #1e293b', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-          {!showConnectionEditor && formData.mcp_url && cacheStatus?.hasEverRefreshed ? (
+          {!showConnectionEditor && splunkConfigured && cacheStatus?.hasEverRefreshed ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', overflow: 'hidden' }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block', flexShrink: 0 }} />
               <span style={{ fontSize: '0.8rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {formData.mcp_url} ({formData.auth_type === 'basic' ? `Basic: ${formData.username}` : 'Token'})
+                {formData.mcp_url} (server-configured)
               </span>
             </div>
           ) : (
@@ -589,22 +565,18 @@ function Home() {
               </span>
             </div>
             {refreshing && <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Running LLM pipeline…</span>}
-            <button onClick={handleRefresh} disabled={refreshing || !canRefreshEffective}
-              title={!canRefreshEffective ? 'Missing credentials. Click Change and enter token or username/password.' : 'Fetch latest live data from Splunk'}
-              style={{ padding: '0.375rem 0.875rem', background: (refreshing || !canRefreshEffective) ? '#1e293b' : '#3b82f6', color: (refreshing || !canRefreshEffective) ? '#64748b' : '#fff', border: 'none', borderRadius: 6, cursor: refreshing || !canRefreshEffective ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: 600, opacity: canRefreshEffective ? 1 : 0.65 }}>
+            <button onClick={handleRefresh} disabled={refreshing || !canRefresh}
+              title={!canRefresh ? 'Splunk configuration is not saved in Settings yet.' : 'Fetch latest live data from Splunk'}
+              style={{ padding: '0.375rem 0.875rem', background: (refreshing || !canRefresh) ? '#1e293b' : '#3b82f6', color: (refreshing || !canRefresh) ? '#64748b' : '#fff', border: 'none', borderRadius: 6, cursor: refreshing || !canRefresh ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: 600, opacity: canRefresh ? 1 : 0.65 }}>
               {refreshing ? '⟳ Fetching…' : '↺ Refresh'}
             </button>
             <button onClick={() => setConfigPanelOpen(true)}
               style={{ padding: '0.375rem 0.625rem', background: 'transparent', color: '#475569', border: '1px solid #1e293b', borderRadius: 6, cursor: 'pointer', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               ⚙️
             </button>
-            {formData.mcp_url && (
+            {splunkConfigured && (
               <button onClick={() => {
                 setShowConnectionEditor(true);
-                // Keep current values while editing so URL/token flow is smooth.
-                if (!formData.mcp_url) {
-                  setFormData({ mcp_url: '', auth_type: envToken ? 'token' : 'basic', token: envToken || '', username: '', password: '', disable_ssl_verify: true });
-                }
               }}
                 style={{ padding: '0.375rem 0.625rem', background: 'transparent', color: '#475569', border: '1px solid #1e293b', borderRadius: 6, cursor: 'pointer', fontSize: '0.75rem' }}>
                 Change

@@ -1,5 +1,6 @@
 import { Pool, PoolClient } from 'pg';
-import axios, { AxiosError } from 'axios';
+import fetch from 'node-fetch';
+import https from 'https';
 
 export interface SplunkConfig {
   url: string;
@@ -96,10 +97,9 @@ export class SplunkConfigService {
         },
       };
     } catch (error) {
-      const axiosError = error as AxiosError;
       return {
         success: false,
-        message: `Connection test failed: ${axiosError.message || 'Unknown error'}`,
+        message: `Connection test failed: ${(error as Error).message || 'Unknown error'}`,
         details: {
           hec_status: 'failed',
         },
@@ -248,23 +248,20 @@ export class SplunkConfigService {
     sslVerify: boolean
   ): Promise<SplunkTestResult> {
     try {
-      const response = await axios.post(
-        `${baseUrl}/services/collector`,
-        {
+      const response = await fetch(`${baseUrl}/services/collector`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Splunk ${hecToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           event: {
             message: 'Test event from Teja Governance Dashboard',
           },
           sourcetype: '_json',
-        },
-        {
-          headers: {
-            Authorization: `Splunk ${hecToken}`,
-            'Content-Type': 'application/json',
-          },
-          https: { rejectUnauthorized: sslVerify },
-          timeout: 10000,
-        }
-      );
+        }),
+        agent: new https.Agent({ rejectUnauthorized: sslVerify }),
+      });
 
       // HEC returns 200 with text "Success" if accepted
       if (response.status === 200) {
@@ -279,10 +276,9 @@ export class SplunkConfigService {
         message: `HEC endpoint returned status ${response.status}`,
       };
     } catch (error) {
-      const axiosError = error as AxiosError;
       return {
         success: false,
-        message: `HEC endpoint test failed: ${axiosError.message}`,
+        message: `HEC endpoint test failed: ${(error as Error).message}`,
       };
     }
   }
@@ -294,18 +290,23 @@ export class SplunkConfigService {
     sslVerify: boolean
   ): Promise<SplunkTestResult> {
     try {
-      const response = await axios.get(`${baseUrl}/services/server/info`, {
-        auth: {
-          username,
-          password,
+      const response = await fetch(`${baseUrl}/services/server/info`, {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
         },
-        https: { rejectUnauthorized: sslVerify },
-        timeout: 10000,
-        validateStatus: (status) => status === 200,
+        agent: new https.Agent({ rejectUnauthorized: sslVerify }),
       });
 
+      if (!response.ok) {
+        return {
+          success: false,
+          message: `API authentication failed: HTTP ${response.status}`,
+        };
+      }
+
       // Extract Splunk version from response
-      const versionMatch = response.data.match(/<s:key name="version">([^<]+)<\/s:key>/);
+      const text = await response.text();
+      const versionMatch = text.match(/<s:key name="version">([^<]+)<\/s:key>/);
       const version = versionMatch ? versionMatch[1] : 'unknown';
 
       return {
@@ -316,10 +317,9 @@ export class SplunkConfigService {
         },
       };
     } catch (error) {
-      const axiosError = error as AxiosError;
       return {
         success: false,
-        message: `API authentication failed: ${axiosError.message}`,
+        message: `API authentication failed: ${(error as Error).message}`,
       };
     }
   }
@@ -331,21 +331,20 @@ export class SplunkConfigService {
     sslVerify: boolean
   ): Promise<number> {
     try {
-      const response = await axios.get(`${baseUrl}/services/data/indexes`, {
-        auth: {
-          username,
-          password,
+      const response = await fetch(`${baseUrl}/services/data/indexes?output_mode=json`, {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
         },
-        https: { rejectUnauthorized: sslVerify },
-        timeout: 10000,
-        params: {
-          output_mode: 'json',
-        },
-        validateStatus: (status) => status === 200,
+        agent: new https.Agent({ rejectUnauthorized: sslVerify }),
       });
 
+      if (!response.ok) {
+        return 0;
+      }
+
       // Count non-internal indexes
-      const indexes = response.data.entry || [];
+      const payload = (await response.json()) as any;
+      const indexes = payload.entry || [];
       return indexes.filter((idx: any) => !idx.name.startsWith('_')).length;
     } catch (error) {
       // If we can't get indexes, return 0 but don't fail

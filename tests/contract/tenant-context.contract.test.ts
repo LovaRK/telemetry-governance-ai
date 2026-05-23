@@ -8,6 +8,7 @@
  */
 
 import { loginAndGetToken, authGet, authPost, unauthenticatedGet, unauthenticatedPost, BASE_URL, TEST_TENANT_ID } from './_helpers';
+import { query } from '../../core/database/connection';
 
 interface RequestContext {
   userId: string;
@@ -18,6 +19,54 @@ interface RequestContext {
 }
 
 describe('Contract: Tenant Context Isolation (Phase 1G)', () => {
+  const seededConfig = {
+    splunk_url: 'https://144.202.48.85:8089',
+    splunk_hec_token: 'contract-test-token',
+    splunk_username: 'admin',
+    splunk_ssl_verify: false,
+  };
+  let originalTenantConfig: {
+    splunk_url: string | null;
+    splunk_hec_token: string | null;
+    splunk_username: string | null;
+    splunk_ssl_verify: boolean | null;
+    is_configured: boolean | null;
+  } | null = null;
+
+  beforeAll(async () => {
+    const result = await query(
+      `SELECT splunk_url, splunk_hec_token, splunk_username, splunk_ssl_verify, is_configured
+       FROM tenants
+       WHERE id = $1`,
+      [TEST_TENANT_ID]
+    );
+    originalTenantConfig = result.rows[0] || null;
+  });
+
+  afterAll(async () => {
+    if (!originalTenantConfig) {
+      return;
+    }
+    await query(
+      `UPDATE tenants
+       SET splunk_url = $1,
+           splunk_hec_token = $2,
+           splunk_username = $3,
+           splunk_ssl_verify = $4,
+           is_configured = $5,
+           updated_at = NOW()
+       WHERE id = $6`,
+      [
+        originalTenantConfig.splunk_url,
+        originalTenantConfig.splunk_hec_token,
+        originalTenantConfig.splunk_username,
+        originalTenantConfig.splunk_ssl_verify,
+        originalTenantConfig.is_configured,
+        TEST_TENANT_ID,
+      ]
+    );
+  });
+
   describe('Auth Contract: Missing JWT', () => {
     test('GET /api/cache-status without JWT → 401', async () => {
       const res = await unauthenticatedGet('/api/cache-status');
@@ -155,6 +204,24 @@ describe('Contract: Tenant Context Isolation (Phase 1G)', () => {
 
       const token = await loginAndGetToken();
 
+      await query(
+        `UPDATE tenants
+         SET splunk_url = $1,
+             splunk_hec_token = $2,
+             splunk_username = $3,
+             splunk_ssl_verify = $4,
+             is_configured = true,
+             updated_at = NOW()
+         WHERE id = $5`,
+        [
+          seededConfig.splunk_url,
+          seededConfig.splunk_hec_token,
+          seededConfig.splunk_username,
+          seededConfig.splunk_ssl_verify,
+          TEST_TENANT_ID,
+        ]
+      );
+
       // This endpoint now requires context and passes it through the call chain
       const res = await authPost('/api/cache', token, {
         mcpUrl: 'http://localhost:8089',
@@ -208,6 +275,24 @@ describe('Contract: Tenant Context Isolation (Phase 1G)', () => {
 
       const token = await loginAndGetToken();
 
+      await query(
+        `UPDATE tenants
+         SET splunk_url = $1,
+             splunk_hec_token = $2,
+             splunk_username = $3,
+             splunk_ssl_verify = $4,
+             is_configured = true,
+             updated_at = NOW()
+         WHERE id = $5`,
+        [
+          seededConfig.splunk_url,
+          seededConfig.splunk_hec_token,
+          seededConfig.splunk_username,
+          seededConfig.splunk_ssl_verify,
+          TEST_TENANT_ID,
+        ]
+      );
+
       // This endpoint requires context and passes it to runAggregation
       // Successful response (or controlled error) means context was validated and propagated
       const res = await authPost('/api/cache', token, {
@@ -246,6 +331,24 @@ describe('Contract: Tenant Context Isolation (Phase 1G)', () => {
       // The job payload includes: tenantId, userId, traceId (all from RequestContext)
 
       const token = await loginAndGetToken();
+
+      await query(
+        `UPDATE tenants
+         SET splunk_url = $1,
+             splunk_hec_token = $2,
+             splunk_username = $3,
+             splunk_ssl_verify = $4,
+             is_configured = true,
+             updated_at = NOW()
+         WHERE id = $5`,
+        [
+          seededConfig.splunk_url,
+          seededConfig.splunk_hec_token,
+          seededConfig.splunk_username,
+          seededConfig.splunk_ssl_verify,
+          TEST_TENANT_ID,
+        ]
+      );
 
       const res = await authPost('/api/cache', token, {
         mcpUrl: 'http://localhost:8089',

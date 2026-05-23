@@ -19,68 +19,29 @@ export default function ConnectionGatedUI({ children, onConnectionChange }: Prop
 
   useEffect(() => {
     const checkConnection = async () => {
-      // If env vars are configured, auto-populate localStorage so the UI
-      // doesn't show "unconfigured" when Splunk is set via server env.
-      const envMcpUrl   = process.env.NEXT_PUBLIC_SPLUNK_MCP_URL;
-      const envToken    = process.env.NEXT_PUBLIC_SPLUNK_TOKEN;
-      const envNoSsl    = process.env.NEXT_PUBLIC_SPLUNK_DISABLE_SSL_VERIFY === 'true';
-
-      let savedConfig = localStorage.getItem('splunk_config');
-      if (!savedConfig && envMcpUrl && envToken) {
-        const envConfig = JSON.stringify({ mcpUrl: envMcpUrl, token: envToken, disableSslVerify: envNoSsl });
-        localStorage.setItem('splunk_config', envConfig);
-        savedConfig = envConfig;
-      }
-
-      if (!savedConfig) {
-        const state = { status: 'unconfigured' as const, message: 'Splunk not configured' };
-        setConnection(state);
-        onConnectionChange?.(state);
-        return;
-      }
-
       try {
-        const config = JSON.parse(savedConfig);
-        const res = await apiFetch('/api/test-connection', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(config),
-        });
+        const res = await apiFetch('/api/splunk/status');
+        if (!res.ok) {
+          const state = { status: 'unconfigured' as const, message: 'Splunk not configured' };
+          setConnection(state);
+          onConnectionChange?.(state);
+          return;
+        }
 
-        if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.is_configured) {
           const state = { status: 'connected' as const, message: 'Connected to Splunk' };
           setConnection(state);
           onConnectionChange?.(state);
         } else {
-          const data = await res.json().catch(() => ({}));
-          // If the test-connection API itself is misconfigured but we have env vars,
-          // treat as connected — the real Splunk client uses env vars at the API level.
-          if (envMcpUrl && envToken) {
-            const state = { status: 'connected' as const, message: 'Connected via environment config' };
-            setConnection(state);
-            onConnectionChange?.(state);
-          } else {
-            const state = {
-              status: 'disconnected' as const,
-              error: data.error || 'Connection failed',
-              message: data.hint,
-            };
-            setConnection(state);
-            onConnectionChange?.(state);
-          }
+          const state = { status: 'unconfigured' as const, message: 'Splunk not configured' };
+          setConnection(state);
+          onConnectionChange?.(state);
         }
       } catch (err) {
-        // Network error — if env vars exist, don't block the UI
-        if (envMcpUrl && envToken) {
-          const state = { status: 'connected' as const, message: 'Connected via environment config' };
-          setConnection(state);
-          onConnectionChange?.(state);
-        } else {
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          const state = { status: 'disconnected' as const, error: message };
-          setConnection(state);
-          onConnectionChange?.(state);
-        }
+        const state = { status: 'unconfigured' as const, message: 'Splunk not configured' };
+        setConnection(state);
+        onConnectionChange?.(state);
       }
     };
 
