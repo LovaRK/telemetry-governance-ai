@@ -9,19 +9,71 @@
  *   worker (this)  → claims job  → calls Ollama on host → writes decisions → done
  */
 
-import { claimNextJob, updateJobProgress, checkpointJob, setJobComplete, setJobFailed, recoverStaleJobs } from '../apps/api/services/job-service';
+import { claimNextJob, updateJobProgress, checkpointJob, setJobComplete, setJobFailed, recoverStaleJobs, setJobExecutionMetrics } from '../apps/api/services/job-service';
 import { runLLMDecisionAgent, RawTelemetryInput } from '../apps/api/agents/llm-decision-agent';
 import { loadUserConfig } from '../apps/api/services/config-service';
 import { pool, query, transaction } from '../core/database/connection';
 import { ModelGovernanceService, RuntimeFingerprint } from '../apps/api/services/model-governance-service';
-import { appendStageEvent, markRunFailed, publishRunAtomic } from '../apps/api/services/pipeline-ledger-service';
+import { appendStageEvent, markRunFailed, publishRunAtomic, setRunExecutionMetrics } from '../apps/api/services/pipeline-ledger-service';
 
 const POLL_INTERVAL_MS = parseInt(process.env.WORKER_POLL_INTERVAL_MS || '5000', 10);
 const BATCH_SIZE = 1; // One index at a time — local Ollama memory constraint
+const WORKER_BATCH_TIMEOUT_MS = parseInt(process.env.WORKER_BATCH_TIMEOUT_MS || '240000', 10);
 const governanceService = new ModelGovernanceService(pool);
 
 async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function resolveValidatedRunId(runId: string | null, tenantId: string): Promise<string | null> {
+  if (!runId) return null;
+  const result = await query<{ runId: string }>(
+    `SELECT run_id as "runId"
+     FROM pipeline_runs
+     WHERE run_id = $1
+       AND tenant_id = $2
+     LIMIT 1`,
+    [runId, tenantId]
+  );
+  return result.rows[0]?.runId ?? null;
+}
+
+async function loadFallbackInputsFromSnapshot(snapshotId: string, tenantId: string): Promise<RawTelemetryInput[]> {
+  const result = await query<{
+    indexName: string;
+    sourcetype: string | null;
+    dailyAvgGb: string;
+    totalEvents: string;
+    retentionDays: number | null;
+    createdAt: string;
+  }>(
+    `SELECT
+       index_name as "indexName",
+       sourcetype,
+       daily_avg_gb::text as "dailyAvgGb",
+       total_events::text as "totalEvents",
+       retention_days as "retentionDays",
+       created_at as "createdAt"
+     FROM telemetry_snapshots
+     WHERE snapshot_id = $1
+       AND tenant_id = $2
+       AND granularity IN ('sourcetype','index')
+     ORDER BY CASE WHEN granularity = 'sourcetype' THEN 0 ELSE 1 END, daily_avg_gb DESC`,
+    [snapshotId, tenantId]
+  );
+
+  return result.rows.map((row) => {
+    const ts = row.createdAt || new Date().toISOString();
+    return {
+      index: row.indexName,
+      sourcetype: row.sourcetype || undefined,
+      dailyAvgGb: Number(row.dailyAvgGb || '0'),
+      totalEvents: Number(row.totalEvents || '0'),
+      retentionDays: Number(row.retentionDays || 30),
+      firstEvent: ts,
+      lastEvent: ts,
+    };
+  });
 }
 
 async function processJob(job: any): Promise<void> {
@@ -34,9 +86,25 @@ async function processJob(job: any): Promise<void> {
 
   const today = new Date().toISOString().split('T')[0];
   const snapshotId = job.snapshotId || job.payload.snapshotId;
-  const runId = (job.payload as any)?.runId || null;
+  const rawRunId = (job.payload as any)?.runId || null;
   const tenantId = (job.payload as any)?.tenantId || 'default';
-  if (inputs.length === 0) {
+  const requestId = (job.payload as any)?.requestId || null;
+  const runId = await resolveValidatedRunId(rawRunId, tenantId);
+
+  if (rawRunId && !runId) {
+    throw new Error(`MISSING_PIPELINE_RUN: run_id ${rawRunId} not found for tenant ${tenantId}`);
+  }
+
+  let effectiveInputs = inputs;
+  if (effectiveInputs.length === 0) {
+    const fallbackInputs = await loadFallbackInputsFromSnapshot(snapshotId, tenantId);
+    if (fallbackInputs.length > 0) {
+      console.log(`[Worker] Job ${job.jobId}: candidate filter empty — using ${fallbackInputs.length} fallback snapshot inputs`);
+      effectiveInputs = fallbackInputs;
+    }
+  }
+
+  if (effectiveInputs.length === 0) {
     console.log(`[Worker] Job ${job.jobId}: no material AI candidates; publishing Splunk-derived snapshot only`);
     if (runId) {
       await appendStageEvent({
@@ -44,17 +112,19 @@ async function processJob(job: any): Promise<void> {
         stage: 'AI_DECISIONS',
         status: 'SUCCESS',
         recordsProcessed: 0,
-        metadata: { jobId: job.jobId, snapshotId, mode: 'no_material_candidates' },
+        requestId,
+        metadata: { jobId: job.jobId, snapshotId, mode: 'no_material_candidates', requestId },
       });
       await appendStageEvent({
         runId,
         stage: 'GOVERNANCE_SYNC',
         status: 'SUCCESS',
-        metadata: { mode: 'no_material_candidates' },
+        requestId,
+        metadata: { mode: 'no_material_candidates', requestId },
       });
-      await appendStageEvent({ runId, stage: 'PUBLISH', status: 'IN_PROGRESS' });
+      await appendStageEvent({ runId, stage: 'PUBLISH', status: 'IN_PROGRESS', requestId });
       await publishRunAtomic({ runId, snapshotId, tenantId });
-      await appendStageEvent({ runId, stage: 'PUBLISH', status: 'SUCCESS' });
+      await appendStageEvent({ runId, stage: 'PUBLISH', status: 'SUCCESS', requestId });
     }
     await setJobComplete(job.jobId, snapshotId);
     return;
@@ -69,7 +139,8 @@ async function processJob(job: any): Promise<void> {
         runId,
         stage: 'AI_DECISIONS',
         status: 'IN_PROGRESS',
-        metadata: { jobId: job.jobId, snapshotId },
+        requestId,
+        metadata: { jobId: job.jobId, snapshotId, requestId },
       });
     }
     runtime = await governanceService.getActiveRuntime();
@@ -80,14 +151,16 @@ async function processJob(job: any): Promise<void> {
         runId,
         stage: 'AI_DECISIONS',
         status: 'FAILED',
+        requestId,
         errorType: 'UNKNOWN',
         errorCode: 'NO_ACTIVE_MODEL_POINTER',
         errorMessage: msg,
-        metadata: { jobId: job.jobId, snapshotId },
+        metadata: { jobId: job.jobId, snapshotId, requestId },
       });
       await markRunFailed(runId, msg);
     }
-    throw err;
+    await setJobFailed(job.jobId, `FAILED_MODEL_UNAVAILABLE: ${msg}`);
+    return;
   }
 
   // Map candidate reasons for quick lookup
@@ -99,25 +172,73 @@ async function processJob(job: any): Promise<void> {
     }
   }
 
-  console.log(`[Worker] Processing job ${job.jobId}: ${inputs.length} inputs, resuming from checkpoint ${checkpoint}`);
+  console.log(`[Worker] Processing job ${job.jobId}: ${effectiveInputs.length} inputs, resuming from checkpoint ${checkpoint}`);
 
   // Split into batches of 1 (memory-safe for local Ollama)
   const batches: RawTelemetryInput[][] = [];
-  for (let i = 0; i < inputs.length; i += BATCH_SIZE) {
-    batches.push(inputs.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < effectiveInputs.length; i += BATCH_SIZE) {
+    batches.push(effectiveInputs.slice(i, i + BATCH_SIZE));
   }
 
   const userConfig = await loadUserConfig();
   let totalDecisions = 0;
+  let totalLatencyMs = 0;
+  let totalTokensIn = 0;
+  let totalTokensOut = 0;
+  let observedModelName: string | null = (job.payload as any)?.modelName || null;
+  let observedBatchCount = 0;
   let failedBatches = 0;
+  let localLlmUnavailable = false;
+  let workerBatchTimeout = false;
+  let failedCheckpoint = checkpoint;
+  let lastFailureMessage: string | null = null;
 
   // Resume from checkpoint (handles worker restart mid-job)
   for (let i = checkpoint; i < batches.length; i++) {
     const batch = batches[i];
     console.log(`[Worker] Batch ${i + 1}/${batches.length}: analyzing ${batch.map(b => b.index).join(', ')}`);
+    const batchMessage = `Analyzing ${batch[0]?.index}${batch[0]?.sourcetype ? ':' + batch[0].sourcetype : ''}`;
+    const batchHeartbeatProgress = {
+      batch: i + 1,
+      totalBatches: batches.length,
+      decisionsWritten: totalDecisions,
+      message: batchMessage,
+    };
+    await updateJobProgress(job.jobId, batchHeartbeatProgress);
+    const heartbeatInterval = setInterval(() => {
+      void checkpointJob(job.jobId, i, batchHeartbeatProgress).catch((e) => {
+        console.warn('[Worker] Batch heartbeat checkpoint warning:', e instanceof Error ? e.message : String(e));
+      });
+      void updateJobProgress(job.jobId, batchHeartbeatProgress).catch((e) => {
+        console.warn('[Worker] Batch heartbeat progress warning:', e instanceof Error ? e.message : String(e));
+      });
+    }, 15000);
 
     try {
-      const batchSummary = await runLLMDecisionAgent(batch, userConfig);
+      const batchController = new AbortController();
+      const batchTimeout = setTimeout(() => batchController.abort(), WORKER_BATCH_TIMEOUT_MS);
+      const batchSummary = await (async () => {
+        try {
+          return await runLLMDecisionAgent(batch, userConfig, {
+            signal: batchController.signal,
+            onBatchMetric: (metric) => {
+              observedModelName = metric.model || observedModelName;
+              totalLatencyMs += Number(metric.latencyMs || 0);
+              observedBatchCount = Math.max(observedBatchCount, Number(metric.batch || 0));
+              void checkpointJob(job.jobId, i, {
+                batch: metric.batch,
+                totalBatches: metric.totalBatches,
+                decisionsWritten: totalDecisions,
+                message: `${metric.model} ${metric.status} · ${metric.latencyMs}ms · prompt ${metric.promptChars} chars`,
+              }).catch((e) => {
+                console.warn('[Worker] Batch metric checkpoint warning:', e instanceof Error ? e.message : String(e));
+              });
+            },
+          });
+        } finally {
+          clearTimeout(batchTimeout);
+        }
+      })();
       const decisions = batchSummary.decisions;
 
       // Write decisions incrementally (partial results appear in dashboard)
@@ -125,7 +246,7 @@ async function processJob(job: any): Promise<void> {
         for (const decision of decisions) {
           const reasonKey = decision.sourcetype ? `${decision.index}:${decision.sourcetype}` : decision.index;
           const candidateReason = reasonsMap.get(reasonKey) || [];
-          await writeDecisionToDb(client, decision, snapshotId, today, candidateReason, runtime);
+          await writeDecisionToDb(client, decision, snapshotId, today, tenantId, runId, requestId, candidateReason, runtime);
         }
       });
 
@@ -145,10 +266,132 @@ async function processJob(job: any): Promise<void> {
       console.log(`[Worker] Batch ${i + 1}/${batches.length} complete — ${totalDecisions} total decisions written`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      lastFailureMessage = msg;
+      if (/timed out after|aborted|FAILED_MODEL_TIMEOUT/i.test(msg)) {
+        workerBatchTimeout = true;
+        failedCheckpoint = i;
+        failedBatches = batches.length;
+        if (runId) {
+          await appendStageEvent({
+            runId,
+            stage: 'AI_DECISIONS',
+            status: 'FAILED',
+            requestId,
+            errorType: 'TIMEOUT',
+            errorCode: 'FAILED_MODEL_TIMEOUT',
+            errorMessage: msg,
+            metadata: {
+              jobId: job.jobId,
+              snapshotId,
+              batch: i + 1,
+              totalBatches: batches.length,
+              checkpoint: i,
+              batchTimeoutMs: WORKER_BATCH_TIMEOUT_MS,
+              requestId,
+            },
+          });
+        }
+        console.error(`[Worker] Batch ${i + 1} timed out: ${msg}`);
+        break;
+      }
+      if (/No local LLM available|Ollama is not running|Inference unavailable/i.test(msg)) {
+        localLlmUnavailable = true;
+        failedBatches = batches.length;
+        if (runId) {
+          await appendStageEvent({
+            runId,
+            stage: 'AI_DECISIONS',
+            status: 'FAILED',
+            requestId,
+            errorType: 'MODEL_MISSING',
+            errorCode: 'FAILED_MODEL_UNAVAILABLE',
+            errorMessage: msg,
+            metadata: {
+              jobId: job.jobId,
+              snapshotId,
+              batch: i + 1,
+              totalBatches: batches.length,
+              checkpoint: i,
+              requestId,
+            },
+          });
+        }
+        console.error(`[Worker] Batch ${i + 1} failed: ${msg}`);
+        break;
+      }
+      if (runId) {
+        await appendStageEvent({
+          runId,
+          stage: 'AI_DECISIONS',
+          status: 'FAILED',
+          requestId,
+          errorType: 'UNKNOWN',
+          errorCode: 'FAILED_MODEL_RUNTIME',
+          errorMessage: msg,
+          metadata: {
+            jobId: job.jobId,
+            snapshotId,
+            batch: i + 1,
+            totalBatches: batches.length,
+            checkpoint: i,
+            requestId,
+          },
+        });
+      }
       console.error(`[Worker] Batch ${i + 1} failed:`, msg);
       failedBatches += 1;
       // Continue to next batch — partial results are still useful
+    } finally {
+      clearInterval(heartbeatInterval);
     }
+  }
+
+  if (failedBatches > 0) {
+    const failureMessage = workerBatchTimeout
+      ? (lastFailureMessage || `WORKER_BATCH_TIMEOUT: batch ${failedCheckpoint + 1}/${batches.length} exceeded ${WORKER_BATCH_TIMEOUT_MS}ms`)
+      : localLlmUnavailable
+      ? 'FAILED_MODEL_UNAVAILABLE: local model is unavailable for this run'
+      : (lastFailureMessage || `AI_DECISIONS_FAILED: ${failedBatches} batch(es) failed`);
+    const failureCode = workerBatchTimeout
+      ? 'FAILED_MODEL_TIMEOUT'
+      : localLlmUnavailable
+      ? 'FAILED_MODEL_UNAVAILABLE'
+      : 'AI_DECISIONS_FAILED';
+    const failureType = workerBatchTimeout
+      ? 'TIMEOUT'
+      : localLlmUnavailable
+      ? 'MODEL_MISSING'
+      : 'UNKNOWN';
+    if (runId) {
+      await appendStageEvent({
+        runId,
+        stage: 'AI_DECISIONS',
+        status: 'FAILED',
+        requestId,
+        errorType: failureType,
+        errorCode: failureCode,
+        errorMessage: failureMessage,
+        metadata: { jobId: job.jobId, snapshotId, failedBatches, checkpoint: failedCheckpoint, batchTimeoutMs: WORKER_BATCH_TIMEOUT_MS, requestId },
+      });
+      await setRunExecutionMetrics({
+        runId,
+        modelName: observedModelName,
+        latencyMs: totalLatencyMs || null,
+        tokensIn: totalTokensIn || null,
+        tokensOut: totalTokensOut || null,
+        batchCount: observedBatchCount || batches.length,
+      });
+      await markRunFailed(runId, failureMessage);
+    }
+    await setJobExecutionMetrics(job.jobId, {
+      modelName: observedModelName,
+      latencyMs: totalLatencyMs || null,
+      tokensIn: totalTokensIn || null,
+      tokensOut: totalTokensOut || null,
+      batchCount: observedBatchCount || batches.length,
+    });
+    await setJobFailed(job.jobId, `${failureCode}: ${failureMessage}`);
+    return;
   }
 
   if (totalDecisions === 0) {
@@ -160,19 +403,36 @@ async function processJob(job: any): Promise<void> {
         runId,
         stage: 'AI_DECISIONS',
         status: 'FAILED',
+        requestId,
         errorType: 'UNKNOWN',
         errorCode: 'AI_DECISIONS_EMPTY',
         errorMessage: failureMessage,
-        metadata: { jobId: job.jobId, snapshotId, failedBatches },
+        metadata: { jobId: job.jobId, snapshotId, failedBatches, requestId },
+      });
+      await setRunExecutionMetrics({
+        runId,
+        modelName: observedModelName,
+        latencyMs: totalLatencyMs || null,
+        tokensIn: totalTokensIn || null,
+        tokensOut: totalTokensOut || null,
+        batchCount: observedBatchCount || batches.length,
       });
       await markRunFailed(runId, failureMessage);
     }
-    throw new Error(failureMessage);
+    await setJobExecutionMetrics(job.jobId, {
+      modelName: observedModelName,
+      latencyMs: totalLatencyMs || null,
+      tokensIn: totalTokensIn || null,
+      tokensOut: totalTokensOut || null,
+      batchCount: observedBatchCount || batches.length,
+    });
+    await setJobFailed(job.jobId, `AI_DECISIONS_EMPTY: ${failureMessage}`);
+    return;
   }
 
   // Final: rebuild executive KPIs from all decisions in DB
   try {
-    await rebuildExecutiveKpis(snapshotId, today);
+    await rebuildExecutiveKpis(snapshotId, today, tenantId);
     console.log(`[Worker] Executive KPIs rebuilt for snapshot ${snapshotId}`);
   } catch (err) {
     console.warn('[Worker] KPI rebuild warning:', err instanceof Error ? err.message : err);
@@ -190,10 +450,12 @@ async function processJob(job: any): Promise<void> {
       runId,
       stage: 'AI_DECISIONS',
       status: 'SUCCESS',
+      requestId,
       recordsProcessed: totalDecisions,
       metadata: {
         jobId: job.jobId,
         snapshotId,
+        requestId,
         modelId: runtime.modelId,
         promptId: runtime.promptId,
         promotionId: runtime.promotionId,
@@ -204,30 +466,58 @@ async function processJob(job: any): Promise<void> {
       runId,
       stage: 'GOVERNANCE_SYNC',
       status: 'SUCCESS',
+      requestId,
       metadata: {
+        requestId,
         modelId: runtime.modelId,
         promptId: runtime.promptId,
         promotionId: runtime.promotionId,
       },
     });
-    await appendStageEvent({ runId, stage: 'PUBLISH', status: 'IN_PROGRESS' });
+    await appendStageEvent({ runId, stage: 'PUBLISH', status: 'IN_PROGRESS', requestId });
     try {
       await publishRunAtomic({ runId, snapshotId, tenantId });
-      await appendStageEvent({ runId, stage: 'PUBLISH', status: 'SUCCESS' });
+      await appendStageEvent({ runId, stage: 'PUBLISH', status: 'SUCCESS', requestId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await appendStageEvent({
         runId,
         stage: 'PUBLISH',
         status: 'FAILED',
+        requestId,
         errorType: 'UNKNOWN',
         errorCode: 'PUBLISH_FAILED',
         errorMessage: msg,
+      });
+      await setRunExecutionMetrics({
+        runId,
+        modelName: observedModelName,
+        latencyMs: totalLatencyMs || null,
+        tokensIn: totalTokensIn || null,
+        tokensOut: totalTokensOut || null,
+        batchCount: observedBatchCount || batches.length,
       });
       await markRunFailed(runId, msg);
       throw err;
     }
   }
+  if (runId) {
+    await setRunExecutionMetrics({
+      runId,
+      modelName: observedModelName,
+      latencyMs: totalLatencyMs || null,
+      tokensIn: totalTokensIn || null,
+      tokensOut: totalTokensOut || null,
+      batchCount: observedBatchCount || batches.length,
+    });
+  }
+  await setJobExecutionMetrics(job.jobId, {
+    modelName: observedModelName,
+    latencyMs: totalLatencyMs || null,
+    tokensIn: totalTokensIn || null,
+    tokensOut: totalTokensOut || null,
+    batchCount: observedBatchCount || batches.length,
+  });
   await setJobComplete(job.jobId, snapshotId);
   console.log(`[Worker] Job ${job.jobId} complete — ${totalDecisions} decisions written`);
 }
@@ -237,6 +527,9 @@ async function writeDecisionToDb(
   decision: any,
   snapshotId: string,
   today: string,
+  tenantId: string,
+  runId: string | null,
+  requestId: string | null,
   candidateReason: string[] = [],
   runtime?: RuntimeFingerprint
 ) {
@@ -263,8 +556,9 @@ async function writeDecisionToDb(
       utilization_pct = $6,
       updated_at     = NOW()
     WHERE snapshot_date = $7
-      AND index_name = $8
-      AND (sourcetype IS NOT DISTINCT FROM $9)
+      AND tenant_id = $8
+      AND index_name = $9
+      AND (sourcetype IS NOT DISTINCT FROM $10)
   `, [
     Number(decision.riskScore) || 0,
     classificationMap[decision.action] || 'INVESTIGATE',
@@ -273,6 +567,7 @@ async function writeDecisionToDb(
     JSON.stringify(decision.evidence || []),
     Number(decision.utilizationScore) || 0,
     today,
+    tenantId,
     decision.index,
     decision.sourcetype || null,
   ]);
@@ -280,12 +575,14 @@ async function writeDecisionToDb(
   // Delete existing row first to handle NULL sourcetype (NULLs not matched by ON CONFLICT)
   await client.query(`
     DELETE FROM agent_decisions
-    WHERE snapshot_id = $1 AND index_name = $2 AND (sourcetype IS NOT DISTINCT FROM $3)
-  `, [snapshotId, decision.index, decision.sourcetype || null]);
+    WHERE tenant_id = $1 AND snapshot_id = $2 AND index_name = $3 AND (sourcetype IS NOT DISTINCT FROM $4)
+  `, [tenantId, snapshotId, decision.index, decision.sourcetype || null]);
 
   // Insert agent_decisions — idempotent: ON CONFLICT updates in place
   await client.query(`
     INSERT INTO agent_decisions (
+      tenant_id, run_id,
+      request_id,
       snapshot_id, snapshot_date, index_name, sourcetype,
       tier, action, composite_score, utilization_score, detection_score,
       quality_score, risk_score, annual_license_cost, estimated_savings,
@@ -293,8 +590,10 @@ async function writeDecisionToDb(
       is_quick_win, is_s3_candidate, detection_gap, candidate_reason,
       model_governance_id, prompt_governance_id, promotion_id,
       decision_contract_version, model_version, prompt_version, system_prompt_hash
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
-    ON CONFLICT (snapshot_id, index_name, sourcetype) DO UPDATE SET
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
+    ON CONFLICT (tenant_id, snapshot_id, index_name, sourcetype) DO UPDATE SET
+      run_id             = EXCLUDED.run_id,
+      request_id         = EXCLUDED.request_id,
       tier              = EXCLUDED.tier,
       action            = EXCLUDED.action,
       composite_score   = EXCLUDED.composite_score,
@@ -320,7 +619,7 @@ async function writeDecisionToDb(
       prompt_version      = EXCLUDED.prompt_version,
       system_prompt_hash  = EXCLUDED.system_prompt_hash
   `, [
-    snapshotId, today, decision.index, decision.sourcetype || null,
+    tenantId, runId, requestId, snapshotId, today, decision.index, decision.sourcetype || null,
     decision.tier, decision.action,
     Number(decision.compositeScore) || 0,
     Number(decision.utilizationScore) || 0,
@@ -348,68 +647,115 @@ async function writeDecisionToDb(
   ]);
 }
 
-async function rebuildExecutiveKpis(snapshotId: string, today: string) {
-  // Aggregate all decisions written so far → update executive_kpis
-  const r = await query<any>(`
+async function rebuildExecutiveKpis(snapshotId: string, today: string, tenantId: string) {
+  const decisionStatsResult = await query<any>(
+    `
     SELECT
-      COUNT(*) FILTER (WHERE tier ILIKE '%critical%') AS tier_critical,
-      COUNT(*) FILTER (WHERE tier ILIKE '%important%') AS tier_important,
-      COUNT(*) FILTER (WHERE tier ILIKE '%nice%') AS tier_nice,
-      COUNT(*) FILTER (WHERE tier ILIKE '%low%') AS tier_low,
+      COUNT(*) FILTER (WHERE tier = 'Critical') AS tier_critical,
+      COUNT(*) FILTER (WHERE tier = 'Important') AS tier_important,
+      COUNT(*) FILTER (WHERE tier = 'Nice-to-Have') AS tier_nice,
+      COUNT(*) FILTER (WHERE tier = 'Low-Value') AS tier_low,
       COUNT(*) FILTER (WHERE detection_gap = true) AS security_gaps,
+      ROUND(AVG(composite_score)::numeric, 2) AS roi_score,
       ROUND(AVG(utilization_score)::numeric, 1) AS avg_util,
       ROUND(AVG(detection_score)::numeric, 1) AS avg_det,
       ROUND(AVG(quality_score)::numeric, 1) AS avg_qual,
-      ROUND(AVG(confidence)::numeric * 100, 1) AS avg_conf,
-      SUM(annual_license_cost) AS total_spend,
-      SUM(annual_license_cost) FILTER (WHERE tier ILIKE '%low%') AS low_value_spend,
-      SUM(estimated_savings) AS savings,
-      COUNT(*) FILTER (WHERE is_quick_win = true) AS quick_win_count
-    FROM agent_decisions WHERE snapshot_date = $1
-  `, [today]);
+      ROUND(AVG(confidence_score)::numeric * 100, 1) AS avg_conf,
+      COALESCE(SUM(estimated_savings), 0) AS savings
+    FROM agent_decisions
+    WHERE tenant_id = $1 AND snapshot_id = $2
+    `,
+    [tenantId, snapshotId]
+  );
 
-  const stats = r.rows[0];
-  const totalCritical = Number(stats.tier_critical) || 0;
-  const totalImportant = Number(stats.tier_important) || 0;
-  const totalNice = Number(stats.tier_nice) || 0;
-  const totalLow = Number(stats.tier_low) || 0;
-  const totalIndexes = totalCritical + totalImportant + totalNice + totalLow;
+  const volumeStatsResult = await query<any>(
+    `
+    WITH decision_volume AS (
+      SELECT
+        ad.tier,
+        COALESCE(ts.daily_avg_gb, 0) AS daily_avg_gb,
+        COALESCE(ts.cost_per_year, 0) AS cost_per_year
+      FROM agent_decisions ad
+      JOIN telemetry_snapshots ts
+        ON ts.tenant_id = ad.tenant_id
+       AND ts.snapshot_id = ad.snapshot_id
+       AND ts.index_name = ad.index_name
+       AND ts.sourcetype IS NOT DISTINCT FROM ad.sourcetype
+      WHERE ad.tenant_id = $1
+        AND ad.snapshot_id = $2
+    )
+    SELECT
+      COALESCE(SUM(cost_per_year), 0) AS total_spend,
+      COALESCE(SUM(daily_avg_gb), 0) AS total_daily_gb,
+      COUNT(*) AS total_sourcetypes,
+      COALESCE(SUM(CASE WHEN tier IN ('Critical', 'Important') THEN daily_avg_gb ELSE 0 END), 0) AS tier_12_gb,
+      COALESCE(SUM(CASE WHEN tier IN ('Nice-to-Have', 'Low-Value') THEN cost_per_year ELSE 0 END), 0) AS low_value_spend
+    FROM decision_volume
+    `,
+    [tenantId, snapshotId]
+  );
 
-  // Simple ROI: (savings / total_spend) * 100, capped at 100
-  const totalSpend = Number(stats.total_spend) || 1;
-  const savings = Number(stats.savings) || 0;
-  const roiScore = Math.min(100, Math.round((savings / totalSpend) * 100));
-  const gainScopeScore = Math.min(100, Math.round(((totalLow + totalNice) / Math.max(totalIndexes, 1)) * 100));
+  const stats = decisionStatsResult.rows[0] || {};
+  const volume = volumeStatsResult.rows[0] || {};
+  const totalDailyGb = Number(volume.total_daily_gb) || 0;
+  const gainScopeScore = totalDailyGb > 0
+    ? Math.round(((Number(volume.tier_12_gb) || 0) / totalDailyGb) * 10000) / 100
+    : 0;
 
-  await query(`
-    UPDATE executive_kpis SET
-      roi_score            = $1,
-      gainscope_score      = $2,
-      tier_critical        = $3,
-      tier_important       = $4,
-      tier_nice_to_have    = $5,
-      tier_low_value       = $6,
-      security_gaps        = $7,
-      avg_utilization      = $8,
-      avg_detection        = $9,
-      avg_quality          = $10,
-      avg_confidence       = $11,
-      license_spend_low_value = $12,
-      storage_savings_potential = $13,
-      updated_at           = NOW()
-    WHERE snapshot_date = $14
-  `, [
-    roiScore, gainScopeScore,
-    totalCritical, totalImportant, totalNice, totalLow,
-    Number(stats.security_gaps) || 0,
-    Number(stats.avg_util) || 0,
-    Number(stats.avg_det) || 0,
-    Number(stats.avg_qual) || 0,
-    Number(stats.avg_conf) || 0,
-    Number(stats.low_value_spend) || 0,
-    savings,
-    today,
-  ]);
+  await query(
+    `
+    INSERT INTO executive_kpis (
+      tenant_id, snapshot_id, snapshot_date,
+      roi_score, gainscope_score,
+      total_license_spend, license_spend_low_value, storage_savings_potential,
+      total_daily_gb, total_sourcetypes,
+      tier_critical, tier_important, tier_nice_to_have, tier_low_value,
+      security_gaps, operational_gaps,
+      avg_utilization, avg_detection, avg_quality, avg_confidence
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+    ON CONFLICT (tenant_id, snapshot_id) DO UPDATE SET
+      roi_score                 = EXCLUDED.roi_score,
+      gainscope_score           = EXCLUDED.gainscope_score,
+      total_license_spend       = EXCLUDED.total_license_spend,
+      license_spend_low_value   = EXCLUDED.license_spend_low_value,
+      storage_savings_potential = EXCLUDED.storage_savings_potential,
+      total_daily_gb            = EXCLUDED.total_daily_gb,
+      total_sourcetypes         = EXCLUDED.total_sourcetypes,
+      tier_critical             = EXCLUDED.tier_critical,
+      tier_important            = EXCLUDED.tier_important,
+      tier_nice_to_have         = EXCLUDED.tier_nice_to_have,
+      tier_low_value            = EXCLUDED.tier_low_value,
+      security_gaps             = EXCLUDED.security_gaps,
+      operational_gaps          = EXCLUDED.operational_gaps,
+      avg_utilization           = EXCLUDED.avg_utilization,
+      avg_detection             = EXCLUDED.avg_detection,
+      avg_quality               = EXCLUDED.avg_quality,
+      avg_confidence            = EXCLUDED.avg_confidence,
+      updated_at                = NOW()
+    `,
+    [
+      tenantId,
+      snapshotId,
+      today,
+      Number(stats.roi_score) || 0,
+      gainScopeScore,
+      Number(volume.total_spend) || 0,
+      Number(volume.low_value_spend) || 0,
+      Number(stats.savings) || 0,
+      totalDailyGb,
+      Number(volume.total_sourcetypes) || 0,
+      Number(stats.tier_critical) || 0,
+      Number(stats.tier_important) || 0,
+      Number(stats.tier_nice) || 0,
+      Number(stats.tier_low) || 0,
+      Number(stats.security_gaps) || 0,
+      0,
+      Number(stats.avg_util) || 0,
+      Number(stats.avg_det) || 0,
+      Number(stats.avg_qual) || 0,
+      Number(stats.avg_conf) || 0,
+    ]
+  );
 }
 
 const MITRE_MAP: Record<string, string[]> = {
@@ -638,6 +984,13 @@ async function main() {
 
   while (true) {
     try {
+      // Continuous lease recovery so orphaned RUNNING jobs are reclaimed even after worker restarts.
+      try {
+        await recoverStaleJobs(parseInt(process.env.WORKER_STALE_JOB_MINUTES || '5', 10));
+      } catch (e) {
+        console.warn('[Worker] Periodic stale job recovery warning:', e instanceof Error ? e.message : String(e));
+      }
+
       const job = await claimNextJob();
       if (!job) {
         await sleep(POLL_INTERVAL_MS);
@@ -645,13 +998,7 @@ async function main() {
       }
 
       console.log(`[Worker] Claimed job ${job.jobId} (type: ${job.jobType})`);
-      try {
-        await processJob(job);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        await setJobFailed(job.jobId, msg);
-        throw err;
-      }
+      await processJob(job);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[Worker] Unhandled error in poll loop:', msg);
