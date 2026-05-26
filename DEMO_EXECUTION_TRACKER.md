@@ -83,11 +83,11 @@ Forbidden:
 ## Live Known Bugs
 
 1. ✅ **FIXED**: Executive KPI cards persistence - active snapshot KPIs now correctly overwritten with calculated values
-2. Executive KPI card UI values not yet verified in browser render (pending dashboard verification)
-3. Coverage confidence arc can overflow its bounds
-4. Split charts may not reflect current published snapshot correctly
-5. Settings/config flow is technically working but product semantics are still confusing for demo users
-6. KPI trend charts showing empty despite backend history API having data (frontend binding issue)
+2. ✅ **FIXED**: Coverage confidence arc overflow - MiniGauge SVG overflow set to 'hidden' for proper clipping
+3. Executive KPI card UI values not yet verified in browser render (pending dashboard verification)
+4. KPI trend charts - frontend data binding verified; awaiting browser render verification
+5. Split charts may not reflect current published snapshot correctly (need to verify in browser)
+6. Settings/config flow is technically working but product semantics are still confusing for demo users
 
 ## Certification Table
 
