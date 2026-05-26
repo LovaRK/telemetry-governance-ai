@@ -16,6 +16,17 @@ function fmt$(v: number | string | null | undefined): string {
   return '$0';
 }
 
+function getActorEmail(): string {
+  if (typeof window === 'undefined') return 'system';
+  try {
+    const ctx = JSON.parse(localStorage.getItem('auth_context') || '{}');
+    if (ctx.email) return ctx.email;
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (user.email) return user.email;
+  } catch { /* ignore */ }
+  return 'system';
+}
+
 function fmtGB(v: number | string | null | undefined): string {
   const n = Number(v);
   if (!isFinite(n) || n < 0.001) return '< 0.001 GB';
@@ -44,7 +55,7 @@ function Gauge({ value, max = 100, label, color, onClick }: { value: number; max
       <svg width={160} height={95} viewBox="0 0 160 95" style={{ opacity: onClick ? 1 : 1, transition: 'opacity 0.2s' }}>
         <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" stroke="#1e293b" strokeWidth={14} strokeLinecap="round" />
         {pct > 0 && <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y}`} fill="none" stroke={color} strokeWidth={14} strokeLinecap="round" />}
-        <text x={cx} y={cy - 4} textAnchor="middle" fill="#f8fafc" fontSize={22} fontWeight={700}>{value.toFixed(0)}</text>
+        <text x={cx} y={cy - 4} textAnchor="middle" fill="#f8fafc" fontSize={22} fontWeight={700}>{Number.isFinite(value) ? value.toFixed(0) : '--'}</text>
         <text x={cx} y={cy + 14} textAnchor="middle" fill="#64748b" fontSize={10}>/ {max}</text>
       </svg>
       <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: -4 }}>{label}</div>
@@ -56,7 +67,7 @@ function ScoreBar({ label, value, color }: { label: string; value: number; color
   return (
     <div style={{ marginBottom: '0.625rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.25rem' }}>
-        <span>{label}</span><span style={{ color: '#f8fafc', fontWeight: 600 }}>{value.toFixed(0)}%</span>
+        <span>{label}</span><span style={{ color: '#f8fafc', fontWeight: 600 }}>{Number.isFinite(value) ? `${value.toFixed(0)}%` : '--%'}</span>
       </div>
       <div style={{ height: 6, background: '#1e293b', borderRadius: 3, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${Math.min(value, 100)}%`, background: color, borderRadius: 3 }} />
@@ -68,7 +79,7 @@ function ScoreBar({ label, value, color }: { label: string; value: number; color
 function MiniGauge({ value, max, label, color }: { value: number; max: number; label: string; color: string }) {
   const pct = Math.min(value / max, 1);
   const angle = pct * 180;
-  const r = 28, cx = 36, cy = 36;
+  const r = 26, cx = 36, cy = 34;
   const polarToXY = (deg: number) => {
     const rad = ((deg - 180) * Math.PI) / 180;
     return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
@@ -77,12 +88,12 @@ function MiniGauge({ value, max, label, color }: { value: number; max: number; l
   const largeArc = angle > 90 ? 1 : 0;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <svg width={72} height={46} viewBox="0 0 72 46">
+      <svg width={72} height={52} viewBox="0 0 72 52" style={{ overflow: 'hidden' }}>
         <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`} fill="none" stroke="#1e293b" strokeWidth={8} strokeLinecap="round" />
         {pct > 0 && <path d={`M ${cx - r} ${cy} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y}`} fill="none" stroke={color} strokeWidth={8} strokeLinecap="round" />}
-        <text x={cx} y={cy - 2} textAnchor="middle" fill="#f8fafc" fontSize={14} fontWeight={700}>{value}</text>
+        <text x={cx} y={cy - 2} textAnchor="middle" fill="#f8fafc" fontSize={14} fontWeight={700}>{Number.isFinite(value) ? (Number.isInteger(value) ? value : value.toFixed(1)) : '--'}</text>
       </svg>
-      <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: -6, textAlign: 'center' }}>{label}</div>
+      <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 0, textAlign: 'center' }}>{label}</div>
     </div>
   );
 }
@@ -167,14 +178,18 @@ interface DrawerState {
   action?: string;
   candidateReason?: string[];
   rawData?: Record<string, unknown>;
+  snapshotId?: string;
+  runId?: string;
+  computedAt?: string;
 }
 
 export default function ExecutiveOverview({ summary, hasAgentDecisions = false, explainabilityEnabled = false }: Props) {
   const { kpis, quickWins = [], savingsStaircase = [], agentReasoning = '', snapshotDate, snapshots = [] } = summary;
+  const avgConfidencePct = kpis.avgConfidence <= 1 ? (kpis.avgConfidence * 100) : kpis.avgConfidence;
   const [drawer, setDrawer] = useState<DrawerState>({ isOpen: false, metric: '', value: '', title: '', howCalculated: '' });
   const openDrawer = (next: DrawerState): void => {
     if (!explainabilityEnabled) return;
-    setDrawer(next);
+    setDrawer({ ...next, snapshotId: next.snapshotId || summary.snapshotId, runId: next.runId || summary.runId, computedAt: next.computedAt || snapshotDate });
   };
 
   const tierTotal = kpis.tierCounts.critical + kpis.tierCounts.important + kpis.tierCounts.niceToHave + kpis.tierCounts.lowValue;
@@ -331,7 +346,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           </div>
         </div>
       ) : null}
-      <div style={{ display: hasAgentDecisions ? 'grid' : 'none', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr', gap: '1rem' }}>
+      <div style={{ display: hasAgentDecisions ? 'grid' : 'none', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '1rem' }}>
         <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>ROI Score</div>
@@ -352,7 +367,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                 `${kpis.tierCounts.lowValue} low-value indexes identified`,
                 `${kpis.tierCounts.critical + kpis.tierCounts.important} high-value indexes protected`,
               ],
-              confidence: kpis.avgConfidence * 100,
+              confidence: avgConfidencePct,
               rawData: {
                 tierCounts: kpis.tierCounts,
                 roiScore: kpis.roiScore,
@@ -382,7 +397,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                 `Average data quality: ${kpis.avgQuality.toFixed(0)}%`,
                 `${kpis.totalSourcetypes} indexes analyzed`,
               ],
-              confidence: kpis.avgConfidence * 100,
+              confidence: avgConfidencePct,
               rawData: {
                 gainScopeScore: kpis.gainScopeScore,
                 avgUtilization: kpis.avgUtilization,
@@ -408,7 +423,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
               `Potential savings: ${fmt$(kpis.storageSavingsPotential)}`,
               `Recommended action: Archive or eliminate low-utilization indexes`,
             ],
-            confidence: kpis.avgConfidence * 100,
+            confidence: avgConfidencePct,
             rawData: {
               licenseSpendLowValue: kpis.licenseSpendLowValue,
               lowValueCount: kpis.tierCounts.lowValue,
@@ -434,7 +449,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
               `Low-value spend to reduce: ${fmt$(kpis.licenseSpendLowValue)}`,
               `${kpis.tierCounts.critical + kpis.tierCounts.important} high-value indexes remain protected`,
             ],
-            confidence: kpis.avgConfidence * 100,
+            confidence: avgConfidencePct,
             rawData: {
               storageSavingsPotential: kpis.storageSavingsPotential,
               totalLicenseSpend: kpis.totalLicenseSpend,
@@ -453,7 +468,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
         <div style={{ ...card({ borderLeft: '4px solid #f59e0b' }), position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Coverage Gaps</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.4rem', alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem', alignItems: 'start' }}>
             <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
               isOpen: true,
               metric: 'security_gaps',
@@ -466,13 +481,13 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                 `Recommendation: Implement detection rules for security-sensitive data`,
                 `Prioritize critical and important tier indexes`,
               ],
-              confidence: kpis.avgConfidence * 100,
+              confidence: avgConfidencePct,
               rawData: {
                 securityGaps: kpis.securityGaps,
                 totalSourcetypes: kpis.totalSourcetypes,
               },
             })}>
-              <MiniGauge value={kpis.securityGaps} max={Math.max(kpis.securityGaps * 2, 20)} label="Security" color="#ef4444" />
+              <MiniGauge value={kpis.securityGaps} max={Math.max(kpis.totalSourcetypes, 1)} label="Security" color="#ef4444" />
             </div>
             <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
               isOpen: true,
@@ -486,33 +501,35 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                 `Recommendation: Review operational requirements and align indexing strategy`,
                 `Consider consolidation where operational overlap exists`,
               ],
-              confidence: kpis.avgConfidence * 100,
+              confidence: avgConfidencePct,
               rawData: {
                 operationalGaps: kpis.operationalGaps,
                 totalSourcetypes: kpis.totalSourcetypes,
               },
             })}>
-              <MiniGauge value={kpis.operationalGaps} max={Math.max(kpis.operationalGaps * 2, 20)} label="Ops" color="#f59e0b" />
+              <MiniGauge value={kpis.operationalGaps} max={Math.max(kpis.totalSourcetypes, 1)} label="Ops" color="#f59e0b" />
             </div>
-            <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
+            <div style={{ cursor: 'pointer', gridColumn: '1 / -1' }} onClick={() => openDrawer({
               isOpen: true,
               metric: 'avg_confidence',
-              value: Math.round(kpis.avgConfidence * 100),
-              title: `Confidence Score: ${Math.round(kpis.avgConfidence * 100)}%`,
+              value: Math.round(avgConfidencePct),
+              title: `Confidence Score: ${Math.round(avgConfidencePct)}%`,
               howCalculated: `Confidence Score = Average confidence of LLM decisions across all indexes\n\nBased on:\n• Evidence quality (utilization data, detection patterns)\n• Classification agreement with tier patterns\n• Data completeness and freshness`,
               llmReasoning: agentReasoning,
               evidence: [
-                `Overall LLM decision confidence: ${(kpis.avgConfidence * 100).toFixed(1)}%`,
+                `Overall LLM decision confidence: ${(avgConfidencePct).toFixed(1)}%`,
                 `Higher confidence indicates stronger classification signals`,
                 `Low confidence suggests need for manual review of edge cases`,
               ],
-              confidence: kpis.avgConfidence * 100,
+              confidence: avgConfidencePct,
               rawData: {
                 avgConfidence: kpis.avgConfidence,
-                confidencePercent: Math.round(kpis.avgConfidence * 100),
+                confidencePercent: Math.round(avgConfidencePct),
               },
             })}>
-              <MiniGauge value={Math.round(kpis.avgConfidence * 100)} max={100} label="Confidence" color="#22c55e" />
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <MiniGauge value={Math.round(avgConfidencePct)} max={100} label="Confidence" color="#22c55e" />
+              </div>
             </div>
           </div>
         </div>
@@ -567,10 +584,10 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                           evidence: [
                             `Inputs: executive_kpis snapshots (${trendDays} days)`,
                             `Source origin: executive_kpis`,
-                            `Confidence: ${(kpis.avgConfidence * 100).toFixed(0)}%`,
+                            `Confidence: ${(avgConfidencePct).toFixed(0)}%`,
                             `Variance: Not computed`,
                           ],
-                          confidence: kpis.avgConfidence * 100,
+                          confidence: avgConfidencePct,
                         })}
                         style={{ border: '1px solid #334155', background: '#0b1220', color: '#cbd5e1', borderRadius: 6, padding: '0.2rem 0.45rem', cursor: 'pointer', fontSize: '0.72rem' }}
                       >
@@ -605,10 +622,10 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                           evidence: [
                             `Inputs: executive_kpis snapshots (${trendDays} days)`,
                             `Source origin: executive_kpis`,
-                            `Confidence: ${(kpis.avgConfidence * 100).toFixed(0)}%`,
+                            `Confidence: ${(avgConfidencePct).toFixed(0)}%`,
                             `Variance: Not computed`,
                           ],
-                          confidence: kpis.avgConfidence * 100,
+                          confidence: avgConfidencePct,
                         })}
                         style={{ border: '1px solid #334155', background: '#0b1220', color: '#cbd5e1', borderRadius: 6, padding: '0.2rem 0.45rem', cursor: 'pointer', fontSize: '0.72rem' }}
                       >
@@ -661,7 +678,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                   `Average detection: ${tierSnaps.length > 0 ? (tierSnaps.reduce((s, v) => s + v.detectionScore, 0) / tierSnaps.length).toFixed(0) : 0}%`,
                   `Recommendation: ${t.label === 'Critical' ? 'Maintain strict retention and uptime' : t.label === 'Important' ? 'Optimize retention and monitor usage' : t.label === 'Nice-to-Have' ? 'Evaluate utility; archive if unused' : 'Eliminate or archive'}`,
                 ],
-                confidence: kpis.avgConfidence * 100,
+                confidence: avgConfidencePct,
                 tier: t.label,
                 rawData: {
                   tier: t.label,
@@ -686,7 +703,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           <ScoreBar label="Utilization" value={kpis.avgUtilization} color="#3b82f6" />
           <ScoreBar label="Detection Coverage" value={kpis.avgDetection} color="#8b5cf6" />
           <ScoreBar label="Data Quality" value={kpis.avgQuality} color="#22c55e" />
-          <ScoreBar label="Confidence" value={kpis.avgConfidence * 100} color="#f59e0b" />
+          <ScoreBar label="Confidence" value={avgConfidencePct} color="#f59e0b" />
           <div style={{ marginTop: '0.75rem', fontSize: '0.7rem', color: '#475569', textAlign: 'right' }}>
             Snapshot: {snapshotDate ? new Date(snapshotDate).toLocaleDateString() : '—'}
           </div>
@@ -866,7 +883,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                               `${step.action} indexes in this tier: ${actionCount}`,
                               `Recommendation: Prioritize by confidence and impact`,
                             ],
-                            confidence: kpis.avgConfidence * 100,
+                            confidence: avgConfidencePct,
                             action: step.action,
                             rawData: { action: step.action, savings: step.savings, cumulative: step.cumulative, count: actionCount },
                           });
@@ -932,7 +949,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                   mutationType: 'APPROVE',
                   indexName: qw.indexName,
                   sourcetype: qw.tier || 'unknown',
-                  actorEmail: 'admin@bitsio.com',
+                  actorEmail: getActorEmail(),
                   actionNote: `Quick-win approved: ${qw.action} — estimated savings ${fmt$(qw.savings)}`,
                   idempotencyKey: `quickwin-approve-${qw.indexName}-${qw.action}-${Date.now()}`,
                 }),
@@ -978,7 +995,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                               howCalculated: `Action: ${qw.action}\nTier: ${qw.tier}\nEstimated Savings: ${fmt$(qw.savings)}\n\nFlagged as quick win by LLM: high savings, low risk.`,
                               llmReasoning: qw.reasoning || 'No detailed reasoning provided',
                               evidence: [`Index: ${qw.indexName}`, `Action: ${qw.action}`, `Tier: ${qw.tier}`, `Savings: ${fmt$(qw.savings)}`],
-                              confidence: kpis.avgConfidence * 100,
+                              confidence: avgConfidencePct,
                               action: qw.action,
                               tier: qw.tier,
                               rawData: { indexName: qw.indexName, action: qw.action, tier: qw.tier, savings: qw.savings },
@@ -1049,7 +1066,8 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                 const mapX = (v: number) => MX + (v / 100) * PW;
                 const mapY = (v: number) => H - MY - (v / 100) * PH;
                 return (
-                  <svg width={W} height={H} style={{ overflow: 'visible', display: 'block' }}>
+                  <div style={{ width: '100%', overflowX: 'auto', overflowY: 'hidden' }}>
+                  <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" style={{ overflow: 'hidden', display: 'block', maxWidth: '100%' }}>
                     {/* Quadrant fills: top-left=LU/HD, top-right=HU/HD(best), bottom-left=LU/LD, bottom-right=HU/LD */}
                     <rect x={MX} y={MY} width={PW / 2} height={PH / 2} fill="#3b82f608" />
                     <rect x={MX + PW / 2} y={MY} width={PW / 2} height={PH / 2} fill="#22c55e08" />
@@ -1087,7 +1105,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                             `Quality Score: ${s.qualityScore.toFixed(0)}%`,
                             `Recommended Action: ${s.action}`,
                           ],
-                          confidence: kpis.avgConfidence * 100,
+                          confidence: avgConfidencePct,
                           tier: s.tier,
                           action: s.action,
                           rawData: {
@@ -1108,6 +1126,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                       );
                     })}
                   </svg>
+                  </div>
                 );
               })()
           }
@@ -1219,6 +1238,9 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
         action={drawer.action}
         candidateReason={explainabilityEnabled ? drawer.candidateReason : undefined}
         rawData={drawer.rawData}
+        snapshotId={drawer.snapshotId}
+        runId={drawer.runId}
+        computedAt={drawer.computedAt}
       />
     </div>
   );

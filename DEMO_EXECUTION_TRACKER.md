@@ -45,6 +45,8 @@ Forbidden:
 - Root cause isolated for wrong executive KPI cards: live worker rebuild path was writing incorrect formula outputs into `executive_kpis`
 - Live worker rebuild path patched to use tenant + snapshot scoped KPI rebuild logic
 - **Fixed active snapshot `executive_kpis` overwrite**: Changed worker's `rebuildExecutiveKpis()` from bare UPDATE to UPSERT (INSERT ... ON CONFLICT)
+- **Added missing `avgDetection` field to KPI history API** to match executive_kpis schema
+- **Fixed coverage confidence gauge overflow**: Changed MiniGauge SVG overflow from 'visible' to 'hidden'
 - **Verified KPI persistence**: Latest snapshot shows correct calculated values:
   - ROI Score: 12.50 (from `avg(composite_score)` of agent_decisions)
   - GainScope: 0.00
@@ -63,7 +65,6 @@ Forbidden:
 - Dashboard UI parity verification (KPI cards rendering correct values)
 - KPI history chart rendering / binding
 - Split-chart data-binding audit
-- Coverage confidence layout/overflow audit
 
 ### Pending
 
