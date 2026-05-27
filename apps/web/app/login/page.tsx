@@ -1,16 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,6 +18,9 @@ function LoginForm() {
     setLoading(true);
 
     try {
+      const email = emailRef.current?.value || '';
+      const password = passwordRef.current?.value || '';
+
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -88,10 +91,10 @@ function LoginForm() {
               EMAIL
             </label>
             <input
+              ref={emailRef}
               id="login-email"
               type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              defaultValue="admin@bitso.com"
               required
               style={{
                 width: '100%', padding: '0.625rem 0.75rem',
@@ -107,10 +110,10 @@ function LoginForm() {
               PASSWORD
             </label>
             <input
+              ref={passwordRef}
               id="login-password"
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              defaultValue="Admin@12345"
               required
               placeholder="Enter password"
               style={{

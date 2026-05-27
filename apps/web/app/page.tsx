@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import TopAppBar from '../components/layout/TopAppBar';
 import ExecutiveOverview from '../components/dashboard/ExecutiveOverview';
 import AgentIntelligencePanel from '../components/dashboard/AgentIntelligencePanel';
@@ -29,6 +29,7 @@ import EmptyState from '../components/state/EmptyState';
 import KPIExplanationPanel from '../components/explainability/KPIExplanationPanel';
 import { KPIExplainabilityRecord } from '../lib/types';
 import { useExplainability } from '../lib/explainability-context';
+import { useSmartPolling } from '../lib/use-smart-polling';
 
 type Tab = 'overview' | 'telemetry' | 'governance';
 type PipelineStage = 'idle' | 'splunk_fetch' | 'snapshot_write' | 'kpi_aggregation' | 'ai_decisions' | 'governance_sync' | 'dashboard_publish' | 'complete' | 'failed';
@@ -65,6 +66,7 @@ function Home() {
     token: '',
     username: '',
     password: '',
+    hec_token: '',
     disable_ssl_verify: true,
   });
   const [activeTab, setActiveTab] = useState<Tab>('overview');
@@ -540,19 +542,14 @@ function Home() {
   }, [activeJobId, pipelineRun.status]);
 
   // While snapshot is ready but AI is still running, keep syncing lifecycle from backend.
-  useEffect(() => {
-    if (!cacheStatus) return;
-    if (!(lifecycleSnapshotStatus === 'READY' && lifecycleLlmStatus === 'RUNNING')) return;
-    let cancelled = false;
-    const interval = setInterval(async () => {
-      if (cancelled) return;
-      await loadDashboardState();
-    }, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [lifecycleSnapshotStatus, lifecycleLlmStatus]);
+  // Use smart polling: 3s while RUNNING, 60s while READY, pause when hidden
+  const shouldPollDashboard = cacheStatus && lifecycleSnapshotStatus === 'READY' && lifecycleLlmStatus === 'RUNNING';
+  const dashboardPollCallback = useCallback(() => loadDashboardState(), []);
+  useSmartPolling(
+    dashboardPollCallback,
+    lifecycleLlmStatus, // Use LLM status to determine poll rate: RUNNING=3s, else=60s
+    shouldPollDashboard
+  );
 
   useEffect(() => {
     try {
@@ -566,7 +563,12 @@ function Home() {
     }
   }, [activeJobId, pipelineEvents, pipelineRun]);
 
-  const canRefresh = splunkConfigLoaded && (splunkConfigured || cacheStatus?.pipelineStatus === 'READY');
+  // Check if form has required fields filled for initial connection
+  const hasFormValidation = formData.mcp_url && (
+    formData.auth_type === 'token' ? formData.token : (formData.username && formData.password)
+  );
+
+  const canRefresh = splunkConfigLoaded && (splunkConfigured || cacheStatus?.pipelineStatus === 'READY' || hasFormValidation);
 
   const handleRefresh = async () => {
     if (refreshing || !canRefresh) return;
@@ -574,6 +576,51 @@ function Home() {
     setError(null);
 
     try {
+      // If not yet configured in database, save the form config first
+      if (!splunkConfigured && hasFormValidation) {
+        try {
+          const configPayload: any = {
+            url: formData.mcp_url,
+            mcpUrl: formData.mcp_url,
+            ssl_verify: !formData.disable_ssl_verify,
+          };
+
+          if (formData.auth_type === 'token') {
+            configPayload.token = formData.token;
+          } else {
+            configPayload.username = formData.username;
+            configPayload.password = formData.password;
+          }
+
+          // Include HEC token if provided (optional)
+          if (formData.hec_token && formData.hec_token.trim().length > 0) {
+            configPayload.hec_token = formData.hec_token;
+          }
+
+          const saveRes = await apiFetch('/api/splunk/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(configPayload),
+          });
+
+          if (!saveRes.ok) {
+            const errData = await saveRes.json();
+            setError(`Failed to save Splunk config: ${errData.error || 'Unknown error'}`);
+            setRefreshing(false);
+            setPipelineRun((prev) => ({ ...prev, status: 'failed', stage: 'failed', completedAt: Date.now() }));
+            return;
+          }
+
+          // Config saved successfully, reload it
+          await fetchSplunkConfig();
+        } catch (e) {
+          setError(`Failed to save Splunk configuration: ${e instanceof Error ? e.message : 'Unknown error'}`);
+          setRefreshing(false);
+          setPipelineRun((prev) => ({ ...prev, status: 'failed', stage: 'failed', completedAt: Date.now() }));
+          return;
+        }
+      }
+
       const runStart = Date.now();
       const runId = `run-${runStart}`;
       setPipelineRun({
@@ -692,20 +739,21 @@ function Home() {
     }
   };
 
+  // AI Inspector: smart polling - 3s while RUNNING, 60s while idle, pause when hidden
+  // First call immediately to populate inspector on render
   useEffect(() => {
-    if (!aiInspectorOpen) return;
-    let cancelled = false;
-    const tick = async () => {
-      if (cancelled) return;
-      await loadAiInspector();
-    };
-    tick();
-    const interval = setInterval(tick, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [aiInspectorOpen, pipelineRun, activeJobId, pipelineEvents]);
+    if (aiInspectorOpen) {
+      loadAiInspector();
+    }
+  }, [aiInspectorOpen]);
+
+  // Then use smart polling for subsequent updates
+  const aiInspectorPollCallback = useCallback(() => loadAiInspector(), []);
+  useSmartPolling(
+    aiInspectorPollCallback,
+    pipelineRun.status === 'running' ? 'RUNNING' : 'READY', // Convert to poll-rate status
+    aiInspectorOpen
+  );
 
   const hasData = summary !== null && summary.snapshots.length > 0;
 
@@ -776,6 +824,9 @@ function Home() {
                 value={formData.token} onChange={(e) => setFormData(p => ({ ...p, token: e.target.value }))}
                 style={inputStyle} />
             )}
+            <input type="password" placeholder="HEC Token (optional - for data ingestion)"
+              value={formData.hec_token} onChange={(e) => setFormData(p => ({ ...p, hec_token: e.target.value }))}
+              style={inputStyle} />
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b', fontSize: '0.8rem' }}>
               <input type="checkbox" checked={formData.disable_ssl_verify}
                 onChange={(e) => setFormData(p => ({ ...p, disable_ssl_verify: e.target.checked }))} />

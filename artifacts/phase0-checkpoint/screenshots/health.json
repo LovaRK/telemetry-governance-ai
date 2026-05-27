@@ -1,0 +1,1 @@
+{"status":"healthy","validatedAt":"2026-05-27T03:27:52.842Z","schema":{"valid":true,"latestMigration":204,"checks":{"tables":true,"columns":true,"constraints":true,"migrations":true}},"purity":{"valid":true,"syntheticDataDetected":false},"governance":{"daemonRunning":true}}

@@ -56,7 +56,7 @@ export class SplunkConfigService {
     const errors: string[] = [];
     if (!config.apiUrl && !config.url) errors.push('Splunk API URL is required');
     if (!config.hecUrl && !config.url) errors.push('Splunk HEC URL is required');
-    if (!config.hec_token) errors.push('HEC token is required');
+    // HEC token is optional - only required if testing HEC endpoint
     if (errors.length > 0) {
       return { success: false, message: errors.join('; ') };
     }
@@ -64,10 +64,14 @@ export class SplunkConfigService {
     const apiUrl = (config.apiUrl || config.url || '').replace(/\/$/, '');
     const hecUrl = (config.hecUrl || config.url || '').replace(/\/$/, '');
 
-    const hecResult = await this.testHecEndpoint(hecUrl, config.hec_token!, config.ssl_verify);
-    if (!hecResult.success) return hecResult;
+    // Only test HEC endpoint if HEC token is provided
+    if (config.hec_token) {
+      const hecResult = await this.testHecEndpoint(hecUrl, config.hec_token, config.ssl_verify);
+      if (!hecResult.success) return hecResult;
+    }
 
     let apiStatus: string | undefined;
+    let hecStatus: string | undefined = config.hec_token ? 'healthy' : 'not_configured';
     let splunkVersion: string | undefined;
     const authHeader = buildRestAuthHeader(config);
     if (authHeader) {
@@ -87,7 +91,7 @@ export class SplunkConfigService {
     return {
       success: true,
       message: 'Splunk connection successful',
-      details: { splunk_version: splunkVersion, indexes_available: indexCount, hec_status: 'healthy', api_status: apiStatus },
+      details: { splunk_version: splunkVersion, indexes_available: indexCount, hec_status: hecStatus, api_status: apiStatus },
     };
   }
 

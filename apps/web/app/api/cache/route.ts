@@ -266,18 +266,8 @@ export const POST = createRoute(async (request: NextRequest) => {
     throw new Error('Tenant Splunk configuration is missing');
   }
 
-  const hasHecToken = typeof tenantSplunkConfig.hec_token === 'string' && tenantSplunkConfig.hec_token.trim().length > 0;
-  if (!hasHecToken) {
-    await appendStageEvent({
-      runId, stage: 'SPLUNK_FETCH', status: 'FAILED',
-      errorType: 'UNKNOWN', errorCode: 'RUNTIME',
-      errorMessage: 'HEC token is missing',
-      metadata: { requestId, tenantId },
-    });
-    await markRunFailed(runId, 'HEC token is missing');
-    await setCacheError(cacheKey, 'HEC token is missing');
-    throw new Error('HEC token is missing');
-  }
+  // HEC token is optional - only required for HEC data ingestion, not for REST API operations
+  // Pipeline uses REST API for authentication, so HEC token is not required to proceed
 
   // Validate auth credentials based on auth type
   const isTokenAuth = tenantSplunkConfig.restAuthType === 'JWT' || tenantSplunkConfig.restAuthType === 'TOKEN';
