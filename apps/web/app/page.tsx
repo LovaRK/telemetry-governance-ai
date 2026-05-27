@@ -13,6 +13,7 @@ import { ModelHealthMonitor } from '../components/ModelHealthMonitor';
 import { UserProvider } from '../lib/user-context';
 import { ExecutiveSummary, CacheStatus } from '../lib/types';
 import { apiFetch } from '../lib/api-client';
+import { getDashboardState } from '../lib/services/dashboard-query-service';
 import { useAuthGuard } from '../lib/use-auth-guard';
 import DecisionExplainabilityPanel from '../components/dashboard/DecisionExplainabilityPanel';
 import GovernanceWorkflowPanel from '../components/dashboard/GovernanceWorkflowPanel';
@@ -91,12 +92,32 @@ function Home() {
   });
   const [kpiDiffs, setKpiDiffs] = useState<Array<{ label: string; before: number; after: number }>>([]);
   const [pulseTick, setPulseTick] = useState(0);
+  const [aiDebug, setAiDebug] = useState<{
+    capturedAt: string;
+    cacheStatus: any;
+    latestJob: any;
+    pipelineRun: any;
+    activeJobId: string | null;
+  } | null>(null);
+  const [aiInspectorOpen, setAiInspectorOpen] = useState(true);
+  const [aiDebugNotice, setAiDebugNotice] = useState<string | null>(null);
+  const [aiInspectorData, setAiInspectorData] = useState<{
+    capturedAt: string;
+    cacheStatus: any;
+    latestJob: any;
+    pipelineRun: any;
+    activeJobId: string | null;
+    pipelineEvents: Array<{ ts: string; msg: string; level?: 'info' | 'ok' | 'warn' | 'error' }>;
+  } | null>(null);
   const [kpiExplain, setKpiExplain] = useState<KPIExplainabilityRecord[]>([]);
   const [explainabilityCoverage, setExplainabilityCoverage] = useState<{ totalKpis: number; expandableKpis: number; coveragePercent: number; missingProvenance: number; missingConfidence: number; missingFormulas: number } | null>(null);
   const { enabled: explainabilityEnabled } = useExplainability();
   const showExplainabilityPanel =
     process.env.NEXT_PUBLIC_ENABLE_EXPLAINABILITY === 'true' &&
     explainabilityEnabled;
+  const lifecycleSnapshotStatus = (cacheStatus as any)?.activeState?.snapshotStatus ?? cacheStatus?.snapshotStatus;
+  const lifecycleLlmStatus = (cacheStatus as any)?.activeState?.llmStatus ?? cacheStatus?.llmStatus;
+  const lifecyclePipelineStatus = (cacheStatus as any)?.activeState?.pipelineStatus ?? cacheStatus?.pipelineStatus;
 
   // Toast notification manager
   const toastManager = useGovernanceToastManager();
@@ -151,6 +172,10 @@ function Home() {
 
       const summaryResponse = await summaryRes.json();
       const summaryData = summaryResponse.data || summaryResponse;
+      if (summaryData && summaryResponse.meta) {
+        summaryData.snapshotId = summaryResponse.meta.snapshotId;
+        summaryData.runId = summaryResponse.meta.runId;
+      }
 
       // Handle empty state (no published snapshot yet)
       if (summaryData?.empty === true) {
@@ -205,6 +230,90 @@ function Home() {
       console.error('Failed to fetch summary:', e);
       setError(`Error loading dashboard: ${e instanceof Error ? e.message : 'Unknown error'}`);
       setSummary(null);
+    }
+  };
+
+  const loadDashboardState = async () => {
+    const state = await getDashboardState({ includeExplainability: showExplainabilityPanel });
+    if (state.errors.length > 0 && !state.cacheStatus) {
+      const first = state.errors[0];
+      setError(`Failed to load dashboard: ${first?.message || 'Unknown error'}`);
+    }
+
+    if (state.cacheStatus) setCacheStatus(state.cacheStatus);
+    setPendingDecisionCount(state.pendingDecisionCount || 0);
+
+    if (state.splunkConfig) {
+      const cfg = state.splunkConfig;
+      const configured = Boolean(cfg?.url);
+      setSplunkConfigured(configured);
+      setSplunkConfigLoaded(true);
+      setFormData((prev) => ({
+        ...prev,
+        mcp_url: typeof cfg?.url === 'string' ? cfg.url : prev.mcp_url,
+        auth_type: typeof cfg?.username === 'string' && cfg.username ? 'basic' : prev.auth_type,
+        disable_ssl_verify: typeof cfg?.ssl_verify === 'boolean' ? !cfg.ssl_verify : prev.disable_ssl_verify,
+      }));
+    } else {
+      setSplunkConfigured(false);
+      setSplunkConfigLoaded(true);
+    }
+
+    if (!state.cacheStatus?.hasEverRefreshed) {
+      setSummary(null);
+      return;
+    }
+
+    if (state.executiveSummary?.snapshots?.length > 0 || (state.executiveSummary as any)?.empty === true) {
+      setSummary(state.executiveSummary as ExecutiveSummary);
+      setKpiExplain(state.explainability.records || []);
+      setExplainabilityCoverage(state.explainability.coverage || null);
+    } else {
+      setSummary(null);
+      setKpiExplain([]);
+      setExplainabilityCoverage(null);
+    }
+
+    const job = state.latestJob;
+    if (job?.jobId && job?.status) {
+      if (job.status === 'pending' || job.status === 'running' || job.status === 'partial') {
+        if (isStaleJob(job)) {
+          setActiveJobId(null);
+          setPipelineRun((prev) => ({
+            ...prev,
+            runId: job.jobId,
+            startedAt: job.startedAt ? new Date(job.startedAt).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : prev.startedAt),
+            completedAt: Date.now(),
+            status: 'complete',
+            stage: 'complete',
+          }));
+        } else {
+          setActiveJobId(job.jobId);
+          setPipelineRun((prev) => ({
+            runId: job.jobId,
+            startedAt: job.startedAt ? new Date(job.startedAt).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : prev.startedAt),
+            completedAt: null,
+            status: 'running',
+            stage: stageFromJobStatus(job.status),
+          }));
+        }
+      } else if (job.status === 'complete') {
+        setPipelineRun((prev) => ({
+          runId: prev.runId || job.jobId,
+          startedAt: prev.startedAt || (job.startedAt ? new Date(job.startedAt).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : null)),
+          completedAt: job.completedAt ? new Date(job.completedAt).getTime() : (prev.completedAt || Date.now()),
+          status: 'complete',
+          stage: 'complete',
+        }));
+      } else if (job.status === 'failed') {
+        setPipelineRun((prev) => ({
+          runId: prev.runId || job.jobId,
+          startedAt: prev.startedAt || (job.startedAt ? new Date(job.startedAt).getTime() : (job.createdAt ? new Date(job.createdAt).getTime() : null)),
+          completedAt: job.completedAt ? new Date(job.completedAt).getTime() : (prev.completedAt || Date.now()),
+          status: 'failed',
+          stage: 'failed',
+        }));
+      }
     }
   };
 
@@ -319,12 +428,7 @@ function Home() {
 
   useEffect(() => {
     const loadInitialState = async () => {
-      await Promise.all([
-        fetchSplunkConfig(),
-        fetchSummary(),
-        fetchPendingDecisionsCount(),
-        hydrateLatestJob(),
-      ]);
+      await loadDashboardState();
       try {
         const raw = sessionStorage.getItem(PIPELINE_STATE_KEY);
         if (raw) {
@@ -355,27 +459,40 @@ function Home() {
 
   useEffect(() => {
     if (loading || !cacheStatus) return;
+    if (pipelineRun.status !== 'running') return;
 
-    const shouldFinalizeBackgroundAiJob =
-      cacheStatus.status === 'fresh' &&
-      pipelineRun.status === 'running' &&
-      pipelineRun.stage === 'ai_decisions';
+    // Canonical lifecycle from backend decides pipeline closure.
+    if (lifecyclePipelineStatus === 'READY' && lifecycleLlmStatus === 'READY') {
+      setActiveJobId(null);
+      setPipelineRun((prev) => ({
+        ...prev,
+        stage: 'complete',
+        status: 'complete',
+        completedAt: prev.completedAt || Date.now(),
+      }));
+      setPipelineEvents((prev) => {
+        const msg = 'Pipeline completed successfully (snapshot + AI decisions ready)';
+        if (prev.some((p) => p.msg === msg)) return prev;
+        return [...prev.slice(-9), { ts: new Date().toLocaleTimeString(), msg, level: 'ok' }];
+      });
+      return;
+    }
 
-    if (!shouldFinalizeBackgroundAiJob) return;
-
-    setActiveJobId(null);
-    setPipelineRun((prev) => ({
-      ...prev,
-      stage: 'complete',
-      status: 'complete',
-      completedAt: prev.completedAt || Date.now(),
-    }));
-    setPipelineEvents((prev) => {
-      const msg = 'Dashboard snapshot published; AI decisions continue in background';
-      if (prev.some((p) => p.msg === msg)) return prev;
-      return [...prev.slice(-9), { ts: new Date().toLocaleTimeString(), msg, level: 'ok' }];
-    });
-  }, [loading, cacheStatus, pipelineRun.status, pipelineRun.stage]);
+    if (lifecyclePipelineStatus === 'FAILED') {
+      setActiveJobId(null);
+      setPipelineRun((prev) => ({
+        ...prev,
+        stage: 'failed',
+        status: 'failed',
+        completedAt: prev.completedAt || Date.now(),
+      }));
+      setPipelineEvents((prev) => {
+        const msg = `Pipeline failed: ${cacheStatus.failureCode || 'RUNTIME'}${cacheStatus.failureReason ? ` (${cacheStatus.failureReason})` : ''}`;
+        if (prev.some((p) => p.msg === msg)) return prev;
+        return [...prev.slice(-9), { ts: new Date().toLocaleTimeString(), msg, level: 'error' }];
+      });
+    }
+  }, [loading, lifecyclePipelineStatus, lifecycleLlmStatus, cacheStatus?.failureCode, cacheStatus?.failureReason, pipelineRun.status]);
 
   useEffect(() => {
     if (pipelineRun.status !== 'running') return;
@@ -422,6 +539,21 @@ function Home() {
     };
   }, [activeJobId, pipelineRun.status]);
 
+  // While snapshot is ready but AI is still running, keep syncing lifecycle from backend.
+  useEffect(() => {
+    if (!cacheStatus) return;
+    if (!(lifecycleSnapshotStatus === 'READY' && lifecycleLlmStatus === 'RUNNING')) return;
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      if (cancelled) return;
+      await loadDashboardState();
+    }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [lifecycleSnapshotStatus, lifecycleLlmStatus]);
+
   useEffect(() => {
     try {
       sessionStorage.setItem(PIPELINE_STATE_KEY, JSON.stringify({
@@ -434,7 +566,7 @@ function Home() {
     }
   }, [activeJobId, pipelineEvents, pipelineRun]);
 
-  const canRefresh = splunkConfigLoaded && splunkConfigured;
+  const canRefresh = splunkConfigLoaded && (splunkConfigured || cacheStatus?.pipelineStatus === 'READY');
 
   const handleRefresh = async () => {
     if (refreshing || !canRefresh) return;
@@ -453,20 +585,22 @@ function Home() {
       });
       setPipelineEvents([{ ts: new Date().toLocaleTimeString(), msg: 'Querying Splunk metrics…', level: 'info' }]);
 
+      const refreshPayload: { costPerGbPerDay?: number } = {};
+
       // Pull latest runtime config so refresh uses current cost model from Config panel.
       const configRes = await apiFetch('/api/config');
       if (configRes.ok) {
         const configJson = await configRes.json();
         const cfg = configJson?.data || configJson;
         if (typeof cfg?.costPerGbPerDay === 'number' && Number.isFinite(cfg.costPerGbPerDay)) {
-          body.costPerGbPerDay = cfg.costPerGbPerDay;
+          refreshPayload.costPerGbPerDay = cfg.costPerGbPerDay;
         }
       }
 
       const res = await apiFetch('/api/cache', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ costPerGbPerDay: undefined }),
+        body: JSON.stringify(refreshPayload),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -477,17 +611,17 @@ function Home() {
         return;
       }
       const result = await res.json();
+      const refreshData = result?.data || result;
       setPipelineRun((prev) => ({ ...prev, stage: 'snapshot_write' }));
-      setPipelineEvents((prev) => [...prev, { ts: new Date().toLocaleTimeString(), msg: `Fetched ${result?.data?.inserted ?? result?.inserted ?? 0} indexes from Splunk`, level: 'ok' }]);
+      setPipelineEvents((prev) => [...prev, { ts: new Date().toLocaleTimeString(), msg: `Fetched ${refreshData?.inserted ?? 0} indexes from Splunk`, level: 'ok' }]);
       setPipelineRun((prev) => ({ ...prev, stage: 'kpi_aggregation' }));
       setPipelineEvents((prev) => [...prev, { ts: new Date().toLocaleTimeString(), msg: 'Aggregating KPI scores…', level: 'info' }]);
-      if (result.jobId) setActiveJobId(result.jobId);
-      if (result.jobId) {
+      if (refreshData?.jobId) setActiveJobId(refreshData.jobId);
+      if (refreshData?.jobId) {
         setPipelineRun((prev) => ({ ...prev, stage: 'ai_decisions' }));
-        setPipelineEvents((prev) => [...prev, { ts: new Date().toLocaleTimeString(), msg: `AI decision run started (${result.jobId})`, level: 'info' }]);
+        setPipelineEvents((prev) => [...prev, { ts: new Date().toLocaleTimeString(), msg: `AI decision run started (${refreshData.jobId})`, level: 'info' }]);
       }
-      await fetchSummary();
-      await fetchPendingDecisionsCount();
+      await loadDashboardState();
       setShowConnectionEditor(false);
     } catch (e: any) {
       setError(e.message || 'Refresh failed');
@@ -497,6 +631,81 @@ function Home() {
       setRefreshing(false);
     }
   };
+
+  const captureAiDebug = async () => {
+    try {
+      const [cacheRes, latestJobRes] = await Promise.all([
+        apiFetch('/api/cache-status'),
+        apiFetch('/api/job-status/latest'),
+      ]);
+      const cachePayload = cacheRes.ok ? await cacheRes.json() : { error: `cache-status ${cacheRes.status}` };
+      const latestJobPayload = latestJobRes.ok ? await latestJobRes.json() : { error: `job-status/latest ${latestJobRes.status}` };
+      const snapshot = {
+        capturedAt: new Date().toISOString(),
+        cacheStatus: cachePayload?.data || cachePayload,
+        latestJob: latestJobPayload?.data || latestJobPayload,
+        pipelineRun,
+        activeJobId,
+      };
+      setAiDebug(snapshot);
+      console.group('[AI Decision Debug Snapshot]');
+      console.log(snapshot);
+      console.groupEnd();
+      setAiDebugNotice(
+        `Captured ${new Date(snapshot.capturedAt).toLocaleTimeString()} · ` +
+        `pipeline=${snapshot.cacheStatus?.activeState?.pipelineStatus || snapshot.cacheStatus?.pipelineStatus || 'n/a'} · ` +
+        `llm=${snapshot.cacheStatus?.activeState?.llmStatus || snapshot.cacheStatus?.llmStatus || 'n/a'} · ` +
+        `failure=${snapshot.cacheStatus?.failureCode || 'none'} · ` +
+        `run=${snapshot.cacheStatus?.pipelineRunId || snapshot.cacheStatus?.runId || 'n/a'} · ` +
+        `job=${snapshot.latestJob?.jobId || activeJobId || 'n/a'}`
+      );
+    } catch (e: any) {
+      setAiDebugNotice(`Failed to capture AI debug: ${e?.message || 'Unknown error'}`);
+    }
+  };
+
+  const loadAiInspector = async () => {
+    try {
+      const [cacheRes, latestJobRes] = await Promise.all([
+        apiFetch('/api/cache-status'),
+        apiFetch('/api/job-status/latest'),
+      ]);
+      const cachePayload = cacheRes.ok ? await cacheRes.json() : { error: `cache-status ${cacheRes.status}` };
+      const latestJobPayload = latestJobRes.ok ? await latestJobRes.json() : { error: `job-status/latest ${latestJobRes.status}` };
+      setAiInspectorData({
+        capturedAt: new Date().toISOString(),
+        cacheStatus: cachePayload?.data || cachePayload,
+        latestJob: latestJobPayload?.data || latestJobPayload,
+        pipelineRun,
+        activeJobId,
+        pipelineEvents: [...pipelineEvents.slice(-12)],
+      });
+    } catch (e: any) {
+      setAiInspectorData({
+        capturedAt: new Date().toISOString(),
+        cacheStatus: { error: e?.message || 'Failed to fetch cache-status' },
+        latestJob: { error: e?.message || 'Failed to fetch job-status/latest' },
+        pipelineRun,
+        activeJobId,
+        pipelineEvents: [...pipelineEvents.slice(-12)],
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!aiInspectorOpen) return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      await loadAiInspector();
+    };
+    tick();
+    const interval = setInterval(tick, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [aiInspectorOpen, pipelineRun, activeJobId, pipelineEvents]);
 
   const hasData = summary !== null && summary.snapshots.length > 0;
 
@@ -517,8 +726,17 @@ function Home() {
     a.href = url; a.download = `datasensai-${type}-${new Date().toISOString().slice(0,10)}.csv`;
     a.click(); URL.revokeObjectURL(url);
   };
-  const hasAgentDecisions = cacheStatus?.hasAgentDecisions ?? false;
+  const hasAgentDecisions =
+    ((cacheStatus as any)?.activeState?.llmStatus === 'READY') ||
+    ((cacheStatus as any)?.publishedState?.hasAgentDecisions ?? cacheStatus?.hasAgentDecisions ?? false) ||
+    ((summary?.decisions?.length ?? 0) > 0);
   const isStale = cacheStatus?.status === 'stale';
+  const snapshotStatus = lifecycleSnapshotStatus ?? 'NOT_READY';
+  const llmStatus = lifecycleLlmStatus ?? 'NOT_STARTED';
+  const pipelineStatus = lifecyclePipelineStatus ?? 'PENDING';
+  const llmDecisionsPending = snapshotStatus === 'READY' && llmStatus === 'RUNNING';
+  const intelligenceFailed = snapshotStatus === 'READY' && (llmStatus === 'FAILED' || llmStatus === 'FAILED_TIMEOUT');
+  const pipelineFailed = snapshotStatus === 'FAILED' || pipelineStatus === 'FAILED';
 
   // ── Connection screen (no refresh has ever run) ──────────────────────────
   if (!loading && !cacheStatus?.hasEverRefreshed) {
@@ -660,10 +878,140 @@ function Home() {
           <div style={alertStyle('#f59e0b')}>⚠ Data is stale — refresh recommended to get current Splunk signals.</div>
         )}
 
-        {/* No LLM decisions warning */}
-        {!hasAgentDecisions && hasData && (
+        {/* Lifecycle warning banners */}
+        {pipelineFailed && (
+          <div style={alertStyle('#ef4444')}>
+            ✕ Pipeline failed. Snapshot or intelligence generation did not complete successfully.
+            {cacheStatus?.failureReason ? (
+              <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: '#fecaca' }}>
+                Reason: {cacheStatus.failureReason}
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {intelligenceFailed && (
+          <div style={alertStyle('#ef4444')}>
+            ⚠ Snapshot ready · Intelligence failed. Re-run refresh to regenerate LLM decisions.
+          </div>
+        )}
+
+        {llmDecisionsPending && (
           <div style={alertStyle('#f59e0b')}>
-            ⚠ LLM decisions have not been generated yet. Intelligence sections (tier classifications, risk scores, recommendations) will be hidden until the pipeline completes a full run.
+            ⚠ Snapshot publish completed. AI decisions are still processing in background and will appear automatically.
+          </div>
+        )}
+
+        {cacheStatus?.hasEverRefreshed && (
+          <div style={{ ...alertStyle('#334155'), borderColor: '#1e293b', background: '#0b1220' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '0.78rem', color: '#cbd5e1' }}>
+                AI Debug: live backend pipeline state and logs (always visible for local debugging).
+              </div>
+              <button
+                onClick={captureAiDebug}
+                style={{
+                  padding: '0.35rem 0.65rem',
+                  borderRadius: 6,
+                  border: '1px solid #334155',
+                  background: '#0f172a',
+                  color: '#e2e8f0',
+                  cursor: 'pointer',
+                  fontSize: '0.72rem',
+                  fontWeight: 600,
+                }}
+              >
+                Capture AI Logs
+              </button>
+            </div>
+            {aiDebugNotice ? (
+              <div style={{ marginTop: '0.45rem', fontSize: '0.72rem', color: '#93c5fd' }}>
+                {aiDebugNotice}
+              </div>
+            ) : null}
+            {aiDebug && (
+              <details style={{ marginTop: '0.6rem' }}>
+                <summary style={{ cursor: 'pointer', color: '#93c5fd', fontSize: '0.72rem' }}>
+                  View latest captured status
+                </summary>
+                <pre
+                  style={{
+                    marginTop: '0.5rem',
+                    maxHeight: 220,
+                    overflow: 'auto',
+                    padding: '0.5rem',
+                    borderRadius: 8,
+                    background: '#020617',
+                    border: '1px solid #1e293b',
+                    color: '#cbd5e1',
+                    fontSize: '0.68rem',
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {JSON.stringify(aiDebug, null, 2)}
+                </pre>
+              </details>
+            )}
+            {aiInspectorOpen && (
+              <div style={{ marginTop: '0.75rem', borderTop: '1px solid #1e293b', paddingTop: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#93c5fd', fontWeight: 700 }}>
+                    AI Run Inspector (auto-refresh 5s)
+                  </div>
+                  <button
+                    onClick={loadAiInspector}
+                    style={{
+                      padding: '0.25rem 0.55rem',
+                      borderRadius: 6,
+                      border: '1px solid #334155',
+                      background: '#0f172a',
+                      color: '#cbd5e1',
+                      cursor: 'pointer',
+                      fontSize: '0.68rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Refresh now
+                  </button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(140px, 1fr))', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                  <InspectorStat
+                    label="Pipeline Status"
+                    value={aiInspectorData?.cacheStatus?.activeState?.pipelineStatus || aiInspectorData?.cacheStatus?.pipelineStatus || 'n/a'}
+                  />
+                  <InspectorStat
+                    label="LLM Status"
+                    value={aiInspectorData?.cacheStatus?.activeState?.llmStatus || aiInspectorData?.cacheStatus?.llmStatus || 'n/a'}
+                  />
+                  <InspectorStat label="Failure Code" value={aiInspectorData?.cacheStatus?.failureCode || 'none'} />
+                  <InspectorStat label="Decision Count" value={String(aiInspectorData?.cacheStatus?.decisionCount ?? 'n/a')} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(180px, 1fr))', gap: '0.5rem', marginBottom: '0.6rem' }}>
+                  <InspectorStat label="Run ID" value={aiInspectorData?.cacheStatus?.pipelineRunId || aiInspectorData?.pipelineRun?.runId || 'n/a'} />
+                  <InspectorStat label="Job ID" value={aiInspectorData?.latestJob?.jobId || aiInspectorData?.activeJobId || 'n/a'} />
+                  <InspectorStat label="Captured At" value={aiInspectorData?.capturedAt ? new Date(aiInspectorData.capturedAt).toLocaleTimeString() : 'n/a'} />
+                </div>
+                <details>
+                  <summary style={{ cursor: 'pointer', color: '#cbd5e1', fontSize: '0.72rem' }}>Inspector JSON</summary>
+                  <pre
+                    style={{
+                      marginTop: '0.5rem',
+                      maxHeight: 260,
+                      overflow: 'auto',
+                      padding: '0.5rem',
+                      borderRadius: 8,
+                      background: '#020617',
+                      border: '1px solid #1e293b',
+                      color: '#cbd5e1',
+                      fontSize: '0.67rem',
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    {JSON.stringify(aiInspectorData, null, 2)}
+                  </pre>
+                </details>
+              </div>
+            )}
           </div>
         )}
 
@@ -728,7 +1076,7 @@ function Home() {
                 </span>
               </div>
             )}
-            {pipelineRun.status === 'complete' && (
+            {(pipelineStatus === 'READY' || pipelineRun.status === 'complete') && (
               <div style={{
                 marginTop: '0.55rem',
                 fontSize: '0.72rem',
@@ -740,7 +1088,11 @@ function Home() {
               }}>
                 <span style={{ color: '#22c55e' }}>✅</span>
                 <span>
-                  Pipeline completed. Fresh snapshot published{summary?.decisions?.length ? ` · ${summary.decisions.length} AI decisions available` : ''}.
+                  {snapshotStatus === 'READY' && llmStatus === 'RUNNING'
+                    ? 'Snapshot complete · Intelligence pending.'
+                    : snapshotStatus === 'READY' && llmStatus === 'READY'
+                    ? `Complete${summary?.decisions?.length ? ` · ${summary.decisions.length} AI decisions available` : ''}.`
+                    : 'Pipeline completed. Fresh snapshot published.'}
                 </span>
               </div>
             )}
@@ -947,6 +1299,15 @@ function Home() {
       )}
       <GovernanceToastNotification position="top-right" maxVisible={3} />
     </>
+  );
+}
+
+function InspectorStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ padding: '0.45rem 0.55rem', borderRadius: 8, border: '1px solid #1e293b', background: '#020617' }}>
+      <div style={{ fontSize: '0.62rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+      <div style={{ marginTop: '0.2rem', fontSize: '0.72rem', color: '#e2e8f0', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{value}</div>
+    </div>
   );
 }
 

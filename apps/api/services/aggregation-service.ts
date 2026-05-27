@@ -30,6 +30,7 @@ import { enqueueReanalysisJob } from './reanalysis-budget-service';
 import { query, transaction } from '../../../core/database/connection';
 import { enqueueJob } from './job-service';
 import { applyGuardrailsToBatch } from './llm-output-guardrails';
+import { buildSnapshotHash, buildSourceHash } from './pipeline-hash-service';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 
@@ -40,6 +41,8 @@ export interface FastAggregationResult {
   tenantId?: string;
   inserted: number;
   durationMs: number;
+  sourceHash: string;
+  snapshotHash: string;
 }
 
 export interface AggregationConfig {
@@ -266,7 +269,7 @@ export async function runAggregation(
   console.log(`  Security Gaps: ${securityGapCount}, Operational Gaps: ${operationalGapCount}`);
 
   // ── Step 4: LLM agent makes decisions for changed/new only ──────────────────
-  let agentSummary: any = { decisions: [], agentReasoning: 'No LLM processing needed' };
+  let agentSummary: any = { decisions: [], agentReasoning: null };
 
   if (toProcess.length > 0) {
     // Use inputs WITH pre-computed scores for LLM context
@@ -417,6 +420,21 @@ export async function runAggregation(
     const deterministicAvgQual = allScored.length > 0
       ? Math.round(allScored.reduce((s, x) => s + x.qualityScore, 0) / allScored.length * 10) / 10
       : 0;
+    const deterministicTotalLicenseSpend = allScored.reduce((sum, x) => sum + x.annualCostUsd, 0);
+    const deterministicTotalDailyGb = allScored.reduce((sum, x) => sum + x.dailyGb, 0);
+    const deterministicTotalSourcetypes = allScored.length;
+    const deterministicStorageSavingsPotential = (agentSummary.decisions || []).reduce(
+      (sum: number, decision: any) => sum + (Number(decision.estimatedSavings) || 0),
+      0
+    );
+    const deterministicAvgConfidence = (agentSummary.decisions || []).length > 0
+      ? Math.round(
+          ((agentSummary.decisions || []).reduce(
+            (sum: number, decision: any) => sum + (Number(decision.confidenceScore) || 0),
+            0
+          ) / (agentSummary.decisions || []).length) * 10
+        ) / 10
+      : 0;
 
     // Patch agentSummary tier counts and avg scores with deterministic values
     if (allScored.length > 0) {
@@ -424,14 +442,27 @@ export async function runAggregation(
       agentSummary.avgUtilization = deterministicAvgUtil;
       agentSummary.avgDetection   = deterministicAvgDet;
       agentSummary.avgQuality     = deterministicAvgQual;
+      agentSummary.avgConfidence  = deterministicAvgConfidence;
     }
 
-    await upsertExecutiveKpis(client, agentSummary, snapshotId, today, {
+    await upsertExecutiveKpis(client, agentSummary, tenantId, snapshotId, today, {
       roiScore:            deterministicROI,
       gainScopeScore:      deterministicGainScope,
+      totalLicenseSpend:   deterministicTotalLicenseSpend,
       licenseSpendLowValue: deterministicLowValue,
+      storageSavingsPotential: deterministicStorageSavingsPotential,
+      totalDailyGb:        deterministicTotalDailyGb,
+      totalSourcetypes:    deterministicTotalSourcetypes,
+      tierCritical:        deterministicTierCounts.critical,
+      tierImportant:       deterministicTierCounts.important,
+      tierNiceToHave:      deterministicTierCounts.niceToHave,
+      tierLowValue:        deterministicTierCounts.lowValue,
       securityGaps:        securityGapCount,
       operationalGaps:     operationalGapCount,
+      avgUtilization:      deterministicAvgUtil,
+      avgDetection:        deterministicAvgDet,
+      avgQuality:          deterministicAvgQual,
+      avgConfidence:       deterministicAvgConfidence,
     });
 
     // Persist queue health metrics (platform observability)
@@ -645,20 +676,33 @@ async function upsertDecision(
 async function upsertExecutiveKpis(
   client: PoolClient,
   summary: Awaited<ReturnType<typeof runLLMDecisionAgent>>,
+  tenantId: string,
   snapshotId: string,
   today: string,
   overrides?: {
     roiScore: number;
     gainScopeScore: number;
+    totalLicenseSpend: number;
     licenseSpendLowValue: number;
+    storageSavingsPotential: number;
+    totalDailyGb: number;
+    totalSourcetypes: number;
+    tierCritical: number;
+    tierImportant: number;
+    tierNiceToHave: number;
+    tierLowValue: number;
     securityGaps: number;
     operationalGaps: number;
+    avgUtilization: number;
+    avgDetection: number;
+    avgQuality: number;
+    avgConfidence: number;
   }
 ): Promise<void> {
   await client.query(
     `
     INSERT INTO executive_kpis (
-      snapshot_id, snapshot_date,
+      tenant_id, snapshot_id, snapshot_date,
       roi_score, gainscope_score,
       total_license_spend, license_spend_low_value, storage_savings_potential,
       total_daily_gb, total_sourcetypes,
@@ -666,9 +710,10 @@ async function upsertExecutiveKpis(
       security_gaps, operational_gaps,
       avg_utilization, avg_detection, avg_quality, avg_confidence,
       quick_wins, savings_staircase, agent_reasoning
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
-    ON CONFLICT (snapshot_date) DO UPDATE SET
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+    ON CONFLICT (tenant_id, snapshot_id) DO UPDATE SET
       snapshot_id             = EXCLUDED.snapshot_id,
+      snapshot_date           = EXCLUDED.snapshot_date,
       roi_score               = EXCLUDED.roi_score,
       gainscope_score         = EXCLUDED.gainscope_score,
       total_license_spend     = EXCLUDED.total_license_spend,
@@ -692,18 +737,24 @@ async function upsertExecutiveKpis(
       updated_at              = NOW()
     `,
     [
-      snapshotId, today,
+      tenantId, snapshotId, today,
       overrides?.roiScore          ?? summary.roiScore,
       overrides?.gainScopeScore    ?? summary.gainScopeScore,
-      summary.totalLicenseSpend,
+      overrides?.totalLicenseSpend ?? summary.totalLicenseSpend,
       overrides?.licenseSpendLowValue ?? summary.licenseSpendLowValue,
-      summary.storageSavingsPotential,
-      summary.totalDailyGb, summary.totalSourcetypes,
-      summary.tierCounts.critical, summary.tierCounts.important,
-      summary.tierCounts.niceToHave, summary.tierCounts.lowValue,
+      overrides?.storageSavingsPotential ?? summary.storageSavingsPotential,
+      overrides?.totalDailyGb      ?? summary.totalDailyGb,
+      overrides?.totalSourcetypes  ?? summary.totalSourcetypes,
+      overrides?.tierCritical      ?? summary.tierCounts.critical,
+      overrides?.tierImportant     ?? summary.tierCounts.important,
+      overrides?.tierNiceToHave    ?? summary.tierCounts.niceToHave,
+      overrides?.tierLowValue      ?? summary.tierCounts.lowValue,
       overrides?.securityGaps      ?? summary.securityGaps,
       overrides?.operationalGaps   ?? summary.operationalGaps,
-      summary.avgUtilization, summary.avgDetection, summary.avgQuality, summary.avgConfidence,
+      overrides?.avgUtilization    ?? summary.avgUtilization,
+      overrides?.avgDetection      ?? summary.avgDetection,
+      overrides?.avgQuality        ?? summary.avgQuality,
+      overrides?.avgConfidence     ?? summary.avgConfidence,
       JSON.stringify(summary.quickWins),
       JSON.stringify(summary.savingsStaircase),
       summary.agentReasoning,
@@ -892,7 +943,7 @@ async function populateSecurityCoverage(
       .map(d => ({
         sourcetype: d.sourcetype || 'unknown',
         coveragePct: Math.round(d.detectionScore * 1.2),
-        activeAlerts: d.detectionScore > 60 ? Math.floor(Math.random() * 5) + 2 : 0,
+        activeAlerts: 0,  // requires real Splunk query; not fabricated
         detectionGaps: d.detectionGap ? 'Yes' : 'No',
       }));
     console.log(`[Aggregation] Security coverage: ${securityData.length} sourcetypes (LLM estimation fallback)`);
@@ -987,6 +1038,7 @@ export async function runFastAggregation(
   options?: {
     snapshotId?: string;
     runId?: string;
+    requestId?: string;
   }
 ): Promise<FastAggregationResult> {
   const start = Date.now();
@@ -1016,6 +1068,25 @@ export async function runFastAggregation(
         return [];
       })
     : [];
+
+  const totalDailyGb = indexMetrics.reduce((sum, item) => sum + item.dailyAvgGb, 0);
+  const totalEvents = indexMetrics.reduce((sum, item) => sum + item.totalEvents, 0);
+  const sourceFingerprint = {
+    indexCount: indexMetrics.length,
+    sourcetypeCount: sourcetypeMetrics.length,
+    totalDailyGb: Math.round(totalDailyGb * 1000) / 1000,
+    totalEvents,
+    indexes: indexMetrics.map((item) => ({ index: item.index, dailyAvgGb: item.dailyAvgGb })).sort((a, b) => a.index.localeCompare(b.index)),
+    sourcetypes: sourcetypeMetrics
+      .map((item) => ({
+        index: item.index,
+        sourcetype: item.sourcetype,
+        dailyAvgGb: item.dailyAvgGb,
+      }))
+      .sort((a, b) => `${a.index}:${a.sourcetype}`.localeCompare(`${b.index}:${b.sourcetype}`)),
+  };
+  const sourceHash = buildSourceHash(sourceFingerprint);
+  let snapshotHash = sourceHash;
 
   // ── 2. Write raw snapshots with tier=PENDING ────────────────────────────
   let inserted = 0;
@@ -1061,7 +1132,7 @@ export async function runFastAggregation(
     }
 
     // Write baseline KPIs (volume/cost only, LLM scores will come from worker)
-    await client.query(`
+    const totalLicenseSpendResult = await client.query<{ total_license_spend: string }>(`
       INSERT INTO executive_kpis (tenant_id, snapshot_date, snapshot_id, total_license_spend)
       VALUES ($1, $2, $3, (
         SELECT COALESCE(SUM(cost_per_year),0)
@@ -1071,7 +1142,18 @@ export async function runFastAggregation(
       ON CONFLICT (tenant_id, snapshot_id) DO UPDATE SET
         total_license_spend = EXCLUDED.total_license_spend,
         updated_at = NOW()
+      RETURNING total_license_spend
     `, [tenantId, today, snapshotId]);
+    const totalLicenseSpend = Number(totalLicenseSpendResult.rows[0]?.total_license_spend || '0');
+    const snapshotFingerprint = {
+      snapshotId,
+      indexCount: indexMetrics.length,
+      sourcetypeCount: sourcetypeMetrics.length,
+      totalDailyGb: Math.round(totalDailyGb * 1000) / 1000,
+      totalEvents,
+      totalLicenseSpend: Math.round(totalLicenseSpend * 100) / 100,
+    };
+    snapshotHash = buildSnapshotHash(snapshotFingerprint);
 
     // Mark cache as fast_complete
     await client.query(`
@@ -1159,6 +1241,8 @@ export async function runFastAggregation(
       tenantId: ctx.tenantId,
       userId: ctx.userId,
       traceId: ctx.traceId,
+      requestId: options?.requestId || null,
+      modelName: process.env.LLM_MODEL || process.env.MODEL_VERSION || 'gemma2:9b',
       snapshotId,
       runId: options?.runId || uuidv4(),
       inputs: candidates,
@@ -1170,7 +1254,16 @@ export async function runFastAggregation(
 
   console.log(`[FastAgg] Done in ${Date.now() - start}ms. Snapshot ${snapshotId}, job ${jobId}, ${inserted} snapshots written.`);
 
-  return { snapshotId, jobId, runId: options?.runId, tenantId: ctx.tenantId, inserted, durationMs: Date.now() - start };
+  return {
+    snapshotId,
+    jobId,
+    runId: options?.runId,
+    tenantId: ctx.tenantId,
+    inserted,
+    durationMs: Date.now() - start,
+    sourceHash,
+    snapshotHash,
+  };
 }
 
 /**
