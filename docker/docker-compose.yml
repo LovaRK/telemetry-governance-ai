@@ -8,6 +8,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://telemetry:telemetry@postgres:5432/telemetry_os
       - NODE_ENV=development
+      - APP_ENV=${APP_ENV:-sandbox}
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - NEXT_PUBLIC_SPLUNK_MCP_URL=https://144.202.48.85:8089
       - NEXT_PUBLIC_SPLUNK_TOKEN=Basic cmFtOlJhbWFAMTk4OA==
@@ -42,6 +43,7 @@ services:
       dockerfile: docker/Dockerfile.worker
     environment:
       - DATABASE_URL=postgresql://telemetry:telemetry@postgres:5432/telemetry_os
+      - APP_ENV=${APP_ENV:-sandbox}
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - NODE_TLS_REJECT_UNAUTHORIZED=0

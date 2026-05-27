@@ -2,6 +2,7 @@ import { Pool, PoolClient } from 'pg';
 import fetch from 'node-fetch';
 import https from 'https';
 import { encryptSecret, decryptSecret } from '../../../core/security/secret-manager';
+import { environmentValidator } from '../../../core/security/environment-validator';
 
 export interface SplunkConfig {
   url?: string;
@@ -102,6 +103,29 @@ export class SplunkConfigService {
   ): Promise<TenantSplunkStatus> {
     const pool = client || this.pool;
     try {
+      // SECURITY: Validate URLs against environment restrictions (Layer 1 & 2)
+      const urlValidation = environmentValidator.validateAllSplunkUrls(
+        config.apiUrl || config.url,
+        config.hecUrl || config.url,
+        config.mcpUrl
+      );
+
+      if (!urlValidation.valid) {
+        const error = new Error(`URL Validation Failed (${environmentValidator.getEnvironmentMode()} mode):\n${urlValidation.reasons.join('\n')}`);
+        console.error('[SECURITY]', error.message);
+        throw error;
+      }
+
+      // Log approved URLs for audit trail (TEST 2.2)
+      console.log('[SPLUNK_CONFIG_SAVE]', {
+        tenant_id,
+        environment: environmentValidator.getEnvironmentMode(),
+        apiUrl: config.apiUrl || config.url,
+        hecUrl: config.hecUrl || config.url,
+        mcpUrl: config.mcpUrl,
+        timestamp: new Date().toISOString(),
+      });
+
       let encryptedSecret: string | null = null;
       if (config.restAuthSecret) {
         encryptedSecret = encryptSecret(config.restAuthSecret);
