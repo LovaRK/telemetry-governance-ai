@@ -279,7 +279,11 @@ export const POST = createRoute(async (request: NextRequest) => {
     throw new Error('HEC token is missing');
   }
 
-  if (!tenantSplunkConfig.restAuthSecret) {
+  // Validate auth credentials based on auth type
+  const isTokenAuth = tenantSplunkConfig.restAuthType === 'JWT' || tenantSplunkConfig.restAuthType === 'TOKEN';
+  const isBasicAuth = tenantSplunkConfig.restAuthType === 'BASIC' || !tenantSplunkConfig.restAuthType;
+
+  if (isTokenAuth && !tenantSplunkConfig.restAuthSecret) {
     await appendStageEvent({
       runId, stage: 'SPLUNK_FETCH', status: 'FAILED',
       errorType: 'UNKNOWN', errorCode: 'FAILED_SECRET_DECRYPTION',
@@ -289,6 +293,18 @@ export const POST = createRoute(async (request: NextRequest) => {
     await markRunFailed(runId, 'REST auth secret is missing or failed to decrypt');
     await setCacheError(cacheKey, 'REST auth secret is missing or failed to decrypt');
     throw new Error('REST auth secret is missing or failed to decrypt');
+  }
+
+  if (isBasicAuth && (!tenantSplunkConfig.username || !tenantSplunkConfig.password)) {
+    await appendStageEvent({
+      runId, stage: 'SPLUNK_FETCH', status: 'FAILED',
+      errorType: 'UNKNOWN', errorCode: 'MISSING_BASIC_AUTH',
+      errorMessage: 'Splunk username and password are required for BASIC authentication',
+      metadata: { requestId, tenantId },
+    });
+    await markRunFailed(runId, 'Splunk username and password are required');
+    await setCacheError(cacheKey, 'Splunk username and password are required');
+    throw new Error('Splunk username and password are required');
   }
 
   const restAuthHeader = tenantSplunkConfig.restAuthType === 'JWT'
