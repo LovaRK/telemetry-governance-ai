@@ -34,7 +34,7 @@ describe('Contract: truth-agent resilience (non-blocking guarantees)', () => {
 
     expect([200, 500]).toContain(res.status);
     expect(elapsedMs).toBeLessThan(30000);
-  });
+  }, 30000);
 
   test('concurrent refresh attempts do not create lock contention on truth tables', async () => {
     const token = await loginAndGetToken();

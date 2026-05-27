@@ -184,7 +184,7 @@ export async function GET() {
       syntheticDataDetected: !dataPureStatus,
     },
     governance: {
-      daemonRunning: llmHealthDaemonState().running,
+      daemonRunning: llmHealthDaemonState().started || false,
     },
   });
 }

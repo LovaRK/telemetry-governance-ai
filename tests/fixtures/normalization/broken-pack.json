@@ -1,0 +1,42 @@
+{
+  "name": "Broken/Malformed Logs",
+  "description": "Edge cases: malformed, truncated, encoding issues, nulls, special chars",
+  "entries": [
+    {
+      "input": { "index": "main", "sourcetype": null },
+      "expected": { "confidence": "LOW" }
+    },
+    {
+      "input": { "index": "main", "sourcetype": "" },
+      "expected": { "confidence": "LOW" }
+    },
+    {
+      "input": { "index": "main", "sourcetype": "   " },
+      "expected": { "confidence": "LOW" }
+    },
+    {
+      "input": { "index": "main", "sourcetype": "!!!invalid!!!chars" },
+      "expected": { "confidence": "LOW" }
+    },
+    {
+      "input": { "index": "main",       "sourcetype": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+      "expected": { "confidence": "LOW" }
+    },
+    {
+      "input": { "index": "main",       "sourcetype": "WinEventLog:Security\u0000nullbyte" },
+      "expected": { "confidence": "LOW" }
+    },
+    {
+      "input": { "index": "main", "sourcetype": "cafe\u0080babe" },
+      "expected": { "confidence": "LOW" }
+    },
+    {
+      "input": { "index": "main", "sourcetype": "\nnewline\n" },
+      "expected": { "confidence": "LOW" }
+    },
+    {
+      "input": { "index": "main", "sourcetype": "tab\tseparated" },
+      "expected": { "confidence": "LOW" }
+    }
+  ]
+}

@@ -5,7 +5,7 @@
  * This is called once before all contract tests via Jest setupFilesAfterEnv.
  */
 
-import { query } from '../../core/database/connection';
+import { pool, query } from '../../core/database/connection';
 import bcrypt from 'bcryptjs';
 // Note: RequestContext not imported here; setup only creates DB records for test user
 
@@ -69,5 +69,10 @@ async function ensureTestAdminUserExists() {
   }
 }
 
-// Run setup once when this file is loaded
-ensureTestAdminUserExists().catch(console.error);
+beforeAll(async () => {
+  await ensureTestAdminUserExists();
+});
+
+afterAll(async () => {
+  await pool.end();
+});

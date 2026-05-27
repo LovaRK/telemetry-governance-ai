@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useId } from 'react';
 
 interface DataPoint {
   label: string;
@@ -29,6 +29,7 @@ export default function LineChart({
   showTooltip = true,
   enableDateFilter = false,
 }: LineChartProps) {
+  const gradientId = useId();
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
 
@@ -241,12 +242,12 @@ export default function LineChart({
 
         {/* Area fill under curve */}
         <defs>
-          <linearGradient id={`gradient-${Math.random()}`} x1="0%" y1="0%" x2="0%" y2="100%">
+          <linearGradient id={gradientId} x1="0%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" stopColor={color} stopOpacity="0.3" />
             <stop offset="100%" stopColor={color} stopOpacity="0.05" />
           </linearGradient>
         </defs>
-        <path d={areaPathD} fill={`url(#gradient-${Math.random()})`} />
+        <path d={areaPathD} fill={`url(#${gradientId})`} />
 
         {/* Line */}
         <path d={pathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -293,7 +294,7 @@ export default function LineChart({
                 fill="#64748b"
                 fontSize="10"
               >
-                {value.toFixed(0)}
+                {Number.isFinite(value) ? value.toFixed(0) : '--'}
               </text>
             );
           })}

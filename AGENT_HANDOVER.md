@@ -1,8 +1,105 @@
-# Agent Handover — Phase 1 Complete: Runtime Certification
-**Branch:** `feature/data-purity-phase-2c-1`
-**Last updated:** 2026-05-23
-**Handed off from:** deepseek-v4-flash-free
-**Intended recipient:** Codex (or next Claude agent)
+# Agent Handover — Current Runtime + Dashboard Baseline
+**Branch:** `main`
+**Last updated:** 2026-05-26
+**Handed off from:** Codex
+**Intended recipient:** next implementation/debugging agent
+
+---
+
+## Current Live Entry Flow
+
+This is the current browser-verified behavior after a full rebuild:
+
+1. `docker compose -f docker/docker-compose.yml down`
+2. `docker compose -f docker/docker-compose.yml up -d --build`
+3. Health check passes on `http://localhost:3002/api/health`
+4. User logs in at `http://localhost:3002/login`
+5. Existing tenant config is found
+6. User lands directly on `/` dashboard
+7. Dashboard shows:
+   - published snapshot data
+   - AI inspector
+   - `Cache Fresh`
+   - terminal lifecycle state if latest run already completed
+
+## Working Credentials / Runtime Inputs
+
+These are the currently working app credentials used during browser verification:
+
+- App login email: `admin@bitso.com`
+- App login password: `Admin@12345`
+
+Current runtime assumption:
+
+- tenant already has persisted Splunk configuration in the database
+- because of that, login goes directly to dashboard rather than forcing the settings screen
+
+## What Was Revalidated In This Session
+
+- full Docker restart/rebuild succeeds
+- `postgres`, `web`, `worker` all become healthy
+- `/api/health` returns healthy schema + purity state
+- browser login lands on the dashboard
+- dashboard no longer falls back to `Splunk Not Configured` for the configured tenant
+- `/api/cache` accepts empty POST body again
+- standard browser API routes can derive tenant context from verified JWT claims if explicit context headers are missing
+- `/api/cache-status` exposes active `pipelineRunId` again
+
+## Current Runtime State
+
+Execution layer is materially healthier than dashboard semantics:
+
+- pipeline reliability: high
+- auditability: medium-high
+- dashboard correctness: still incomplete
+- explainability: incomplete
+
+## Immediate Open Bugs
+
+These are the highest-signal remaining product issues. They are not hypothetical.
+
+1. KPI trend charts
+- Current KPI cards can show values while `7d/30d/90d` charts remain empty.
+- Needs API/data-binding verification against historical snapshot rows.
+
+2. KPI formula trust
+- ROI / GainScope / Low-Value Spend / Savings Potential need backend-to-UI certification against the published snapshot.
+- Current values may render, but formula provenance is still not surfaced.
+
+3. Coverage gap card rendering
+- Confidence gauge still has alignment/bounds defects.
+- Security + Ops + Confidence layout still needs final UI cleanup.
+
+4. Split charts
+- Data Volume Split and Sourcetype Split need verification against telemetry snapshot data.
+- Empty/underutilized-only rendering is still suspicious and may be a binding or formula issue.
+
+5. Settings/dashboard navigation clarity
+- Current routing is technically working but product semantics are confusing:
+  - settings exists as a route
+  - dashboard may open directly after login
+  - config page is no longer a guaranteed first-run step
+
+## Current Architecture Rule
+
+Do not revert to UI-inferred lifecycle.
+
+Keep:
+
+- backend lifecycle truth in `/api/cache-status`
+- dashboard consuming published snapshot state separately from active run state
+- no fallback AI decisions when model is unavailable
+
+## Next Work Recommendation
+
+Do not spend the next pass on pipeline reliability first. Execution is mostly working.
+
+Work in this order:
+
+1. certify KPI formulas against DB rows and API payloads
+2. fix chart binding for trends and split charts
+3. fix coverage confidence card rendering/layout
+4. update dashboard explainability/provenance surfaces
 
 ---
 
@@ -13,7 +110,8 @@
 | `v0.9-trust-baseline` | Trust + Explainability (D1, D2, D3, D5) | ✅ Frozen |
 | `v1.0-incremental-baseline` | Incremental aggregation + parallel fetch | ✅ Frozen |
 | `v1.0-refactor-plan` | Phased architecture refactor roadmap | ✅ Frozen |
-| **`v1.1-runtime-stable`** | **Phase 1 Runtime QA certification** | **✅ Frozen (new)** |
+| **`v1.1-runtime-stable`** | **Phase 1 Runtime QA certification** | **✅ Frozen** |
+| **`v1.2-trust-stable`** | **Stabilization + Trust freeze** | **✅ Frozen** |
 
 **v1.1-runtime-stable frozen scope:**
 - Login form accessibility (htmlFor/id) — all 6 fixes applied
@@ -25,36 +123,109 @@
 - Runtime QA evidence: 8-tab validation, 7-case settings, 3-state empty, 4-scenario slow-network
 - `artifacts/runtime-qa/MANIFEST.md` with full evidence
 
+**v1.2-trust-stable frozen scope:**
+- Baseline verification (tsc, contracts 197/197, E2E 55/55)
+- Runtime truth closure: refresh soak (10/10 proper error, 10/10 cache consistent)
+- Governance stream classification: 401 expected without cookie, 4 deferred issues filed
+- P3 query consolidation validated: stream-excluded requests 49→15 single-pass
+- Settings local-first certified: 7/7 LLM cases pass, zero silent cloud fallback
+- `networkidle`→`domcontentloaded`+timeout fix for SSE hang in E2E tests
+- `artifacts/runtime-qa/` with full evidence for all 5 steps
+
 ---
 
-## Latest Verified State (Phase 1 + P3 Complete)
+## Latest Verified State
 
-- **Tag:** `v1.1-runtime-stable`
-- **Commit:** `058252b`
-- **Contract tests:** `227/227` passing (34 suites)
+- **Tag:** `v1.2-trust-stable`
+- **Commit:** `b2dc489`
+- **Contract tests:** `203/203` passing (25 suites)
 - **E2E tests:** `55/55` passing
 - **Typecheck:** `npx tsc --noEmit` clean
-- **Certification gates:** 7/7 pass — typecheck, contracts, E2E, Docker, health, LLM settings, executive summary
-- **Runtime evidence:** `artifacts/runtime-qa/MANIFEST.md`
+- **Runtime evidence:** `artifacts/runtime-qa/certification/phase-start-verify.txt`
+- **Stabilization artifacts:** `artifacts/runtime-qa/runtime-truth/`, `artifacts/runtime-qa/p3-validation/`, `artifacts/runtime-qa/settings/`
 - **Freeze status:** valid
 
-### P3 Query Consolidation Closeout (New)
+### P3 Query Consolidation (Validated This Session)
 
-- **Status:** Implemented + validated + freeze eligible
+- **Status:** Confirmed working via single-pass comparison
 - **Scope:** Web app orchestration only (`dashboard-query-service`) using existing API routes
-- **No architecture drift:** no cache redesign, no backend route rewrites, no AI/provider changes
 - **Validation gates:**
   - `npx tsc --noEmit` ✅
-  - `npm run test:contract` ✅ `197/197`
+  - `npm run test:contract` ✅ `203/203`
   - `npm run test:e2e` ✅ `55/55`
 - **Artifacts:**
-  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-fetch-map.md`
-  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-query-design.md`
-  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-request-comparison.md`
-  - `/Users/ramakrishna/Desktop/Teja/Dashboards/artifacts/runtime/p3-request-metrics.json`
+  - `artifacts/runtime-qa/p3-validation/request-comparison-rerun.md`
+  - `artifacts/runtime-qa/p3-validation/request-comparison-rerun.json`
 - **Measured result (stream-excluded):**
-  - requests: `52 -> 49`
-  - `/api/cache-status`: `32 -> 29`
+  - requests: `49 -> 15` (single-pass)
+  - `/api/cache-status`: `29 -> 15` (single-pass)
+
+---
+
+## 2026-05-23 Session: Stabilization + Trust Freeze
+
+**Commit:** `b2dc489` | **Tag:** `v1.2-trust-stable` | **Branch:** `main`
+
+### Remote Push Unblocked
+- PAT `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` (now expired) used to push `main` + all tags to `github.com/BitsIO-Ram/telemetry-governance-ai.git`
+- Remote URL cleaned back to HTTPS form
+
+### Step 1 — Baseline Verification
+- `git status` (clean), `git rev-parse --abbrev-ref HEAD` (main), `git tag --list` (5 tags present)
+- `npx tsc --noEmit` ✅
+- Contract tests: `197/197` PASS (fixed `truth-agent-resilience.contract.test.ts` — added 30000ms timeout)
+- E2E tests: `55/55` PASS (fixed SSE stream hang: `networkidle` → `domcontentloaded` + `waitForTimeout(3000)` in 06-production-certification.spec.ts (11 calls) and 03-track3-browser-ui-e2e.test.ts (4 calls))
+- Evidence: `artifacts/runtime-qa/certification/phase-start-verify.txt`
+
+### Step 2 — Runtime Truth Closure (Refresh Soak)
+- 10x refresh cycles: 10/10 proper error structure, 10/10 cache consistent, zero zombie state
+- Evidence: `artifacts/runtime-qa/runtime-truth/refresh-soak-10x.json`, `ui-state-matrix.md`
+
+### Step 3 — Governance Stream Noise Classification
+- `requireSSEContext` reads `accessToken` cookie; EventSource without cookie returns 401 (expected behavior)
+- 4 deferred issues classified (STREAM-001 to STREAM-004):
+  - STREAM-001: No exponential backoff on reconnect (fixed 5s interval)
+  - STREAM-002: Auth safety-net gap — `requireSSEContext` doesn't engage on fetch exceptions
+  - STREAM-003: Unhandled rejection noise in E2E logs from reconnect cycle
+  - STREAM-004: EventSource in no-cors mode can't set `Authorization` header
+- Evidence: `artifacts/runtime-qa/runtime-truth/governance-401-trace.json`
+
+### Step 4 — P3 Query Consolidation Validation
+- Stream-excluded request reduction confirmed: `49 → 15` single-pass
+- Orchestrator deduplication working correctly
+- Evidence: `artifacts/runtime-qa/p3-validation/request-comparison-rerun.md` + `.json`
+
+### Step 5 — Settings Local-First Certification
+- 7/7 LLM provider cases pass:
+  1. Default: provider = Local (Ollama), no Anthropic key field visible
+  2. Select Anthropic → key field appears
+  3. Persist: save Anthropic key → survives reload
+  4. Select Local → stored key wiped
+  5. Missing key → fails gracefully
+  6. Invalid key → fails, not persisted
+  7. No silent cloud fallback when Local
+- All data truthfulness checks pass
+- Field names consistent frontend/backend (`llmProvider`, `anthropicApiKey`, `anthropicModel`)
+- Evidence: `artifacts/runtime-qa/settings/local-first-certification.md`
+
+### Splunk Config Seeded in DB
+- Updated `tenants` table directly for test tenant `550e8400-e29b-41d4-a716-446655440000`
+- Port 5433, user `telemetry:telemetry`
+
+### Blockers
+- No real Splunk at `localhost:8089` — all 10 refresh soaks return `500 "Cannot connect to Splunk: Connection failed"`
+- SSE reconnect storm creates ~12 req/min noise under sustained auth failure — mitigated but not fixed (STREAM-001)
+- `v1.2-trust-stable` freezable without live Splunk (error-handling, cache consistency, settings all certified); full pipeline validation requires real Splunk (P5 scope)
+
+### Artifact Index
+| Artifact | Content |
+|---|---|
+| `artifacts/runtime-qa/certification/phase-start-verify.txt` | Baseline gate results |
+| `artifacts/runtime-qa/runtime-truth/refresh-soak-10x.json` | 10x refresh cycle results |
+| `artifacts/runtime-qa/runtime-truth/ui-state-matrix.md` | Cache state → UI mapping |
+| `artifacts/runtime-qa/runtime-truth/governance-401-trace.json` | SSE noise analysis + 4 deferred issues |
+| `artifacts/runtime-qa/p3-validation/request-comparison-rerun.md` + `.json` | P3 request counts |
+| `artifacts/runtime-qa/settings/local-first-certification.md` | 7/7 settings cases |
 
 ---
 
@@ -207,11 +378,9 @@ This works end-to-end because `connection.ts` now uses `set_config()` to write t
 ## 3. Current Test Status
 
 ```
-Contract tests:       23/23 passing (tests/contract/)
-Regression tests:      5/5  passing (tests/contract/db-tenant-isolation.regression.test.ts)
-CI gate:               PASS (no forbidden patterns)
-Contamination check:   CLEAN (0 bad rows across 5 tables)
-RLS:                   ACTIVE on 4 tables
+Full contract suite:    197/197 passing (23 suites)
+E2E suite:              55/55  passing (tests/e2e/)
+Typecheck:              CLEAN  (npx tsc --noEmit)
 ```
 
 Run all contract tests:
@@ -219,9 +388,9 @@ Run all contract tests:
 npx jest tests/contract/ --runInBand
 ```
 
-Run regression suite only:
+Run E2E tests:
 ```bash
-npx jest tests/contract/db-tenant-isolation.regression.test.ts --runInBand
+npx playwright test tests/e2e/06-production-certification.spec.ts
 ```
 
 ---
@@ -512,7 +681,8 @@ Move refresh back to queue-driven execution as the default path:
 | Session 5 (late) | Sprint 2A Security | HMAC key rotation, audit fork detection, envelope replay prevention |
 | Session 5 (late) | Phase 6.1.5A | Trace propagation fabric (AsyncLocalStorage), boundary adapters |
 | Session 6 | Phase 2B/2C-1 | LLM pipeline complete, 19/19 contract tests passing, component crash fixed |
-| **This session** | **Phase 2C-1 continued** | **set_config() fix, requireSSEContext split, frontend context headers, RLS activated, contamination cleaned** |
+| Session 7 | Phase 2C-1 continued | set_config() fix, requireSSEContext split, frontend context headers, RLS activated, contamination cleaned |
+| **This session** | **Stabilization + Trust freeze** | **v1.2-trust-stable: baseline verification, runtime truth, governance stream classification, P3 validation, settings certification, docs consolidation** |
 
 Full migration history: `apps/infrastructure/migrations/` (files 100–203)
 
@@ -520,32 +690,22 @@ Full migration history: `apps/infrastructure/migrations/` (files 100–203)
 
 ## 10. Git State
 
-**Branch:** `feature/data-purity-phase-2c-1`
-**Status:** All changes committed and pushed in this handover
+**Branch:** `main` (checkout `b2dc489` for freeze baseline)
+**Status:** All changes committed and pushed. Previous session (Phase 2C-1) work on `feature/data-purity-phase-2c-1` was merged into `main`.
 
-Files modified this session:
-- `core/database/connection.ts` — set_config() fix
-- `packages/auth/request-context.ts` — requireContext + requireSSEContext split
-- `apps/web/lib/api-client.ts` — context header propagation
-- `apps/web/app/login/page.tsx` — stores auth_context with tenantId
-- `apps/web/lib/services/auth.service.ts` — AuthContext with tenantId mapping
-- `apps/web/lib/types/index.ts` — AuthContext.tenantId field added
-- `apps/web/middleware.ts` — removed auto header injection
-- `apps/web/app/api/agent-decisions/route.ts` — requireContext + tenant-scoped query
-- `apps/web/app/api/cache/route.ts` — requireContext on GET handler
-- `apps/web/app/api/executive-summary/route.ts` — empty state shape fixes
-- `apps/web/app/api/governance/stream/route.ts` — requireSSEContext
-- `apps/web/app/api/job-stream/route.ts` — requireSSEContext
-- `apps/web/app/api/pipeline-runs/[runId]/route.ts` — requireContext
-- `docker/docker-compose.yml` — full volume mounts
-- `docker/Dockerfile.worker` — COPY packages
-- `tsconfig.worker.json` — @packages alias
-- `jest.config.js` — baseUrl fix
+### Current session files modified:
+- `tests/contract/truth-agent-resilience.contract.test.ts` — added 30000ms timeout
+- `tests/e2e/06-production-certification.spec.ts` — 11x `networkidle`→`domcontentloaded`+timeout
+- `tests/e2e/03-track3-browser-ui-e2e.test.ts` — 4x `networkidle`→`domcontentloaded`+timeout
 
-New files:
-- `scripts/ci-guard-no-set-tenant.sh`
-- `tests/contract/db-tenant-isolation.regression.test.ts`
-- `AGENT_HANDOVER.md` (this file)
+### Artifacts created this session:
+- `artifacts/runtime-qa/certification/phase-start-verify.txt`
+- `artifacts/runtime-qa/runtime-truth/refresh-soak-10x.json`
+- `artifacts/runtime-qa/runtime-truth/ui-state-matrix.md`
+- `artifacts/runtime-qa/runtime-truth/governance-401-trace.json`
+- `artifacts/runtime-qa/p3-validation/request-comparison-rerun.md`
+- `artifacts/runtime-qa/p3-validation/request-comparison-rerun.json`
+- `artifacts/runtime-qa/settings/local-first-certification.md`
 
 ---
 
@@ -634,3 +794,42 @@ The current live Splunk dataset is very small (`0.0351 GB/day`, `$6.41/year`). T
 - Known blocker resolved: test environment login instability ( returning 500) caused by stale web container serving an older truth-agent import.
 - Resolution: restarted web service after D1 code sync; validated with successful login response.
 - Verification gate:  and  both passing.
+### Commit B — Cache Status Lifecycle Truth (Freeze Eligible)
+
+- `/api/cache-status` now returns canonical lifecycle fields from backend truth:
+  - `snapshotStatus`, `llmStatus`, `pipelineStatus`
+  - `lastRunId`, `lastRunAt`, `lastDecisionAt`, `requestId`, `pipelineRunId`
+- Lifecycle derives from persisted state:
+  - active published run via `tenant_snapshot_pointer`
+  - run/stage linkage via `pipeline_runs` and `pipeline_stage_events`
+- Contract tests added and aligned to published-run pointer truth:
+  - `snapshot READY + llm RUNNING => pipeline PARTIAL`
+  - `snapshot READY + llm READY => pipeline READY`
+  - `snapshot FAILED => pipeline FAILED`
+- Validation gates:
+  - `npx tsc --noEmit` ✅
+  - `npm run test:contract` ✅ `203/203`
+  - `npm run test:e2e` ✅ `55/55`
+
+### Commit C — UI Lifecycle Rendering (Freeze Eligible)
+
+- UI lifecycle ownership is now pure render-from-truth:
+  - backend defines lifecycle via `/api/cache-status`
+  - UI consumes `snapshotStatus`, `llmStatus`, `pipelineStatus`
+- Updated UI surfaces:
+  - `apps/web/app/page.tsx`
+  - `apps/web/components/layout/TopAppBar.tsx`
+- Canonical rendering matrix now enforced:
+  - `READY + RUNNING` → `Snapshot complete · Intelligence pending`
+  - `READY + READY` → `Complete`
+  - `READY + FAILED`/`FAILED_TIMEOUT` → `Snapshot ready · Intelligence failed`
+  - `FAILED + *` (or pipeline `FAILED`) → `Pipeline failed`
+- Commit C constraints respected:
+  - no polling changes
+  - no SSE redesign
+  - no retry/timeout transport changes
+  - no backend `/api/cache-status` logic changes
+- Validation gates:
+  - `npx tsc --noEmit` ✅
+  - `npm run test:contract` ✅ `203/203`
+  - `npm run test:e2e` ✅ `55/55`

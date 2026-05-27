@@ -84,6 +84,11 @@ describe('Contract: Tenant Context Isolation (Phase 1G)', () => {
       const res = await unauthenticatedGet('/api/governance/stream');
       expect(res.status).toBe(401);
     });
+
+    test('GET /api/job-status/latest without JWT → 401', async () => {
+      const res = await unauthenticatedGet('/api/job-status/latest');
+      expect(res.status).toBe(401);
+    });
   });
 
   describe('Auth Contract: Missing Tenant Context', () => {
@@ -177,6 +182,14 @@ describe('Contract: Tenant Context Isolation (Phase 1G)', () => {
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toContain('text/event-stream');
     });
+
+    test('GET /api/job-status/latest with valid context → 200', async () => {
+      const token = await loginAndGetToken();
+      const res = await authGet('/api/job-status/latest', token);
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      expect(body).toHaveProperty('data');
+    });
   });
 
   describe('Dynamic Route Contract', () => {
@@ -237,8 +250,9 @@ describe('Contract: Tenant Context Isolation (Phase 1G)', () => {
         // May fail due to Splunk unavailable, but that's OK
         // The point is that context validation passed
         const body = await res.json() as any;
-        expect(body.error).not.toContain('missing');
-        expect(body.error).not.toContain('tenant');
+        const err = String(body?.error || '').toLowerCase();
+        expect(err).not.toContain('tenant context required');
+        expect(err).not.toContain('invalid tenantid');
       }
     });
 

@@ -1,0 +1,87 @@
+# Route Audit
+
+- Page routes: 11
+- API routes: 68
+
+## Pages
+- apps/web/app/audit-trail/page.tsx
+- apps/web/app/detail/page.tsx
+- apps/web/app/governance/page.tsx
+- apps/web/app/index/[name]/page.tsx
+- apps/web/app/login/page.tsx
+- apps/web/app/page.tsx
+- apps/web/app/settings/account/page.tsx
+- apps/web/app/settings/page.tsx
+- apps/web/app/settings/splunk/page.tsx
+- apps/web/app/setup/page.tsx
+- apps/web/app/trust-inspection/page.tsx
+
+## API Routes
+- apps/web/app/api/agent-decisions/route.ts
+- apps/web/app/api/auth/login/route.ts
+- apps/web/app/api/auth/logout/route.ts
+- apps/web/app/api/auth/me/route.ts
+- apps/web/app/api/auth/refresh/route.ts
+- apps/web/app/api/auth/route.ts
+- apps/web/app/api/bulk-actions/route.ts
+- apps/web/app/api/cache-status/route.ts
+- apps/web/app/api/cache/route.ts
+- apps/web/app/api/config/route.ts
+- apps/web/app/api/dashboard-validation/[runId]/route.ts
+- apps/web/app/api/dashboard-validation/latest/route.ts
+- apps/web/app/api/dashboard-validation/run/route.ts
+- apps/web/app/api/debug/latest-run/route.ts
+- apps/web/app/api/decision-history/route.ts
+- apps/web/app/api/decision-lineage/[id]/route.ts
+- apps/web/app/api/decision-lineage/route.ts
+- apps/web/app/api/drift-monitor/route.ts
+- apps/web/app/api/executive-summary/explain/route.ts
+- apps/web/app/api/executive-summary/route.ts
+- apps/web/app/api/explainability/coverage/route.ts
+- apps/web/app/api/field-usage/route.ts
+- apps/web/app/api/governance/cache-coherence/route.ts
+- apps/web/app/api/governance/events/route.ts
+- apps/web/app/api/governance/events/stream/route.ts
+- apps/web/app/api/governance/executions/[execution_id]/timeline/route.ts
+- apps/web/app/api/governance/health/invariants/route.ts
+- apps/web/app/api/governance/health/policy/route.ts
+- apps/web/app/api/governance/history/[indexName]/route.ts
+- apps/web/app/api/governance/mutation-lifecycle/route.ts
+- apps/web/app/api/governance/mutations/route.ts
+- apps/web/app/api/governance/replay/route.ts
+- apps/web/app/api/governance/stream/route.ts
+- apps/web/app/api/governance/telemetry/route.ts
+- apps/web/app/api/governance/trace/route.ts
+- apps/web/app/api/governance/trust-status/route.ts
+- apps/web/app/api/health/route.ts
+- apps/web/app/api/job-status/[jobId]/route.ts
+- apps/web/app/api/job-status/latest/route.ts
+- apps/web/app/api/job-stream/route.ts
+- apps/web/app/api/kpi-history/route.ts
+- apps/web/app/api/kpi/[id]/trace/route.ts
+- apps/web/app/api/kpi/history/[id]/route.ts
+- apps/web/app/api/llm/governance/active/route.ts
+- apps/web/app/api/llm/health/route.ts
+- apps/web/app/api/llm/metrics/route.ts
+- apps/web/app/api/model-health/route.ts
+- apps/web/app/api/pipeline-runs/[runId]/route.ts
+- apps/web/app/api/pipeline-runs/latest/route.ts
+- apps/web/app/api/quality-hotspots/route.ts
+- apps/web/app/api/queue-health/route.ts
+- apps/web/app/api/recommendations/[id]/route.ts
+- apps/web/app/api/recommendations/audit/route.ts
+- apps/web/app/api/recommendations/route.ts
+- apps/web/app/api/search-audit/route.ts
+- apps/web/app/api/security-coverage/route.ts
+- apps/web/app/api/settings/explainability/route.ts
+- apps/web/app/api/settings/llm/route.ts
+- apps/web/app/api/settings/weights/route.ts
+- apps/web/app/api/setup/admin/route.ts
+- apps/web/app/api/setup/status/route.ts
+- apps/web/app/api/setup/tenant/route.ts
+- apps/web/app/api/splunk/config/route.ts
+- apps/web/app/api/splunk/status/route.ts
+- apps/web/app/api/splunk/test-connection/route.ts
+- apps/web/app/api/telemetry/route.ts
+- apps/web/app/api/test-connection/route.ts
+- apps/web/app/api/trust-inspection/route.ts

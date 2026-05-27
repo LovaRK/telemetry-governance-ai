@@ -17,6 +17,16 @@ export interface PipelineRunRecord {
   promptVersion: string;
   splunkQueryVersion: string;
   errorMessage: string | null;
+  sourceHash?: string | null;
+  snapshotHash?: string | null;
+  decisionHash?: string | null;
+  executionHash?: string | null;
+  requestId?: string | null;
+  modelName?: string | null;
+  latencyMs?: number | null;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
+  batchCount?: number | null;
 }
 
 export interface StageEventInput {
@@ -29,6 +39,7 @@ export interface StageEventInput {
   recordsProcessed?: number;
   metadata?: Record<string, unknown>;
   errorMessage?: string | null;
+  requestId?: string | null;
 }
 
 export async function ensurePipelineLedgerSchema(): Promise<void> {
@@ -108,6 +119,32 @@ export async function ensurePipelineLedgerSchema(): Promise<void> {
   await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS total_llm_latency_ms INT NOT NULL DEFAULT 0`);
   await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS fallback_triggered BOOLEAN NOT NULL DEFAULT FALSE`);
   await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS fallback_reason VARCHAR(50)`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS source_hash VARCHAR(64)`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS snapshot_hash VARCHAR(64)`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS decision_hash VARCHAR(64)`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS execution_hash VARCHAR(64)`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS request_id UUID`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS model_name TEXT`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS latency_ms INT`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS tokens_in INT`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS tokens_out INT`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS batch_count INT`);
+  await query(`ALTER TABLE pipeline_stage_events ADD COLUMN IF NOT EXISTS request_id UUID`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS request_id UUID`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS model_name TEXT`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS latency_ms INT`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS tokens_in INT`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS tokens_out INT`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS batch_count INT`);
+  await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS request_id UUID`);
+  await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS tokens_in INT`);
+  await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS tokens_out INT`);
+  await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS batch_count INT`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_tenant_snapshot_hash ON pipeline_runs(tenant_id, snapshot_hash)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_request_id ON pipeline_runs(request_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_job_queue_request_id ON job_queue(request_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_stage_events_request_id ON pipeline_stage_events(request_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_agent_decisions_request_id ON agent_decisions(request_id)`);
 
   await query(`ALTER TABLE telemetry_snapshots DROP CONSTRAINT IF EXISTS uq_snapshot_identity`);
   await query(`ALTER TABLE executive_kpis DROP CONSTRAINT IF EXISTS executive_kpis_snapshot_date_key`);
@@ -215,6 +252,14 @@ async function recoverStalePipelineRuns(maxAgeMinutes: number = 5): Promise<numb
 
 export async function getActiveRunByHash(hash: string): Promise<PipelineRunRecord | null> {
   await recoverStalePipelineRuns(5);
+  // Defensive cleanup: terminal runs should never retain idempotency hashes.
+  await query(
+    `UPDATE pipeline_runs
+       SET idempotency_hash = NULL
+     WHERE idempotency_hash = $1
+       AND status IN ('FAILED', 'SUCCEEDED')`,
+    [hash]
+  );
   const result = await query<any>(
     `SELECT run_id as "runId", snapshot_id as "snapshotId", tenant_id as "tenantId", status, published,
             started_at as "startedAt", published_at as "publishedAt", superseded_by_run_id as "supersededByRunId",
@@ -229,6 +274,16 @@ export async function getActiveRunByHash(hash: string): Promise<PipelineRunRecor
   return result.rows[0] || null;
 }
 
+export async function releaseIdempotencyHash(hash: string): Promise<void> {
+  await query(
+    `UPDATE pipeline_runs
+       SET idempotency_hash = NULL
+     WHERE idempotency_hash = $1
+       AND status IN ('FAILED', 'SUCCEEDED')`,
+    [hash]
+  );
+}
+
 export async function createRunningRun(params: {
   runId: string;
   snapshotId: string;
@@ -238,20 +293,71 @@ export async function createRunningRun(params: {
   modelVersion: string;
   promptVersion: string;
   splunkQueryVersion: string;
-}): Promise<void> {
+  requestId?: string;
+  modelName?: string;
+}, _context?: unknown): Promise<void> {
   await query(
     `INSERT INTO pipeline_runs (
       run_id, snapshot_id, tenant_id, status, published, idempotency_hash,
-      pipeline_version, model_version, prompt_version, splunk_query_version
-     ) VALUES ($1,$2,$3,'RUNNING',false,$4,$5,$6,$7,$8)`,
-    [params.runId, params.snapshotId, params.tenantId, params.idempotencyHash, params.pipelineVersion, params.modelVersion, params.promptVersion, params.splunkQueryVersion]
+      pipeline_version, model_version, prompt_version, splunk_query_version,
+      request_id, model_name
+     ) VALUES ($1,$2,$3,'RUNNING',false,$4,$5,$6,$7,$8,$9,$10)`,
+    [params.runId, params.snapshotId, params.tenantId, params.idempotencyHash, params.pipelineVersion, params.modelVersion, params.promptVersion, params.splunkQueryVersion, params.requestId || null, params.modelName || null]
   );
 }
 
+export async function setRunHashes(
+  runId: string,
+  hashes: {
+    sourceHash: string;
+    snapshotHash: string;
+    decisionHash: string | null;
+    executionHash: string;
+  }
+): Promise<void> {
+  await query(
+    `UPDATE pipeline_runs
+       SET source_hash = $2,
+           snapshot_hash = $3,
+           decision_hash = $4,
+           execution_hash = $5
+     WHERE run_id = $1`,
+    [runId, hashes.sourceHash, hashes.snapshotHash, hashes.decisionHash, hashes.executionHash]
+  );
+}
+
+export async function getLatestPublishedHashes(tenantId: string): Promise<{
+  runId: string;
+  snapshotHash: string | null;
+  decisionHash: string | null;
+} | null> {
+  const result = await query<{
+    runId: string;
+    snapshotHash: string | null;
+    decisionHash: string | null;
+  }>(
+    `SELECT run_id as "runId",
+            snapshot_hash as "snapshotHash",
+            decision_hash as "decisionHash"
+       FROM pipeline_runs
+      WHERE tenant_id = $1
+        AND published = TRUE
+      ORDER BY published_at DESC NULLS LAST
+      LIMIT 1`,
+    [tenantId]
+  );
+  return result.rows[0] || null;
+}
+
 export async function appendStageEvent(input: StageEventInput): Promise<void> {
+  const metadataRequestId =
+    input.metadata && typeof input.metadata.requestId === 'string'
+      ? input.metadata.requestId
+      : null;
+  const effectiveRequestId = input.requestId || metadataRequestId;
   await query(
     `INSERT INTO pipeline_stage_events (
-     run_id, stage, attempt, status, completed_at, records_processed, metadata_json, error_message
+     run_id, stage, attempt, status, completed_at, records_processed, metadata_json, error_message, request_id
       , error_type, error_code
      ) VALUES (
        $1,
@@ -263,7 +369,8 @@ export async function appendStageEvent(input: StageEventInput): Promise<void> {
        $6::jsonb,
        $7,
        $8,
-       $9
+       $9,
+       $10
      )`,
     [
       input.runId,
@@ -273,8 +380,36 @@ export async function appendStageEvent(input: StageEventInput): Promise<void> {
       input.recordsProcessed || 0,
       input.metadata ? JSON.stringify(input.metadata) : null,
       input.errorMessage || null,
+      effectiveRequestId,
       input.errorType || null,
       input.errorCode || null,
+    ]
+  );
+}
+
+export async function setRunExecutionMetrics(params: {
+  runId: string;
+  modelName?: string | null;
+  latencyMs?: number | null;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
+  batchCount?: number | null;
+}): Promise<void> {
+  await query(
+    `UPDATE pipeline_runs
+       SET model_name = COALESCE($2, model_name),
+           latency_ms = COALESCE($3, latency_ms),
+           tokens_in = COALESCE($4, tokens_in),
+           tokens_out = COALESCE($5, tokens_out),
+           batch_count = COALESCE($6, batch_count)
+     WHERE run_id = $1`,
+    [
+      params.runId,
+      params.modelName ?? null,
+      params.latencyMs ?? null,
+      params.tokensIn ?? null,
+      params.tokensOut ?? null,
+      params.batchCount ?? null,
     ]
   );
 }
@@ -318,7 +453,12 @@ export async function getLatestPublishedRun(tenantId: string): Promise<PipelineR
     `SELECT run_id as "runId", snapshot_id as "snapshotId", tenant_id as "tenantId", status, published,
             started_at as "startedAt", published_at as "publishedAt", superseded_by_run_id as "supersededByRunId",
             pipeline_version as "pipelineVersion", model_version as "modelVersion", prompt_version as "promptVersion",
-            splunk_query_version as "splunkQueryVersion", error_message as "errorMessage"
+            splunk_query_version as "splunkQueryVersion", error_message as "errorMessage",
+            source_hash as "sourceHash", snapshot_hash as "snapshotHash",
+            decision_hash as "decisionHash", execution_hash as "executionHash",
+            request_id as "requestId", model_name as "modelName",
+            latency_ms as "latencyMs", tokens_in as "tokensIn",
+            tokens_out as "tokensOut", batch_count as "batchCount"
      FROM pipeline_runs WHERE run_id = $1`,
     [pointer.rows[0].active_run_id]
   );
@@ -330,7 +470,12 @@ export async function getRunById(runId: string): Promise<PipelineRunRecord | nul
     `SELECT run_id as "runId", snapshot_id as "snapshotId", tenant_id as "tenantId", status, published,
             started_at as "startedAt", published_at as "publishedAt", superseded_by_run_id as "supersededByRunId",
             pipeline_version as "pipelineVersion", model_version as "modelVersion", prompt_version as "promptVersion",
-            splunk_query_version as "splunkQueryVersion", error_message as "errorMessage"
+            splunk_query_version as "splunkQueryVersion", error_message as "errorMessage",
+            source_hash as "sourceHash", snapshot_hash as "snapshotHash",
+            decision_hash as "decisionHash", execution_hash as "executionHash",
+            request_id as "requestId", model_name as "modelName",
+            latency_ms as "latencyMs", tokens_in as "tokensIn",
+            tokens_out as "tokensOut", batch_count as "batchCount"
      FROM pipeline_runs WHERE run_id = $1`,
     [runId]
   );

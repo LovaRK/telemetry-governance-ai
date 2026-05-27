@@ -20,25 +20,25 @@ export async function loginAndGetToken() {
   return token as string;
 }
 
-export async function authGet(path: string, token: string, tenantId?: string) {
+export async function authGet(path: string, token: string, tenantId?: string, userId?: string) {
   return fetch(`${BASE_URL}${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       'x-tenant-id': tenantId || TEST_TENANT_ID,
-      'x-user-id': 'test-user',
+      'x-user-id': userId || 'test-user',
       'x-user-role': 'admin',
     },
   });
 }
 
-export async function authPost(path: string, token: string, body: any, tenantId?: string) {
+export async function authPost(path: string, token: string, body: any, tenantId?: string, userId?: string) {
   return fetch(`${BASE_URL}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
       'x-tenant-id': tenantId || TEST_TENANT_ID,
-      'x-user-id': 'test-user',
+      'x-user-id': userId || 'test-user',
       'x-user-role': 'admin',
     },
     body: JSON.stringify(body),

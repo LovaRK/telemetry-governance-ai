@@ -1,0 +1,16 @@
+{
+  "name": "Cross-Cutting",
+  "description": "Orchestrator routing priority, confidence aggregation, batch idempotency",
+  "entries": [
+    { "input": { "index": "main", "sourcetype": "WinEventLog:Application" }, "expected": { "sourceType": "windows_application", "confidence": "HIGH" } },
+    { "input": { "index": "main", "sourcetype": "WinEventLog:Security" }, "expected": { "sourceType": "windows_security", "confidence": "HIGH" } },
+    { "input": { "index": "main", "sourcetype": "aws:cloudtrail" }, "expected": { "sourceType": "aws_cloudtrail", "confidence": "HIGH" } },
+    { "input": { "index": "main", "sourcetype": "cisco:asa" }, "expected": { "sourceType": "cisco_asa", "confidence": "HIGH" } },
+    { "input": { "index": "main", "sourcetype": "linux_secure" }, "expected": { "sourceType": "linux_secure", "confidence": "HIGH" } },
+    { "input": { "index": "main", "sourcetype": "pan:traffic" }, "expected": { "sourceType": "pan_traffic", "confidence": "HIGH" } },
+    { "input": { "index": "main", "sourcetype": "o365:sharepoint" }, "expected": { "sourceType": "o365_sharepoint", "confidence": "HIGH" } },
+    { "input": { "index": "main", "sourcetype": "azure:audit" }, "expected": { "sourceType": "azure_audit", "confidence": "HIGH" } },
+    { "input": { "index": "main", "sourcetype": "gcp:pubsub" }, "expected": { "sourceType": "gcp_pubsub", "confidence": "HIGH" } },
+    { "input": { "index": "main", "sourcetype": "fortigate" }, "expected": { "sourceType": "fortigate", "confidence": "HIGH" } }
+  ]
+}

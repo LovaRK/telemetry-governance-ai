@@ -47,9 +47,10 @@ export async function getExplainabilityForTenant(tenantId: string): Promise<Expl
       [tenantId, snapshotId]
     ),
     query<any>(
-      `SELECT index_name, tier, daily_avg_gb, cost_per_year
-       FROM telemetry_snapshots
-       WHERE tenant_id = $1 AND snapshot_id = $2`,
+      `SELECT ts.index_name, ad.tier, ts.daily_avg_gb, ts.cost_per_year
+       FROM telemetry_snapshots ts
+       LEFT JOIN agent_decisions ad ON ad.snapshot_id = ts.snapshot_id AND ad.index_name = ts.index_name AND ad.tenant_id = ts.tenant_id
+       WHERE ts.tenant_id = $1 AND ts.snapshot_id = $2`,
       [tenantId, snapshotId]
     ),
   ]);

@@ -38,6 +38,14 @@ describe('Contract: incremental fetch service', () => {
     await seedSnapshot(tenantId, ['main', 'history']);
     const latest = await seedSnapshot(tenantId, ['main', 'history']);
     const since = new Date().toISOString();
+    await query(
+      `UPDATE telemetry_snapshots
+       SET updated_at = NOW() - INTERVAL '5 seconds'
+       WHERE tenant_id::text = $1
+         AND snapshot_id = $2
+         AND index_name IN ('main', 'history')`,
+      [tenantId, latest]
+    );
     await new Promise((r) => setTimeout(r, 20));
     await insertRow(latest, 'tutorial', tenantId);
     const out = await fetchChangedSources({ tenantId, since });

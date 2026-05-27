@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production', // Only secure in production
         sameSite: 'lax',
+        path: '/',
         maxAge: 900, // 15 minutes (same as JWT expiry)
       });
 
@@ -46,6 +47,7 @@ export async function POST(request: NextRequest) {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
+        path: '/',
         maxAge: 604800, // 7 days
       });
 

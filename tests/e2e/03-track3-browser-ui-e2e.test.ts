@@ -68,7 +68,8 @@ test.describe('Track 3: Browser UI/UX Full E2E', () => {
     await login(page, BASE_URL);
 
     await page.goto(`${BASE_URL}/governance?tab=drift`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
     const driftMonitor = page.getByRole('button', { name: /drift monitor/i }).first();
     await expect(driftMonitor).toBeVisible({ timeout: 5000 });
@@ -86,7 +87,8 @@ test.describe('Track 3: Browser UI/UX Full E2E', () => {
     });
 
     await page.goto(`${BASE_URL}/governance?tab=queue`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
     await page.waitForTimeout(500); // Brief delay to ensure API calls have been captured
 
     const queueSection = page.getByRole('button', { name: /reanalysis queue/i }).first();
@@ -100,7 +102,8 @@ test.describe('Track 3: Browser UI/UX Full E2E', () => {
     await login(page, BASE_URL);
 
     await page.goto(`${BASE_URL}/governance?tab=review`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
     const bodyText = await page.textContent('body');
     expect(bodyText).not.toMatch(/useUser must be used within UserProvider|Cannot read properties|TypeError/i);
@@ -135,7 +138,8 @@ test.describe('Track 3: Browser UI/UX Full E2E', () => {
     const tabs = ['overview', 'drift', 'queue', 'review'];
     for (const tab of tabs) {
       await page.goto(`${BASE_URL}/governance?tab=${tab}`);
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
       const pageText = await page.textContent('body');
       expect(pageText).not.toMatch(/DEMO_|mock |synthetic |hardcoded |fake |demo mode/i);

@@ -10,7 +10,10 @@ const DEFAULT_WEIGHTS = { utilization: 0.35, detection: 0.40, quality: 0.25 };
  */
 export const GET = createRoute(async () => {
   const res = await query<any>(
-    `SELECT decision_weights FROM user_config ORDER BY updated_at DESC LIMIT 1`
+    `SELECT decision_weights
+     FROM user_config
+     WHERE config_key = 'default'
+     LIMIT 1`
   );
   const weights = res.rows[0]?.decision_weights || DEFAULT_WEIGHTS;
   return {
@@ -43,12 +46,13 @@ export const POST = createRoute(async (request: NextRequest) => {
     quality:     Math.round(quality     * 1000) / 1000,
   };
 
-  // Upsert into user_config — use a stable primary key row
+  // Upsert into the default config row (config_key has a unique constraint)
   await query(
-    `INSERT INTO user_config (decision_weights, updated_at)
-     VALUES ($1::jsonb, NOW())
-     ON CONFLICT ON CONSTRAINT user_config_singleton
-     DO UPDATE SET decision_weights = $1::jsonb, updated_at = NOW()`,
+    `INSERT INTO user_config (config_key, decision_weights, updated_at)
+     VALUES ('default', $1::jsonb, NOW())
+     ON CONFLICT (config_key)
+     DO UPDATE SET decision_weights = EXCLUDED.decision_weights,
+                   updated_at = NOW()`,
     [JSON.stringify(weights)]
   );
 

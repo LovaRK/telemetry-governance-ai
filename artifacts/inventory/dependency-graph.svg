@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="660">
+<style>text{font-family:Menlo,Monaco,monospace;font-size:14px;fill:#111} .title{font-size:20px;font-weight:700} .box{fill:#f7f7fb;stroke:#c9c9d6;stroke-width:1.2}</style>
+<rect class="box" x="10" y="10" width="1380" height="640" fill="none"/>
+<text class="title" x="20" y="40">Dependency Inventory Summary</text>
+<text x="20" y="70">Modules cruised: 387</text>
+<text x="20" y="92">Dependencies cruised: 467</text>
+<text x="20" y="114">Circular dependencies: 0</text>
+<text x="20" y="146" class="title">Top fan-out modules</text>
+<text x="20" y="176">01. apps/web/app/page.tsx (26 deps)</text>
+<text x="20" y="198">02. apps/api/services/aggregation-service.ts (19 deps)</text>
+<text x="20" y="220">03. packages/core/engine/index.ts (9 deps)</text>
+<text x="20" y="242">04. apps/api/__tests__/security-fixes.integration.test.ts (7 deps)</text>
+<text x="20" y="264">05. apps/web/app/detail/page.tsx (7 deps)</text>
+<text x="20" y="286">06. packages/core/gold/index.ts (6 deps)</text>
+<text x="20" y="308">07. packages/core/normalization/index.ts (6 deps)</text>
+<text x="20" y="330">08. apps/api/agents/__tests__/pipeline.integration.test.ts (5 deps)</text>
+<text x="20" y="352">09. apps/web/app/api/cache/route.ts (5 deps)</text>
+<text x="20" y="374">10. apps/web/lib/services/index.ts (5 deps)</text>
+<text x="20" y="396">11. core/schemas/index.ts (5 deps)</text>
+<text x="20" y="418">12. packages/core/policy/index.ts (5 deps)</text>
+<text x="20" y="440">13. packages/infra/queue/index.ts (5 deps)</text>
+<text x="20" y="462">14. apps/api/services/decision-lineage-service.ts (4 deps)</text>
+<text x="20" y="484">15. apps/api/services/reanalysis-worker-service.ts (4 deps)</text>
+<text x="20" y="506">16. apps/api/validators/trace-failure-modes.test.ts (4 deps)</text>
+<text x="20" y="528">17. apps/web/app/governance/page.tsx (4 deps)</text>
+<text x="20" y="550">18. apps/web/components/DynamicComponents.tsx (4 deps)</text>
+<text x="20" y="572">19. core/guards/pure-executor.wrapper.ts (4 deps)</text>
+<text x="20" y="594">20. core/schemas/validation.ts (4 deps)</text>
+</svg>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { apiFetch } from '../lib/api-client';
 
@@ -11,6 +11,7 @@ interface KPIHistoryPoint {
   storageSavingsPotential: number;
   totalDailyGb: number;
   avgUtilization: number;
+  avgDetection: number;
   avgQuality: number;
   avgConfidence: number;
 }
@@ -34,11 +35,35 @@ export default function KPITrendChart({
   const [data, setData] = useState<KPIHistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
 
   // Keep local period in sync when parent controls days (showPeriodToggle=false path).
   useEffect(() => {
     setDays(initialDays);
   }, [initialDays]);
+
+  // Measure container width for responsive chart sizing
+  useLayoutEffect(() => {
+    if (!containerRef.current) return;
+
+    const measureWidth = () => {
+      const width = containerRef.current?.offsetWidth || 0;
+      console.log(`[${metric}] Width measurement: offsetWidth=${width}, display=${window.getComputedStyle(containerRef.current!).display}`);
+      if (width > 0) {
+        setContainerWidth(width);
+      }
+    };
+
+    // Measure immediately
+    measureWidth();
+
+    // Also set up resize observer for dynamic resizing
+    const resizeObserver = new ResizeObserver(measureWidth);
+    resizeObserver.observe(containerRef.current);
+
+    return () => resizeObserver.disconnect();
+  }, [metric]);
 
   useEffect(() => {
     const loadHistory = async () => {
@@ -111,8 +136,8 @@ export default function KPITrendChart({
         <div style={{ fontSize: '0.65rem', color: '#475569', textAlign: 'center' }}>
           Selected period: last {days} days
         </div>
-        <div style={{ fontSize: '0.65rem', color: '#334155', textAlign: 'center', fontStyle: 'italic' }}>
-          Trend chart available after multiple refreshes
+        <div style={{ fontSize: '0.65rem', color: '#f59e0b', textAlign: 'center', fontWeight: 600 }}>
+          Insufficient history (need at least 2 snapshots)
         </div>
       </div>
     );
@@ -127,10 +152,34 @@ export default function KPITrendChart({
   }
 
   const config = getMetricConfig();
-  const chartData = data.map((point) => ({
-    date: new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    [config.key]: point[config.key as keyof KPIHistoryPoint] as number,
-  }));
+
+  // Deduplicate by date: keep only the first entry per date
+  // (API returns multiple rows per date from test runs; keep only the first valid one)
+  const uniqueByDate = new Map<string, KPIHistoryPoint>();
+  data.forEach((point) => {
+    const dateStr = new Date(point.date).toISOString().split('T')[0];
+    if (!uniqueByDate.has(dateStr)) {
+      uniqueByDate.set(dateStr, point);
+    }
+  });
+
+  const chartData = Array.from(uniqueByDate.values()).map((point) => {
+    // Parse ISO date string directly to avoid timezone shifts
+    const dateStr = point.date.substring(0, 10); // "2026-05-23"
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const localDate = new Date(year, month - 1, day);
+    const displayDate = localDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return {
+      date: displayDate,
+      [config.key]: point[config.key as keyof KPIHistoryPoint] as number,
+    };
+  });
+
+  // DIAGNOSTIC: Log data transformation pipeline
+  console.log(`[${metric}] API→Chart transform: ${data.length}→${uniqueByDate.size}→${chartData.length} | CHARTDATA:${JSON.stringify(chartData)} | yDomain:${JSON.stringify(config.yAxisDomain)} | stroke:${config.color}`);
+
+  // DIAGNOSTIC: Debug chart rendering
+  console.log(`[${metric}] Rendering chart: height=${height}, chartData=${chartData.length} points, dataKey=${config.key}`);
 
   return (
     <div style={{ width: '100%' }}>
@@ -178,42 +227,44 @@ export default function KPITrendChart({
           </div>
         )}
       </div>
-      <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-          <XAxis
-            dataKey="date"
-            tick={{ fill: '#64748b', fontSize: 12 }}
-            stroke="#334155"
-          />
-          <YAxis
-            domain={config.yAxisDomain as any}
-            tick={{ fill: '#64748b', fontSize: 12 }}
-            stroke="#334155"
-          />
-          <Tooltip
-            contentStyle={{
-              background: '#0f172a',
-              border: '1px solid #1e293b',
-              borderRadius: 4,
-            }}
-            labelStyle={{ color: '#cbd5e1' }}
-            formatter={(value: number) => [
-              config.formatter ? config.formatter(value) : value.toFixed(2),
-              config.name,
-            ]}
-          />
-          <Line
-            type="monotone"
-            dataKey={config.key}
-            stroke={config.color}
-            dot={{ fill: config.color, r: 3 }}
-            activeDot={{ r: 5 }}
-            strokeWidth={2}
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+      <div ref={containerRef} style={{ width: '100%', height, background: '#1a1f2e', borderRadius: 4, position: 'relative', border: '1px solid #334155' }}>
+        {(containerWidth > 0 || containerWidth === 0) && (
+          <LineChart width={containerWidth || 500} height={height} data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <XAxis
+              dataKey="date"
+              tick={{ fill: '#64748b', fontSize: 12 }}
+              stroke="#334155"
+            />
+            <YAxis
+              domain={config.yAxisDomain as any}
+              tick={{ fill: '#64748b', fontSize: 12 }}
+              stroke="#334155"
+            />
+            <Tooltip
+              contentStyle={{
+                background: '#0f172a',
+                border: '1px solid #1e293b',
+                borderRadius: 4,
+              }}
+              labelStyle={{ color: '#cbd5e1' }}
+              formatter={(value: number) => [
+                config.formatter ? config.formatter(value) : value.toFixed(2),
+                config.name,
+              ]}
+            />
+            <Line
+              type="monotone"
+              dataKey={config.key}
+              stroke={config.color}
+              dot={{ fill: config.color, r: 4 }}
+              activeDot={{ r: 6 }}
+              strokeWidth={3}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        )}
+      </div>
       <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#64748b', textAlign: 'center' }}>
         Last {days} days
       </div>

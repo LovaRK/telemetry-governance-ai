@@ -1,0 +1,30 @@
+{
+  "name": "Windows Event Log",
+  "description": "WinEventLog:* sourcetypes covering known and unknown channels",
+  "entries": [
+    {
+      "input": { "index": "main", "sourcetype": "WinEventLog:Security" },
+      "expected": { "sourceType": "windows_security", "confidence": "HIGH" }
+    },
+    {
+      "input": { "index": "main", "sourcetype": "WinEventLog:System" },
+      "expected": { "sourceType": "windows_system", "confidence": "HIGH" }
+    },
+    {
+      "input": { "index": "main", "sourcetype": "WinEventLog:Application" },
+      "expected": { "sourceType": "windows_application", "confidence": "HIGH" }
+    },
+    {
+      "input": { "index": "main", "sourcetype": "WinEventLog:Microsoft-Windows-PowerShell/Operational" },
+      "expected": { "sourceType": "windows_microsoft-windows-powershell/operational", "confidence": "LOW" }
+    },
+    {
+      "input": { "index": "main", "sourcetype": "WinEventLog:Microsoft-Windows-Sysmon/Operational" },
+      "expected": { "sourceType": "windows_microsoft-windows-sysmon/operational", "confidence": "LOW" }
+    },
+    {
+      "input": { "index": "main", "sourcetype": "WinEventLog:UnknownCustomChannel" },
+      "expected": { "sourceType": "windows_unknowncustomchannel", "confidence": "LOW" }
+    }
+  ]
+}

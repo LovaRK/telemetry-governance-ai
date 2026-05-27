@@ -49,15 +49,18 @@ export async function requireContext(
   const token = req.headers.get('authorization')?.replace(/^Bearer /, '');
   if (!token) return unauthorized(traceId, 'missing authentication');
 
+  let payload: any;
   try {
-    await verifyTokenEdge(token);
+    payload = await verifyTokenEdge(token);
   } catch {
     return unauthorized(traceId, 'Token expired or invalid');
   }
 
-  const tenantId = req.headers.get('x-tenant-id');
-  const userId = req.headers.get('x-user-id');
-  const role = req.headers.get('x-user-role');
+  // Prefer explicit tenant context headers (used by tests and service calls),
+  // but allow browser API calls to derive context directly from verified JWT claims.
+  const tenantId = req.headers.get('x-tenant-id') || payload?.tenantId || null;
+  const userId = req.headers.get('x-user-id') || payload?.sub || null;
+  const role = req.headers.get('x-user-role') || payload?.role || null;
 
   if (!tenantId || !userId || !role) {
     return unauthorized(traceId, 'Unauthorized - missing tenant context');

@@ -1,0 +1,24 @@
+      section       |          active_snapshot_id          |            active_run_id             |          updated_at           |      published_at      |  status   | pipeline_version 
+--------------------+--------------------------------------+--------------------------------------+-------------------------------+------------------------+-----------+------------------
+ PUBLISHED_SNAPSHOT | 37eef160-cbe1-46bd-a89a-3be1708f1f97 | 1080729b-e4ff-4b76-9e38-8367df29a3fe | 2026-05-25 19:13:51.448969+00 | 2026-05-23 16:00:00+00 | SUCCEEDED | 1.0.0
+(1 row)
+
+ section | roi_score | gainscope_score | total_daily_gb | total_sourcetypes | avg_utilization | avg_detection | avg_quality | avg_confidence | storage_savings_potential | tier_critical | tier_important | tier_nice_to_have | tier_low_value 
+---------+-----------+-----------------+----------------+-------------------+-----------------+---------------+-------------+----------------+---------------------------+---------------+----------------+-------------------+----------------
+ KPI     |     79.41 |           72.03 |        13.2870 |                10 |           75.45 |         81.41 |       87.35 |          83.33 |                 310000.00 |             4 |              5 |                 2 |              4
+(1 row)
+
+      section      |   tier    | cnt | avg_composite 
+-------------------+-----------+-----+---------------
+ DECISIONS_BY_TIER | critical  |   6 |          79.6
+ DECISIONS_BY_TIER | important |   2 |          66.6
+ DECISIONS_BY_TIER | low_value |   2 |          78.2
+(3 rows)
+
+ section |    date    | roi_score | gainscope_score | avg_utilization | avg_quality | avg_confidence 
+---------+------------+-----------+-----------------+-----------------+-------------+----------------
+ TREND   | 2026-05-15 |     65.60 |           55.55 |           64.11 |       80.32 |          77.48
+ TREND   | 2026-05-19 |     74.87 |           65.12 |           69.53 |       83.06 |          81.19
+ TREND   | 2026-05-23 |     79.41 |           72.03 |           75.45 |       87.35 |          83.33
+(3 rows)
+

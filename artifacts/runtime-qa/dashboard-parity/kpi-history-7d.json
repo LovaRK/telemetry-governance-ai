@@ -1,0 +1,36 @@
+{
+  "data": {
+    "mode": "LIVE",
+    "data": [
+      {
+        "date": "2026-05-19T00:00:00.000Z",
+        "roiScore": 74.87,
+        "gainScopeScore": 65.12,
+        "storageSavingsPotential": 325000,
+        "totalDailyGb": 12.9,
+        "avgUtilization": 69.53,
+        "avgQuality": 83.06,
+        "avgConfidence": 81.19
+      },
+      {
+        "date": "2026-05-23T00:00:00.000Z",
+        "roiScore": 79.41,
+        "gainScopeScore": 72.03,
+        "storageSavingsPotential": 310000,
+        "totalDailyGb": 13.287,
+        "avgUtilization": 75.45,
+        "avgQuality": 87.35,
+        "avgConfidence": 83.33
+      }
+    ],
+    "days": 7,
+    "points": 2,
+    "insufficientHistory": false
+  },
+  "meta": {
+    "source": "postgres",
+    "tenantId": "e84f31d3-d285-46a1-a0d0-2f64698cd0df",
+    "mode": "live",
+    "traceId": "c8e1c480-d68b-487b-8065-73c9d1da33b2"
+  }
+}

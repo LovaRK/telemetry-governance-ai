@@ -1,0 +1,116 @@
+# Unused Exports
+
+Total candidates: 112
+
+- core/adapters/adapter-registry.ts:48 - getAdapter
+- core/adapters/adapter-registry.ts:100 - registerAdapter
+- core/adapters/adapter-registry.ts:19 - AdapterResult (used in module)
+- core/adapters/adapter-registry.ts:26 - ExternalAdapter (used in module)
+- core/config/cost.ts:16 - calculateAnnualCost
+- core/config/cost.ts:20 - calculateSavings
+- core/config/cost.ts:6 - CostConfig (used in module)
+- core/config/cost.ts:11 - DEFAULT_COST_CONFIG
+- core/config/weights.ts:20 - validateWeights
+- core/config/weights.ts:6 - ValueWeights (used in module)
+- core/config/weights.ts:13 - DEFAULT_VALUE_WEIGHTS (used in module)
+- core/config/weights.ts:25 - ScoringConfig (used in module)
+- core/config/weights.ts:35 - DEFAULT_SCORING_CONFIG
+- core/database/connection.ts:61 - getClient
+- core/database/connection.ts:69 - transaction
+- core/database/connection.ts:90 - healthCheck
+- core/database/connection.ts:99 - pool (used in module)
+- core/database/pipeline-events.ts:254 - emitPipelineEventBatch
+- core/database/pipeline-events.ts:334 - getRecentEventsByTaxonomy
+- core/database/pipeline-events.ts:35 - PipelineStage (used in module)
+- core/database/pipeline-events.ts:76 - PipelineExecution (used in module)
+- core/events/emit-pure-event.ts:39 - setEmitFn
+- core/events/emit-pure-event.ts:50 - emitPureEvent
+- core/events/emit-pure-event.ts:23 - PureEvent (used in module)
+- core/governance/policy-engine-events.ts:104 - executePolicyEvaluation
+- core/governance/policy-engine-events.ts:308 - approveOperatorDecision
+- core/governance/policy-engine-events.ts:386 - describeGovernanceDomain
+- core/governance/policy-engine-events.ts:28 - GovernanceDomain (used in module)
+- core/governance/policy-engine-events.ts:30 - RiskLevel (used in module)
+- core/governance/policy-engine-events.ts:32 - ActionType (used in module)
+- core/governance/policy-engine-events.ts:34 - PolicyEvaluationInput (used in module)
+- core/governance/policy-engine-events.ts:54 - PolicyEvaluationResult (used in module)
+- core/guards/adapter-purity.guard.ts:30 - withAdapterPurity (used in module)
+- core/guards/adapter-purity.guard.ts:82 - wrapAdapterResult
+- core/guards/adapter-purity.guard.ts:105 - getPurityMeta
+- core/guards/adapter-purity.guard.ts:14 - AdapterSource (used in module)
+- core/guards/executor-purity.guard.ts:37 - wrapExecutionResult (used in module)
+- core/guards/executor-purity.guard.ts:17 - PureExecutionResult (used in module)
+- core/guards/next-trace-context.ts:26 - withNextTraceContext
+- core/guards/next-trace-context.ts:42 - getTraceId (used in module)
+- core/guards/pure-executor.wrapper.ts:29 - pureExecutor
+- core/guards/pure-executor.wrapper.ts:78 - PureExecutionResultType
+- core/guards/trace-context.ts:47 - initTraceFromRequest
+- core/pipeline/index.ts:25 - runPipelineFromCache
+- core/pipeline/index.ts:4 - PipelineResult (used in module)
+- core/schemas/index.ts:3 - RecommendationSchema
+- core/schemas/index.ts:9 - ScoringBreakdownSchema
+- core/schemas/index.ts:18 - TelemetryAssetSchema
+- core/schemas/index.ts:34 - TelemetryAsset
+- core/schemas/index.ts:35 - Recommendation
+- core/schemas/index.ts:3 - ConfidenceSchema
+- core/schemas/index.ts:8 - InsightSchema
+- core/schemas/index.ts:18 - Insight
+- core/schemas/index.ts:19 - Confidence
+- core/schemas/index.ts:3 - ConnectionStateSchema
+- core/schemas/index.ts:5 - ConnectionOutputSchema
+- core/schemas/index.ts:18 - ConnectionOutput
+- core/schemas/index.ts:3 - TimelineEventSchema
+- core/schemas/index.ts:10 - PipelineResultSchema
+- core/schemas/index.ts:22 - TimelineEvent
+- core/schemas/index.ts:23 - PipelineResult
+- core/schemas/index.ts:7 - validateTelemetryAsset
+- core/schemas/index.ts:11 - validateInsight
+- core/schemas/index.ts:15 - validateConnectionOutput
+- core/schemas/index.ts:19 - validatePipelineResult
+- core/schemas/index.ts:23 - safeValidate
+- core/traceability/index.ts:1 - DecisionTraceCollector
+- core/traceability/index.ts:1 - globalTraceCollector
+- core/traceability/index.ts:2 - ConfidenceEngine
+- core/traceability/index.ts:3 - EvidenceCollector
+- core/traceability/index.ts:1 - DecisionTrace
+- core/traceability/index.ts:14 - ConfidenceInput
+- core/traceability/index.ts:21 - PipelineTrace
+- core/traceability/index.ts:27 - STAGE_ORDER
+- core/traceability/index.ts:37 - STAGE_LABELS
+- core/workers/worker-trace-wrapper.ts:28 - withWorkerTrace
+- core/workflow/executor.ts:3 - mapDecisionToActions
+- agents/composition/agent.ts:4 - runCompositionAgent
+- agents/connection/agent.ts:4 - runConnectionAgent
+- agents/context/agent.ts:3 - runContextAgent
+- agents/discovery/agent.ts:4 - runDiscoveryAgent
+- agents/prioritization/types.ts:3 - PrioritizationInput
+- agents/reasoning/agent.ts:27 - runReasoningAgent
+- agents/reasoning/llm-router.ts:4 - LLMProvider (used in module)
+- agents/reasoning/llm-router.ts:12 - LLMRouter
+- agents/reasoning/types.ts:7 - Confidence (used in module)
+- agents/ui-spec/agent.ts:3 - runUISpecAgent
+- agents/value/types.ts:3 - ValueAgentInput
+- agents/value/types.ts:20 - ValueAgentOutput
+- agents/value/types.ts:26 - ScoringInputs
+- tools/mcp/tools.ts:3 - mcpTools
+- packages/auth/auth-edge.ts:21 - extractBearerToken
+- packages/auth/auth-edge.ts:7 - JWTPayload (used in module)
+- packages/auth/request-context.ts:44 - requireContext
+- packages/auth/request-context.ts:88 - requireSSEContext
+- packages/core/workflow/executor.ts:167 - executeAction (used in module)
+- packages/core/workflow/executor.ts:221 - executeDecision
+- packages/core/policy/types.ts:7 - RuleSeverity (used in module)
+- packages/core/policy/types.ts:8 - RuleOperator (used in module)
+- packages/core/policy/types.ts:13 - ScoredInput (used in module)
+- packages/core/policy/types.ts:27 - AgentRecommendation
+- packages/core/policy/types.ts:38 - RuleCondition (used in module)
+- packages/core/policy/types.ts:48 - PolicyRule (used in module)
+- packages/core/policy/types.ts:62 - Guardrail (used in module)
+- packages/core/policy/types.ts:74 - PolicyConfig
+- packages/core/policy/types.ts:85 - PolicyViolation (used in module)
+- packages/core/policy/types.ts:95 - PolicyValidationResult
+- apps/api/repositories/telemetry-repository.ts:88 - getSnapshotById
+- apps/api/repositories/telemetry-repository.ts:96 - getSnapshotCount
+- apps/api/repositories/telemetry-repository.ts:146 - getValueWasteMatrix
+- apps/api/repositories/telemetry-repository.ts:3 - TelemetrySnapshot (used in module)
+- apps/api/repositories/telemetry-repository.ts:23 - TelemetryFilters (used in module)

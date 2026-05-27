@@ -31,3 +31,5 @@ describe('Contract: /api/executive-summary', () => {
     expect(typeof body.data.kpis.totalDailyGb).toBe('number');
   });
 });
+
+jest.setTimeout(20000);

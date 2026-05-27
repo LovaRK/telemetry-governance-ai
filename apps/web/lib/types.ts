@@ -113,6 +113,8 @@ export interface ExecutiveSummary {
   savingsStaircase: SavingsStep[];
   agentReasoning: string;
   snapshotDate: string;
+  snapshotId?: string;
+  runId?: string;
   snapshots: SnapshotRow[];
   decisions: AgentDecision[];
 }
@@ -185,4 +187,41 @@ export interface KPIExplainabilityRecord {
   sourceOrigin?: string;
   variance?: string;
   displayLabel?: string;
+}
+
+export type SnapshotStatus = 'NOT_READY' | 'READY' | 'FAILED';
+
+export type LLMStatus =
+  | 'NOT_STARTED'
+  | 'RUNNING'
+  | 'READY'
+  | 'FAILED'
+  | 'FAILED_TIMEOUT';
+
+export type PipelineStatus = 'PENDING' | 'PARTIAL' | 'READY' | 'FAILED';
+
+export interface PipelineLifecycleState {
+  requestId: string;
+  runId: string;
+  tenantId: string;
+  snapshotStatus: SnapshotStatus;
+  llmStatus: LLMStatus;
+  pipelineStatus: PipelineStatus;
+  failureCode?:
+    | 'MISSING_DECISIONS'
+    | 'TIMEOUT'
+    | 'RUNTIME'
+    | 'FAILED_MODEL_UNAVAILABLE'
+    | 'FAILED_MODEL_TIMEOUT'
+    | 'FAILED_MODEL_REFUSED'
+    | 'FAILED_MODEL_CONTEXT'
+    | 'FAILED_MODEL_CRASH'
+    | null;
+  failureReason?: string | null;
+  runId?: string;
+  updatedAt?: string;
+  lastRunAt?: string | null;
+  lastDecisionAt?: string | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
 }

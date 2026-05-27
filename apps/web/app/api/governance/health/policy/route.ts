@@ -49,7 +49,7 @@ export const GET = createRoute(async (req: NextRequest) => {
     `SELECT COUNT(*)::text AS count
      FROM pipeline_events
      WHERE event_type = 'policy_evaluated'
-       AND trace_id IS NULL`
+       AND COALESCE(payload->>'traceId', payload->>'trace_id', '') = ''`
   );
   const untracedPolicyEvents = parseInt(untracedResult.rows[0]?.count || '0');
 
@@ -58,7 +58,7 @@ export const GET = createRoute(async (req: NextRequest) => {
     `SELECT COUNT(*)::text AS count
      FROM pipeline_events
      WHERE event_type = 'policy_evaluated'
-       AND (mode IS NULL OR mode <> 'live')`
+       AND COALESCE(payload->>'mode', 'live') <> 'live'`
   );
   const nonLivePolicyEvents = parseInt(nonLiveResult.rows[0]?.count || '0');
 
@@ -67,7 +67,7 @@ export const GET = createRoute(async (req: NextRequest) => {
     `SELECT COUNT(*)::text AS count
      FROM pipeline_events
      WHERE event_type = 'policy_evaluated'
-       AND source IS NULL`
+       AND COALESCE(payload->>'source', payload->>'source_origin', actor, '') = ''`
   );
   const unattributedPolicyEvents = parseInt(
     unattributedResult.rows[0]?.count || '0'

@@ -8,6 +8,7 @@ const pool = new Pool({
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
+  allowExitOnIdle: true,
 });
 
 pool.on('error', (err) => {
@@ -18,10 +19,13 @@ pool.on('error', (err) => {
 // set_config() accepts parameterized values ($1) — this is the correct way to
 // write a session variable in PostgreSQL. The alternative (using the SET command)
 // rejects parameterized syntax and causes a runtime error.
-// Third argument (true) = transaction-local: resets when the transaction ends.
+// Third argument (false) = session-scoped for this checked-out client.
+// We use a dedicated client per contextual query and release immediately after,
+// so session scope is isolated to the request and reliably available to
+// subsequent statements on that client.
 async function setTenantContext(client: PoolClient, tenantId: string): Promise<void> {
   await client.query(
-    `SELECT set_config('app.current_tenant', $1, true)`,
+    `SELECT set_config('app.current_tenant', $1, false)`,
     [tenantId]
   );
 }

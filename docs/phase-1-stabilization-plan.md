@@ -1,5 +1,7 @@
 # Phase 1 Stabilization + Trust — Execution Checklist
 
+> **NOTE:** This 7-commit A–G plan has been **superseded** by a single-run end-to-end execution plan that completed all steps to `v1.2-trust-stable` freeze in one session. See `AGENT_HANDOVER.md` for the current execution record. This document is preserved as an architectural reference.
+
 Baseline: `v1.1-runtime-stable` (commit `058252b`)  
 Branch: `feature/data-purity-phase-2c-1`  
 Discipline: each commit is backend-only, frontend-only, or runtime-only — never mixed.
@@ -317,12 +319,11 @@ All reverts are safe — each commit is self-contained with no shared mutable st
 
 ---
 
-## Entry Criteria
+## Entry Criteria (Met — freeze `v1.2-trust-stable` complete)
 
-Before Commit A:
-- [ ] Branch: `feature/data-purity-phase-2c-1`
-- [ ] Baseline: `v1.1-runtime-stable`
-- [ ] Contracts: 227/227 PASS
-- [ ] E2E: 55/55 PASS
-- [ ] Typecheck: clean
-- [ ] Docker: both containers healthy
+- [x] Branch: `main` (was `feature/data-purity-phase-2c-1`)
+- [x] Baseline: `v1.2-trust-stable` (commit `b2dc489`)
+- [x] Contracts: 197/197 PASS (23 suites — some suites merged/removed since v1.1)
+- [x] E2E: 55/55 PASS
+- [x] Typecheck: clean
+- [x] Docker: both containers healthy

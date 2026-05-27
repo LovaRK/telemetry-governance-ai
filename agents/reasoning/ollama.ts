@@ -32,7 +32,7 @@ export class OllamaClient {
     this.baseUrl = baseUrl;
   }
 
-  async generate(prompt: string, opts?: { json?: boolean; temperature?: number; maxTokens?: number }): Promise<string> {
+  async generate(prompt: string, opts?: { json?: boolean; temperature?: number; maxTokens?: number; signal?: AbortSignal }): Promise<string> {
     const body: OllamaGenerateRequest = {
       model: MODEL,
       prompt,
@@ -41,21 +41,33 @@ export class OllamaClient {
       options: {
         temperature: opts?.temperature ?? 0.1,
         top_p: 0.9,
-        num_predict: opts?.maxTokens ?? 4096,
+        num_predict: opts?.maxTokens ?? 1200,
         num_ctx: 4096,
       },
     };
 
     const controller = new AbortController();
-    const timeoutMs = parseInt(process.env.OLLAMA_REQUEST_TIMEOUT_MS || '45000', 10);
+    const timeoutMs = parseInt(process.env.OLLAMA_REQUEST_TIMEOUT_MS || '180000', 10);
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let signal = controller.signal;
+    let removeExternalAbortListener: (() => void) | null = null;
+    if (opts?.signal) {
+      if (opts.signal.aborted) {
+        controller.abort();
+      } else {
+        const onExternalAbort = () => controller.abort();
+        opts.signal.addEventListener('abort', onExternalAbort, { once: true });
+        removeExternalAbortListener = () => opts.signal?.removeEventListener('abort', onExternalAbort);
+      }
+      signal = controller.signal;
+    }
 
     try {
       const res = await fetch(`${this.baseUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: controller.signal,
+        signal,
       });
 
       if (!res.ok) {
@@ -65,8 +77,14 @@ export class OllamaClient {
 
       const data = (await res.json()) as OllamaGenerateResponse;
       return data.response?.trim() || '';
+    } catch (err) {
+      if ((err as any)?.name === 'AbortError') {
+        throw new Error(`Ollama request aborted (timeout=${timeoutMs}ms)`);
+      }
+      throw err;
     } finally {
       clearTimeout(timeout);
+      if (removeExternalAbortListener) removeExternalAbortListener();
     }
   }
 

@@ -1,0 +1,22 @@
+=== Phase Start Baseline Verification ===
+Timestamp: 2026-05-23
+
+--- git status ---
+Branch: main
+Modified files (unstaged): apps/web/app/api/auth/login/route.ts, apps/web/app/api/cache/route.ts, apps/web/app/api/settings/explainability/route.ts, apps/web/app/page.tsx, apps/web/components/dashboard/ExecutiveOverview.tsx, apps/web/components/layout/TopAppBar.tsx, apps/web/lib/use-governance-stream.ts, apps/web/tsconfig.tsbuildinfo, artifacts/PRODUCTION_CERTIFICATION_REPORT.md, artifacts/after_login.png, artifacts/dom-audit.json, artifacts/network.har, artifacts/ui-metrics-audit.json, playwright-report/index.html, tests/contract/_helpers.ts, tests/contract/benchmark-incremental.contract.test.ts, tests/contract/chart-toggle.contract.test.ts, tests/contract/executive-summary.contract.test.ts, tests/contract/incremental-fetch.contract.test.ts, tests/contract/provider.contract.test.ts
+
+--- git tags ---
+pre-v1.1-runtime-stable, v0.9-trust-baseline, v1.0-incremental-baseline, v1.0-refactor-plan, v1.1-runtime-stable
+
+--- GATES ---
+1. tsc --noEmit: PASS (exit 0)
+2. test:contract: FAIL (1/23 suites failed, 1/197 tests failed)
+   - tests/contract/truth-agent-resilience.contract.test.ts: timeout 5000ms (default Jest timeout)
+   - Classification: test infrastructure issue - default 5s timeout insufficient for 30s assertion bound
+   - Fix: added 30000ms timeout param
+3. test:e2e: INCOMPLETE (timed out at 300s, ~32/55 tests passed)
+   - Classification: Playwright networkidle hangs on persistent SSE streams (governance-stream, job-stream)
+   - Fix needed: adjust wait strategy in SSE-heavy tests
+
+--- Action ---
+Fix both issues, re-run gates, then continue with plan.

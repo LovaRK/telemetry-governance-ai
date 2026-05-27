@@ -27,56 +27,136 @@ ALTER TABLE cache_metadata ENABLE ROW LEVEL SECURITY;
 -- Queries must include: SET app.current_tenant = '<tenant_uuid>'
 -- This is set by the application at request time via SQL session variable.
 
-CREATE POLICY telemetry_snapshots_tenant_policy
-ON telemetry_snapshots
-USING (tenant_id::text = current_setting('app.current_tenant', true))
-WITH CHECK (tenant_id::text = current_setting('app.current_tenant', true));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'telemetry_snapshots'
+      AND policyname = 'telemetry_snapshots_tenant_policy'
+  ) THEN
+    CREATE POLICY telemetry_snapshots_tenant_policy
+    ON telemetry_snapshots
+    USING (tenant_id::text = current_setting('app.current_tenant', true))
+    WITH CHECK (tenant_id::text = current_setting('app.current_tenant', true));
+  END IF;
+END $$;
 
-CREATE POLICY agent_decisions_tenant_policy
-ON agent_decisions
-USING (tenant_id::text = current_setting('app.current_tenant', true))
-WITH CHECK (tenant_id::text = current_setting('app.current_tenant', true));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'agent_decisions'
+      AND policyname = 'agent_decisions_tenant_policy'
+  ) THEN
+    CREATE POLICY agent_decisions_tenant_policy
+    ON agent_decisions
+    USING (tenant_id::text = current_setting('app.current_tenant', true))
+    WITH CHECK (tenant_id::text = current_setting('app.current_tenant', true));
+  END IF;
+END $$;
 
-CREATE POLICY executive_kpis_tenant_policy
-ON executive_kpis
-USING (tenant_id::text = current_setting('app.current_tenant', true))
-WITH CHECK (tenant_id::text = current_setting('app.current_tenant', true));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'executive_kpis'
+      AND policyname = 'executive_kpis_tenant_policy'
+  ) THEN
+    CREATE POLICY executive_kpis_tenant_policy
+    ON executive_kpis
+    USING (tenant_id::text = current_setting('app.current_tenant', true))
+    WITH CHECK (tenant_id::text = current_setting('app.current_tenant', true));
+  END IF;
+END $$;
 
-CREATE POLICY pipeline_runs_tenant_policy
-ON pipeline_runs
-USING (tenant_id::text = current_setting('app.current_tenant', true))
-WITH CHECK (tenant_id::text = current_setting('app.current_tenant', true));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'pipeline_runs'
+      AND policyname = 'pipeline_runs_tenant_policy'
+  ) THEN
+    CREATE POLICY pipeline_runs_tenant_policy
+    ON pipeline_runs
+    USING (tenant_id::text = current_setting('app.current_tenant', true))
+    WITH CHECK (tenant_id::text = current_setting('app.current_tenant', true));
+  END IF;
+END $$;
 
-CREATE POLICY pipeline_stage_events_tenant_policy
-ON pipeline_stage_events
-USING (EXISTS (
-  SELECT 1 FROM pipeline_runs
-  WHERE pipeline_runs.run_id = pipeline_stage_events.run_id
-  AND pipeline_runs.tenant_id::text = current_setting('app.current_tenant', true)
-))
-WITH CHECK (EXISTS (
-  SELECT 1 FROM pipeline_runs
-  WHERE pipeline_runs.run_id = pipeline_stage_events.run_id
-  AND pipeline_runs.tenant_id::text = current_setting('app.current_tenant', true)
-));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'pipeline_stage_events'
+      AND policyname = 'pipeline_stage_events_tenant_policy'
+  ) THEN
+    CREATE POLICY pipeline_stage_events_tenant_policy
+    ON pipeline_stage_events
+    USING (EXISTS (
+      SELECT 1 FROM pipeline_runs
+      WHERE pipeline_runs.run_id = pipeline_stage_events.run_id
+      AND pipeline_runs.tenant_id::text = current_setting('app.current_tenant', true)
+    ))
+    WITH CHECK (EXISTS (
+      SELECT 1 FROM pipeline_runs
+      WHERE pipeline_runs.run_id = pipeline_stage_events.run_id
+      AND pipeline_runs.tenant_id::text = current_setting('app.current_tenant', true)
+    ));
+  END IF;
+END $$;
 
-CREATE POLICY tenant_snapshot_pointer_tenant_policy
-ON tenant_snapshot_pointer
-USING (tenant_id::text = current_setting('app.current_tenant', true))
-WITH CHECK (tenant_id::text = current_setting('app.current_tenant', true));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'tenant_snapshot_pointer'
+      AND policyname = 'tenant_snapshot_pointer_tenant_policy'
+  ) THEN
+    CREATE POLICY tenant_snapshot_pointer_tenant_policy
+    ON tenant_snapshot_pointer
+    USING (tenant_id::text = current_setting('app.current_tenant', true))
+    WITH CHECK (tenant_id::text = current_setting('app.current_tenant', true));
+  END IF;
+END $$;
 
-CREATE POLICY job_queue_tenant_policy
-ON job_queue
-USING (
-  payload->>'tenantId' = current_setting('app.current_tenant', true)
-)
-WITH CHECK (
-  payload->>'tenantId' = current_setting('app.current_tenant', true)
-);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'job_queue'
+      AND policyname = 'job_queue_tenant_policy'
+  ) THEN
+    CREATE POLICY job_queue_tenant_policy
+    ON job_queue
+    USING (
+      payload->>'tenantId' = current_setting('app.current_tenant', true)
+    )
+    WITH CHECK (
+      payload->>'tenantId' = current_setting('app.current_tenant', true)
+    );
+  END IF;
+END $$;
 
-CREATE POLICY cache_metadata_tenant_policy
-ON cache_metadata
-USING (true);  -- Cache metadata is non-sensitive and shared
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'cache_metadata'
+      AND policyname = 'cache_metadata_tenant_policy'
+  ) THEN
+    CREATE POLICY cache_metadata_tenant_policy
+    ON cache_metadata
+    USING (true);  -- Cache metadata is non-sensitive and shared
+  END IF;
+END $$;
 
 -- =============================================================================
 -- 3. Integration pattern (APPLICATION SIDE)

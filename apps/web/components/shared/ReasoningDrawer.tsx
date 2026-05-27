@@ -16,6 +16,9 @@ export interface ReasoningDrawerProps {
   action?: string;                     // KEEP, OPTIMIZE, ARCHIVE, etc.
   candidateReason?: string[];          // Why this was selected for LLM processing
   rawData?: Record<string, unknown>;   // Raw numbers LLM saw
+  snapshotId?: string;
+  runId?: string;
+  computedAt?: string;
 }
 
 export default function ReasoningDrawer({
@@ -32,6 +35,9 @@ export default function ReasoningDrawer({
   action,
   candidateReason = [],
   rawData,
+  snapshotId,
+  runId,
+  computedAt,
 }: ReasoningDrawerProps) {
   // Close on Escape key
   useEffect(() => {
@@ -194,6 +200,35 @@ export default function ReasoningDrawer({
               {howCalculated}
             </div>
           </div>
+
+          {/* Execution Context */}
+          {(snapshotId || runId || computedAt) && (
+            <div style={{ marginBottom: '2rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Execution Context
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', padding: '0.75rem', background: '#1e293b', borderRadius: 8, border: '1px solid #334155' }}>
+                {snapshotId && (
+                  <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                    <span style={{ color: '#64748b', fontWeight: 600 }}>Snapshot: </span>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{snapshotId}</span>
+                  </div>
+                )}
+                {runId && (
+                  <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                    <span style={{ color: '#64748b', fontWeight: 600 }}>Run ID: </span>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{runId}</span>
+                  </div>
+                )}
+                {computedAt && (
+                  <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                    <span style={{ color: '#64748b', fontWeight: 600 }}>Computed: </span>
+                    {new Date(computedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Confidence */}
           {confidence !== undefined && (

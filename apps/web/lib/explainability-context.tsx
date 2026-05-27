@@ -17,6 +17,15 @@ export function ExplainabilityProvider({ children }: { children: React.ReactNode
 
   useEffect(() => {
     let alive = true;
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    if (!token) {
+      setLoading(false);
+      return () => {
+        alive = false;
+      };
+    }
+
     (async () => {
       try {
         const res = await apiFetch('/api/settings/explainability');
@@ -36,17 +45,22 @@ export function ExplainabilityProvider({ children }: { children: React.ReactNode
   }, []);
 
   const setEnabled = useCallback(async (next: boolean) => {
+    const prev = enabled;
     setEnabledState(next);
     try {
-      await apiFetch('/api/settings/explainability', {
+      const res = await apiFetch('/api/settings/explainability', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ explainabilityMode: next }),
       });
+      if (!res.ok) {
+        setEnabledState(prev);
+      }
     } catch {
-      // optimistic UI: do not throw
+      // Keep UX stable: rollback optimistic update if persistence fails.
+      setEnabledState(prev);
     }
-  }, []);
+  }, [enabled]);
 
   const value = useMemo(() => ({ enabled, loading, setEnabled }), [enabled, loading, setEnabled]);
 

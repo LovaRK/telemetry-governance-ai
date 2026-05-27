@@ -3,23 +3,24 @@ import { authGet, authPost, loginAndGetToken } from './_helpers';
 describe('Contract: ExplainabilityProvider persistence API', () => {
   test('toggle -> persist -> reload returns same explainability state', async () => {
     const token = await loginAndGetToken();
+    const userId = 'provider-contract-user';
 
-    const currentRes = await authGet('/api/settings/explainability', token);
+    const currentRes = await authGet('/api/settings/explainability', token, undefined, userId);
     expect(currentRes.status).toBe(200);
     const currentBody = await currentRes.json() as any;
     const initial = Boolean(currentBody?.data?.explainabilityMode ?? false);
 
     const next = !initial;
-    const setRes = await authPost('/api/settings/explainability', token, { explainabilityMode: next });
+    const setRes = await authPost('/api/settings/explainability', token, { explainabilityMode: next }, undefined, userId);
     expect(setRes.status).toBe(200);
 
-    const verifyRes = await authGet('/api/settings/explainability', token);
+    const verifyRes = await authGet('/api/settings/explainability', token, undefined, userId);
     expect(verifyRes.status).toBe(200);
     const verifyBody = await verifyRes.json() as any;
     expect(Boolean(verifyBody?.data?.explainabilityMode)).toBe(next);
 
     // Restore original state to avoid polluting later tests
-    const restoreRes = await authPost('/api/settings/explainability', token, { explainabilityMode: initial });
+    const restoreRes = await authPost('/api/settings/explainability', token, { explainabilityMode: initial }, undefined, userId);
     expect(restoreRes.status).toBe(200);
   });
 });

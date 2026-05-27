@@ -33,7 +33,7 @@ export const GET = createStreamRoute(async (request: NextRequest) => {
         try {
           const job = jobId
             ? await getJobStatus(jobId)
-            : await getLatestJob();
+            : await getLatestJob(undefined, context);
 
           if (!job) {
             send({
@@ -128,7 +128,7 @@ export const POST = createRoute(async (request: NextRequest) => {
     console.log('[POST /api/job-stream] Job enqueued:', jobId);
 
     return {
-      data: { runId: jobId },
+      data: { jobId },
       meta: { source: 'system' },
     };
   } catch (err) {

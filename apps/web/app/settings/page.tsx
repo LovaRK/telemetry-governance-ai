@@ -203,9 +203,26 @@ function SettingsPageContent() {
     <div style={{ minHeight: '100vh', background: '#0f172a', padding: '2rem' }}>
       <div style={{ maxWidth: '800px', margin: '0 auto' }}>
         {/* Header */}
-        <div style={{ marginBottom: '2rem' }}>
-          <h1 style={{ color: '#f8fafc', margin: 0 }}>Settings</h1>
-          <p style={{ color: '#64748b', margin: '0.5rem 0 0 0' }}>Configure your Splunk connection</p>
+        <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem' }}>
+          <div>
+            <h1 style={{ color: '#f8fafc', margin: 0 }}>Settings</h1>
+            <p style={{ color: '#64748b', margin: '0.5rem 0 0 0' }}>Configure your Splunk connection</p>
+          </div>
+          <button
+            onClick={() => router.push('/')}
+            style={{
+              padding: '0.55rem 0.9rem',
+              border: '1px solid #334155',
+              borderRadius: 6,
+              background: '#111827',
+              color: '#e2e8f0',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              fontWeight: 600,
+            }}
+          >
+            ← Back to Dashboard
+          </button>
         </div>
 
         {/* Tabs */}

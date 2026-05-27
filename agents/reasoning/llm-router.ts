@@ -7,6 +7,7 @@ interface LLMRouterOpts {
   temperature?: number;
   maxTokens?: number;
   json?: boolean;
+  signal?: AbortSignal;
 }
 
 export class LLMRouter {

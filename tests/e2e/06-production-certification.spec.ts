@@ -62,7 +62,8 @@ test.describe('Production Certification Suite', () => {
 
   test('Page: /governance loads without errors', async ({ page }) => {
     await page.goto(`${BASE_URL}/governance`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
     // Verify page loaded
     await expect(page.getByRole('heading', { name: /governance/i }).first()).toBeVisible();
@@ -89,7 +90,8 @@ test.describe('Production Certification Suite', () => {
 
   test('Page: /governance tabs render without errors', async ({ page }) => {
     await page.goto(`${BASE_URL}/governance`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
     const tabs = ['overview', 'drift', 'queue', 'review'];
 
@@ -98,7 +100,8 @@ test.describe('Production Certification Suite', () => {
       pageErrors = [];
 
       await page.goto(`${BASE_URL}/governance?tab=${tab}`);
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
       // Check for errors
       const criticalErrors = consoleErrors.filter(
@@ -114,7 +117,8 @@ test.describe('Production Certification Suite', () => {
 
   test('Trust Layer Status API returns DB-backed data', async ({ page }) => {
     await page.goto(`${BASE_URL}/governance?tab=overview`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
     // Find the trust status response
     const trustResponse = apiResponses.find(
@@ -136,7 +140,8 @@ test.describe('Production Certification Suite', () => {
 
   test('Decision History uses DB-backed API, not stub', async ({ page }) => {
     await page.goto(`${BASE_URL}/governance?tab=review`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
     const response = await page.evaluate(async () => {
       const res = await fetch('/api/decision-history', {
@@ -160,7 +165,8 @@ test.describe('Production Certification Suite', () => {
 
   test('Queue Health metrics populated and visible', async ({ page }) => {
     await page.goto(`${BASE_URL}/governance?tab=queue`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
     // Check for queue health API call
     const queueHealthCall = apiResponses.find(
@@ -214,7 +220,8 @@ test.describe('Production Certification Suite', () => {
       apiResponses = [];
 
       await page.goto(`${BASE_URL}${route}`);
-      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
       const serverErrors = failedRequests.filter((req) => req.status >= 500);
       expect(
@@ -234,7 +241,8 @@ test.describe('Production Certification Suite', () => {
 
     for (const route of routesToCheck) {
       await page.goto(`${BASE_URL}${route}`);
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
       const bodyText = await page.textContent('body');
       const hasBlacklistedText = bodyText?.match(
@@ -250,7 +258,8 @@ test.describe('Production Certification Suite', () => {
 
   test('Decision Lineage endpoint returns valid DB response', async ({ page }) => {
     await page.goto(`${BASE_URL}/governance?tab=review`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
     const result = await page.evaluate(async () => {
       const res = await fetch('/api/decision-lineage?limit=1');
@@ -309,7 +318,8 @@ test.describe('Production Certification Suite', () => {
 
     for (const route of routes) {
       await page.goto(`${BASE_URL}${route}`);
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
       const bodyText = await page.textContent('body');
 
@@ -329,7 +339,8 @@ test.describe('Production Certification Suite', () => {
 
   test('Summary: API endpoints all healthy', async ({ page }) => {
     await page.goto(`${BASE_URL}/governance`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(3000);
 
     // Filter to actual API endpoints (not static assets)
     const apiEndpoints = apiResponses.filter(

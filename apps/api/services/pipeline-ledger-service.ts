@@ -30,6 +30,7 @@ export interface StageEventInput {
   recordsProcessed?: number;
   metadata?: Record<string, unknown>;
   errorMessage?: string | null;
+  requestId?: string | null;
 }
 
 export async function ensurePipelineLedgerSchema(): Promise<void> {
@@ -109,6 +110,27 @@ export async function ensurePipelineLedgerSchema(): Promise<void> {
   await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS total_llm_latency_ms INT NOT NULL DEFAULT 0`);
   await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS fallback_triggered BOOLEAN NOT NULL DEFAULT FALSE`);
   await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS fallback_reason VARCHAR(50)`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS request_id UUID`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS model_name TEXT`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS latency_ms INT`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS tokens_in INT`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS tokens_out INT`);
+  await query(`ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS batch_count INT`);
+  await query(`ALTER TABLE pipeline_stage_events ADD COLUMN IF NOT EXISTS request_id UUID`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS request_id UUID`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS model_name TEXT`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS latency_ms INT`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS tokens_in INT`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS tokens_out INT`);
+  await query(`ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS batch_count INT`);
+  await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS request_id UUID`);
+  await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS tokens_in INT`);
+  await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS tokens_out INT`);
+  await query(`ALTER TABLE agent_decisions ADD COLUMN IF NOT EXISTS batch_count INT`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_pipeline_runs_request_id ON pipeline_runs(request_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_job_queue_request_id ON job_queue(request_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_stage_events_request_id ON pipeline_stage_events(request_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_agent_decisions_request_id ON agent_decisions(request_id)`);
 
   await query(`ALTER TABLE telemetry_snapshots DROP CONSTRAINT IF EXISTS uq_snapshot_identity`);
   await query(`ALTER TABLE executive_kpis DROP CONSTRAINT IF EXISTS executive_kpis_snapshot_date_key`);
@@ -259,9 +281,14 @@ export async function createRunningRun(
 }
 
 export async function appendStageEvent(input: StageEventInput): Promise<void> {
+  const metadataRequestId =
+    input.metadata && typeof input.metadata.requestId === 'string'
+      ? input.metadata.requestId
+      : null;
+  const effectiveRequestId = input.requestId || metadataRequestId;
   await query(
     `INSERT INTO pipeline_stage_events (
-     run_id, stage, attempt, status, completed_at, records_processed, metadata_json, error_message
+     run_id, stage, attempt, status, completed_at, records_processed, metadata_json, error_message, request_id
       , error_type, error_code
      ) VALUES (
        $1,
@@ -274,6 +301,7 @@ export async function appendStageEvent(input: StageEventInput): Promise<void> {
        $7,
        $8,
        $9
+       ,$10
      )`,
     [
       input.runId,
@@ -283,8 +311,36 @@ export async function appendStageEvent(input: StageEventInput): Promise<void> {
       input.recordsProcessed || 0,
       input.metadata ? JSON.stringify(input.metadata) : null,
       input.errorMessage || null,
+      effectiveRequestId,
       input.errorType || null,
       input.errorCode || null,
+    ]
+  );
+}
+
+export async function setRunExecutionMetrics(params: {
+  runId: string;
+  modelName?: string | null;
+  latencyMs?: number | null;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
+  batchCount?: number | null;
+}): Promise<void> {
+  await query(
+    `UPDATE pipeline_runs
+       SET model_name = COALESCE($2, model_name),
+           latency_ms = COALESCE($3, latency_ms),
+           tokens_in = COALESCE($4, tokens_in),
+           tokens_out = COALESCE($5, tokens_out),
+           batch_count = COALESCE($6, batch_count)
+     WHERE run_id = $1`,
+    [
+      params.runId,
+      params.modelName ?? null,
+      params.latencyMs ?? null,
+      params.tokensIn ?? null,
+      params.tokensOut ?? null,
+      params.batchCount ?? null,
     ]
   );
 }

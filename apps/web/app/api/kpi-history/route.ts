@@ -29,7 +29,8 @@ export const GET = createRoute(async (request: NextRequest) => {
     WHERE ek.tenant_id = $1
       AND COALESCE(pr.published_at, ek.created_at) >= NOW() - ($2 || ' days')::interval
     ORDER BY date ASC`,
-    [tenantId, String(days)]
+    [tenantId, String(days)],
+    ctxOrError
   );
 
   return {

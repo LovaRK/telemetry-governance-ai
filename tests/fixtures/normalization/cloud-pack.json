@@ -1,0 +1,31 @@
+{
+  "name": "Cloud Platform",
+  "description": "AWS, Azure, GCP, and O365 sourcetype patterns matching actual normalizer",
+  "entries": [
+    { "input": { "index": "aws", "sourcetype": "aws:cloudtrail" }, "expected": { "sourceType": "aws_cloudtrail", "confidence": "HIGH" } },
+    { "input": { "index": "aws", "sourcetype": "aws:config" }, "expected": { "sourceType": "aws_config", "confidence": "HIGH" } },
+    { "input": { "index": "aws", "sourcetype": "aws:guardduty" }, "expected": { "sourceType": "aws_guardduty", "confidence": "HIGH" } },
+    { "input": { "index": "aws", "sourcetype": "aws:vpc" }, "expected": { "sourceType": "aws_vpc", "confidence": "HIGH" } },
+    { "input": { "index": "aws", "sourcetype": "aws:s3" }, "expected": { "sourceType": "aws_s3", "confidence": "HIGH" } },
+    { "input": { "index": "aws", "sourcetype": "aws:lambda" }, "expected": { "sourceType": "aws_lambda", "confidence": "HIGH" } },
+    { "input": { "index": "aws", "sourcetype": "aws:ec2" }, "expected": { "sourceType": "aws_ec2", "confidence": "HIGH" } },
+    { "input": { "index": "aws", "sourcetype": "aws:rds" }, "expected": { "sourceType": "aws_rds", "confidence": "HIGH" } },
+    { "input": { "index": "aws", "sourcetype": "aws:elb" }, "expected": { "sourceType": "aws_elb", "confidence": "HIGH" } },
+    { "input": { "index": "aws", "sourcetype": "aws:waf" }, "expected": { "sourceType": "aws_waf", "confidence": "HIGH" } },
+    { "input": { "index": "azure", "sourcetype": "azure:audit" }, "expected": { "sourceType": "azure_audit", "confidence": "HIGH" } },
+    { "input": { "index": "azure", "sourcetype": "azure:signin" }, "expected": { "sourceType": "azure_signin", "confidence": "HIGH" } },
+    { "input": { "index": "azure", "sourcetype": "azure:activity" }, "expected": { "sourceType": "azure_activity", "confidence": "HIGH" } },
+    { "input": { "index": "azure", "sourcetype": "azure:security" }, "expected": { "sourceType": "azure_security", "confidence": "HIGH" } },
+    { "input": { "index": "azure", "sourcetype": "azure:storage" }, "expected": { "sourceType": "azure_storage", "confidence": "HIGH" } },
+    { "input": { "index": "azure", "sourcetype": "azure:vm" }, "expected": { "sourceType": "azure_vm", "confidence": "HIGH" } },
+    { "input": { "index": "azure", "sourcetype": "azure:sql" }, "expected": { "sourceType": "azure_sql", "confidence": "HIGH" } },
+    { "input": { "index": "gcp", "sourcetype": "gcp:pubsub" }, "expected": { "sourceType": "gcp_pubsub", "confidence": "HIGH" } },
+    { "input": { "index": "gcp", "sourcetype": "gcp:audit" }, "expected": { "sourceType": "gcp_audit", "confidence": "HIGH" } },
+    { "input": { "index": "gcp", "sourcetype": "gcp:vpc" }, "expected": { "sourceType": "gcp_vpc", "confidence": "HIGH" } },
+    { "input": { "index": "gcp", "sourcetype": "gcp:storage" }, "expected": { "sourceType": "gcp_storage", "confidence": "HIGH" } },
+    { "input": { "index": "gcp", "sourcetype": "gcp:compute" }, "expected": { "sourceType": "gcp_compute", "confidence": "HIGH" } },
+    { "input": { "index": "o365", "sourcetype": "o365:exchange" }, "expected": { "sourceType": "o365_exchange", "confidence": "HIGH" } },
+    { "input": { "index": "o365", "sourcetype": "o365:sharepoint" }, "expected": { "sourceType": "o365_sharepoint", "confidence": "HIGH" } },
+    { "input": { "index": "o365", "sourcetype": "o365:teams" }, "expected": { "sourceType": "o365_teams", "confidence": "HIGH" } }
+  ]
+}

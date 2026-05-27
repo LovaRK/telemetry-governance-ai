@@ -17,6 +17,7 @@ services:
       - GOVERNANCE_BOOTSTRAP_KEY=75512d550a46fc514ca7874ba7fee1244f39303d99a782e82cbcfd2097ee03cd
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@bitso.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-Admin@12345}
+      - SPLUNK_SECRET_ENCRYPTION_KEY=${SPLUNK_SECRET_ENCRYPTION_KEY:?Must set SPLUNK_SECRET_ENCRYPTION_KEY}
     volumes:
       - ../apps/web:/app/apps/web  # Hot-reload: Next.js app
       - ../packages:/app/packages  # Hot-reload: shared auth/types packages
@@ -46,6 +47,8 @@ services:
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - LLM_MODEL=gemma2:9b
       - WORKER_POLL_INTERVAL_MS=5000
+      - WORKER_BATCH_TIMEOUT_MS=${WORKER_BATCH_TIMEOUT_MS:-240000}
+      - LLM_BATCH_TIMEOUT=${LLM_BATCH_TIMEOUT:-60}
     depends_on:
       postgres:
         condition: service_healthy

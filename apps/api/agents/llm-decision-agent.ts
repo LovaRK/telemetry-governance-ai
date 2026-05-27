@@ -97,6 +97,19 @@ export interface AgentDecisionSummary {
   agentReasoning: string;
 }
 
+interface AgentExecutionOptions {
+  signal?: AbortSignal;
+  onBatchMetric?: (metric: {
+    batch: number;
+    totalBatches: number;
+    model: string;
+    latencyMs: number;
+    promptChars: number;
+    status: 'success' | 'failed';
+    errorCode?: string;
+  }) => void;
+}
+
 const SYSTEM_PROMPT = `You are a Splunk FinOps and Security intelligence agent.
 STRICT OUTPUT MODE: Output ONLY valid JSON. No explanations, no markdown, no text before or after.
 
@@ -293,19 +306,19 @@ function applyDefaults(decisions: any[], inputs: RawTelemetryInput[], config: Us
     return {
       index: d.index || (input?.index ?? `unknown_${i}`),
       sourcetype: d.sourcetype || input?.sourcetype,
-      tier: d.tier || 'Nice-to-Have',
-      action: d.action || 'KEEP',
-      compositeScore: typeof d.compositeScore === 'number' ? d.compositeScore : 50,
-      utilizationScore: typeof d.utilizationScore === 'number' ? d.utilizationScore : 0,
-      detectionScore: typeof d.detectionScore === 'number' ? d.detectionScore : 0,
-      qualityScore: typeof d.qualityScore === 'number' ? d.qualityScore : 50,
-      riskScore: typeof d.riskScore === 'number' ? d.riskScore : 50,
+      tier: d.tier || null,
+      action: d.action || null,
+      compositeScore: typeof d.compositeScore === 'number' ? d.compositeScore : null,
+      utilizationScore: typeof d.utilizationScore === 'number' ? d.utilizationScore : null,
+      detectionScore: typeof d.detectionScore === 'number' ? d.detectionScore : null,
+      qualityScore: typeof d.qualityScore === 'number' ? d.qualityScore : null,
+      riskScore: typeof d.riskScore === 'number' ? d.riskScore : null,
       annualLicenseCost: typeof d.annualLicenseCost === 'number' ? d.annualLicenseCost : annualCost,
-      estimatedSavings: typeof d.estimatedSavings === 'number' ? d.estimatedSavings : 0,
-      confidence: d.confidence || 'LOW',
-      confidenceScore: typeof d.confidenceScore === 'number' ? d.confidenceScore : 0.3,
-      recommendation: d.recommendation || `Review ${d.index} based on current usage patterns`,
-      reasoning: d.reasoning || 'Insufficient data for detailed analysis',
+      estimatedSavings: typeof d.estimatedSavings === 'number' ? d.estimatedSavings : null,
+      confidence: d.confidence || null,
+      confidenceScore: typeof d.confidenceScore === 'number' ? d.confidenceScore : null,
+      recommendation: d.recommendation || null,
+      reasoning: d.reasoning || null,
       evidence: Array.isArray(d.evidence) ? d.evidence : [],
       isQuickWin: !!d.isQuickWin,
       isS3Candidate: !!d.isS3Candidate,
@@ -316,7 +329,8 @@ function applyDefaults(decisions: any[], inputs: RawTelemetryInput[], config: Us
 
 export async function runLLMDecisionAgent(
   inputs: RawTelemetryInput[],
-  config: UserConfig
+  config: UserConfig,
+  execOpts?: AgentExecutionOptions
 ): Promise<AgentDecisionSummary> {
   if (inputs.length === 0) {
     throw new Error('No telemetry inputs provided to LLM decision agent');
@@ -330,16 +344,9 @@ export async function runLLMDecisionAgent(
   }
 
   const BATCH_SIZE = 1; // Reduced from 5 for local Ollama memory constraint (gemma2:9b is 5.4GB + batch overhead)
-  const LLM_TIMEOUT_MS = parseInt(process.env.LLM_BATCH_TIMEOUT || '45', 10) * 1000;
-
-  // Timeout wrapper
-  const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
-    Promise.race([
-      promise,
-      new Promise<T>((_, reject) => 
-        setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
-      )
-    ]);
+  // Keep local-demo feedback loop fast: fail the batch quickly instead of
+  // appearing stuck for many minutes.
+  const MODEL_NAME = process.env.LLM_MODEL || 'gemma2:9b';
 
   console.log(`[LLMDecisionAgent] Starting reasoning for ${inputs.length} inputs in batches of ${BATCH_SIZE} (sequential)`);
 
@@ -358,15 +365,30 @@ export async function runLLMDecisionAgent(
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       let raw: string;
       let provider: string;
+      const startedAt = Date.now();
       try {
-        const { response, provider: p } = await withTimeout(
-          router.generate(prompt, { json: true, temperature: 0.1 }),
-          LLM_TIMEOUT_MS,
-          `LLM batch ${batchIdx + 1}`
-        );
+        const { response, provider: p } = await router.generate(prompt, {
+          json: true,
+          temperature: 0.1,
+          signal: execOpts?.signal,
+        });
         raw = response;
         provider = p;
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const isAbort = /aborted|timed out/i.test(msg);
+        execOpts?.onBatchMetric?.({
+          batch: batchIdx + 1,
+          totalBatches: batches.length,
+          model: MODEL_NAME,
+          latencyMs: Date.now() - startedAt,
+          promptChars: prompt.length,
+          status: 'failed',
+          errorCode: isAbort ? 'FAILED_MODEL_TIMEOUT' : 'FAILED_MODEL_RUNTIME',
+        });
+        if (execOpts?.signal?.aborted) {
+          throw new Error(`LLM batch ${batchIdx + 1} aborted`);
+        }
         throw new Error(`LLM call failed (batch ${batchIdx + 1}, attempt ${attempt}): ${e instanceof Error ? e.message : String(e)}`);
       }
 
@@ -399,9 +421,27 @@ export async function runLLMDecisionAgent(
         continue;
       }
 
+      execOpts?.onBatchMetric?.({
+        batch: batchIdx + 1,
+        totalBatches: batches.length,
+        model: MODEL_NAME,
+        latencyMs: Date.now() - startedAt,
+        promptChars: prompt.length,
+        status: 'success',
+      });
+
       console.log(`[LLMDecisionAgent] Batch ${batchIdx + 1} OK via ${provider} — ${validDecisions.length}/${parsed.decisions.length} decisions valid`);
       return { decisions: applyDefaults(validDecisions.length > 0 ? validDecisions : parsed.decisions, batch, config), parsed };
     }
+    execOpts?.onBatchMetric?.({
+      batch: batchIdx + 1,
+      totalBatches: batches.length,
+      model: MODEL_NAME,
+      latencyMs: 0,
+      promptChars: prompt.length,
+      status: 'failed',
+      errorCode: 'FAILED_MODEL_RUNTIME',
+    });
     throw new Error(`Batch ${batchIdx + 1} failed after ${MAX_ATTEMPTS} attempts: ${lastErr}`);
   };
 
@@ -441,15 +481,6 @@ export async function runLLMDecisionAgent(
   const avgQual = allDecisions.reduce((s, d) => s + d.qualityScore, 0) / n;
   const avgConf = allDecisions.reduce((s, d) => s + d.confidenceScore, 0) / n;
 
-  const defaultStaircase = [
-    { stage: 'Current Spend', amount: totalLicenseSpend },
-    { stage: 'After Ingest Actions', amount: Math.round(totalLicenseSpend * 0.85) },
-    { stage: 'After Retention Tuning', amount: Math.round(totalLicenseSpend * 0.72) },
-    { stage: 'After Archive', amount: Math.round(totalLicenseSpend * 0.58) },
-    { stage: 'After S3 Migration', amount: Math.round(totalLicenseSpend * 0.45) },
-    { stage: 'Optimized Target', amount: Math.round(totalLicenseSpend * 0.38) },
-  ];
-
   console.log(`[LLMDecisionAgent] Complete — ${allDecisions.length} valid decisions, $${totalLicenseSpend.toFixed(2)} total spend`);
 
   // roiScore and gainScopeScore are NOW computed deterministically in aggregation-service.
@@ -479,6 +510,6 @@ export async function runLLMDecisionAgent(
     avgConfidence: Math.round(avgConf * 100),
     quickWins: p.quickWins || [],
     savingsStaircase: p.savingsStaircase,
-    agentReasoning: p?.agentReasoning || `Analyzed ${inputs.length} Splunk indexes. ${tierCounts.lowValue} low-value candidates identified. Total spend: $${totalLicenseSpend.toLocaleString()}.`,
+    agentReasoning: p?.agentReasoning || null,
   };
 }

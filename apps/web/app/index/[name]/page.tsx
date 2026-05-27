@@ -6,6 +6,17 @@ import Link from 'next/link';
 import { apiFetch } from '../../../lib/api-client';
 import KPITrendChart from '../../../components/KPITrendChart';
 
+function getActorEmail(): string {
+  if (typeof window === 'undefined') return 'system';
+  try {
+    const ctx = JSON.parse(localStorage.getItem('auth_context') || '{}');
+    if (ctx.email) return ctx.email;
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (user.email) return user.email;
+  } catch { /* ignore */ }
+  return 'system';
+}
+
 interface IndexDetail {
   indexName: string;
   sourcetype?: string;
@@ -132,7 +143,7 @@ export default function IndexDetailPage() {
           mutationType: 'APPROVE',
           indexName: detail.indexName,
           sourcetype: detail.sourcetype || 'unknown',
-          actorEmail: 'admin@bitsio.com',
+          actorEmail: getActorEmail(),
           actionNote: `Approved from index detail page: ${detail.action} — ${fmt$(detail.estimatedSavings)} potential savings`,
           idempotencyKey: `detail-approve-${detail.indexName}-${Date.now()}`,
         }),

@@ -9,6 +9,18 @@ async function ensureExplainabilitySchema(): Promise<void> {
       ADD COLUMN IF NOT EXISTS user_id VARCHAR(128),
       ADD COLUMN IF NOT EXISTS explainability_mode BOOLEAN NOT NULL DEFAULT FALSE
   `);
+  await query(`
+    DELETE FROM user_config a
+    USING user_config b
+    WHERE a.ctid < b.ctid
+      AND a.tenant_id = b.tenant_id
+      AND a.user_id = b.user_id
+      AND a.user_id IS NOT NULL
+  `);
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_user_config_tenant_user
+      ON user_config (tenant_id, user_id)
+  `);
 }
 
 export const GET = createRoute(async (request: NextRequest) => {
@@ -39,17 +51,18 @@ export const POST = createRoute(async (request: NextRequest) => {
 
   const body = await request.json().catch(() => ({}));
   const mode = Boolean(body?.explainabilityMode);
+  const perUserConfigKey = `explainability:${ctxOrError.tenantId}:${ctxOrError.userId}`;
 
   await query(
     `INSERT INTO user_config (config_key, tenant_id, user_id, explainability_mode, updated_at)
-     VALUES ('default', $1, $2, $3, NOW())
+     VALUES ($1, $2, $3, $4, NOW())
      ON CONFLICT (config_key)
      DO UPDATE SET
        tenant_id = EXCLUDED.tenant_id,
        user_id = EXCLUDED.user_id,
        explainability_mode = EXCLUDED.explainability_mode,
        updated_at = NOW()`,
-    [ctxOrError.tenantId, ctxOrError.userId, mode],
+    [perUserConfigKey, ctxOrError.tenantId, ctxOrError.userId, mode],
     ctxOrError
   );
 

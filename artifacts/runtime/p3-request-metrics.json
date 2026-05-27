@@ -1,0 +1,44 @@
+{
+  "generatedAt": "2026-05-23T08:08:30.412Z",
+  "before": {
+    "label": "before_p3_2",
+    "dashboardLoadMs": 5135,
+    "totalRequests": 172,
+    "uniqueEndpoints": 9,
+    "governanceStreamCount": 120,
+    "jobStreamCount": 0,
+    "streamExcludedRequests": 52,
+    "streamExcludedUniqueEndpoints": null,
+    "cacheStatusCount": 32,
+    "executiveSummaryCount": null,
+    "explainCount": null,
+    "coverageCount": null,
+    "kpiHistoryCount": 14,
+    "topDuplicatesFiltered": []
+  },
+  "after": {
+    "label": "after_p3_2",
+    "dashboardLoadMs": 6120,
+    "totalRequests": 206,
+    "uniqueEndpoints": 9,
+    "streamExcludedRequests": 49,
+    "streamExcludedUniqueEndpoints": 8,
+    "cacheStatusCount": 29,
+    "executiveSummaryCount": 1,
+    "explainCount": 0,
+    "coverageCount": 0,
+    "kpiHistoryCount": 14,
+    "governanceStreamCount": 157,
+    "jobStreamCount": 0,
+    "topDuplicatesFiltered": [
+      [
+        "/api/cache-status",
+        29
+      ],
+      [
+        "/api/kpi-history",
+        14
+      ]
+    ]
+  }
+}

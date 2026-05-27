@@ -2,6 +2,9 @@ export interface RuntimeUserConfig {
   costPerGbPerDay: number;
   maxIndexesPerRun: number;
   llmTimeoutMs: number;
+  llmProvider?: 'local' | 'anthropic';
+  anthropicApiKey?: string | null;
+  anthropicModel?: string;
   decisionWeights?: Record<string, unknown>;
 }
 
@@ -24,4 +27,3 @@ export function updateRuntimeConfig(patch: Partial<RuntimeUserConfig>): RuntimeU
   };
   return runtimeConfig;
 }
-

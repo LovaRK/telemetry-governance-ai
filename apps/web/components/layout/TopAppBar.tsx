@@ -8,7 +8,19 @@ interface Props {
     lastRefreshAt: string | null;
     hasEverRefreshed?: boolean;
     hasAgentDecisions?: boolean;
+    snapshotStatus?: 'NOT_READY' | 'READY' | 'FAILED';
+    llmStatus?: 'NOT_STARTED' | 'RUNNING' | 'READY' | 'FAILED' | 'FAILED_TIMEOUT';
+    pipelineStatus?: 'PENDING' | 'PARTIAL' | 'READY' | 'FAILED';
     recordCount?: number;
+    publishedState?: {
+      hasEverRefreshed?: boolean;
+      hasAgentDecisions?: boolean;
+    };
+    activeState?: {
+      snapshotStatus?: 'NOT_READY' | 'READY' | 'FAILED';
+      llmStatus?: 'NOT_STARTED' | 'RUNNING' | 'READY' | 'FAILED' | 'FAILED_TIMEOUT';
+      pipelineStatus?: 'PENDING' | 'PARTIAL' | 'READY' | 'FAILED';
+    };
   } | null;
   onRefresh?: () => void;
   loading?: boolean;
@@ -16,6 +28,25 @@ interface Props {
 }
 
 export default function TopAppBar({ cacheStatus, onRefresh, loading, hasConfig }: Props) {
+  const active = cacheStatus?.activeState;
+  const effectivePipelineStatus = active?.pipelineStatus ?? cacheStatus?.pipelineStatus;
+  const effectiveSnapshotStatus = active?.snapshotStatus ?? cacheStatus?.snapshotStatus;
+  const effectiveLlmStatus = active?.llmStatus ?? cacheStatus?.llmStatus;
+  const lifecycleHint = (() => {
+    if (!cacheStatus) return null;
+    if (effectivePipelineStatus === 'FAILED') return { color: '#ef4444', text: '⚠ Pipeline failed' };
+    if (effectiveSnapshotStatus === 'READY' && effectiveLlmStatus === 'RUNNING') {
+      return { color: '#f59e0b', text: '⚠ LLM decisions pending' };
+    }
+    if (effectiveSnapshotStatus === 'READY' && effectiveLlmStatus === 'FAILED') {
+      return { color: '#ef4444', text: '⚠ Intelligence failed' };
+    }
+    if (effectiveSnapshotStatus === 'READY' && effectiveLlmStatus === 'READY') {
+      return { color: '#22c55e', text: '✓ Complete' };
+    }
+    return null;
+  })();
+
   return (
     <header style={{
       height: 64,
@@ -66,8 +97,8 @@ export default function TopAppBar({ cacheStatus, onRefresh, loading, hasConfig }
             <span style={{ color: cacheStatus.status === 'stale' ? '#f59e0b' : '#22c55e' }}>
               {cacheStatus.status === 'stale' ? 'Cache Stale' : 'Cache Fresh'}
             </span>
-            {!cacheStatus.hasAgentDecisions && (
-              <span style={{ color: '#f59e0b', marginLeft: '0.5rem' }}>⚠ No LLM decisions yet</span>
+            {lifecycleHint && (
+              <span style={{ color: lifecycleHint.color, marginLeft: '0.5rem' }}>{lifecycleHint.text}</span>
             )}
             {cacheStatus.lastRefreshAt && (
               <span style={{ color: '#64748b' }}>

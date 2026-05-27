@@ -1,11 +1,97 @@
 # 📖 GOVERNANCE OBSERVABILITY PLATFORM — Complete System Guide
 
-**Last Updated**: 2026-05-23 (Phase 1 Runtime QA + P3 Query Consolidation Complete)  
-**Status**: **Runtime Certified + P3 Consolidated** — baseline `v1.1-runtime-stable`  
-**Architecture**: Event-Driven Agentic System with Crash-Safe Recovery  
-**Type Safety**: 100% TypeScript, 0 Errors  
-**Test Coverage**: 197/197 Contract Tests + 55/55 E2E Tests  
-**LLM Integration**: ✅ Local Ollama default, Anthropic opt-in (verified via Settings UI)
+**Last Updated**: 2026-05-26 (fresh install + browser landing revalidated)  
+**Status**: `v1.2-trust-stable` baseline retained, runtime rebuilt and browser flow rechecked  
+**Architecture**: Published-snapshot dashboard + async AI decision worker + canonical lifecycle state  
+**Type Safety**: Typecheck clean on current rebuild  
+**LLM Integration**: Local Ollama default, Anthropic opt-in only via Settings
+
+---
+
+## Current Live Reality
+
+This section supersedes older assumptions when they conflict.
+
+- A fresh login now lands directly on the dashboard if tenant Splunk config already exists in Postgres.
+- The Splunk configuration page is not a mandatory first-run wizard anymore; it is a settings route.
+- The dashboard currently renders from the last published snapshot while a new refresh can run in parallel.
+- `/api/cache-status` is the lifecycle source of truth for:
+  - `snapshotStatus`
+  - `llmStatus`
+  - `pipelineStatus`
+  - `requestId`
+  - `pipelineRunId`
+  - `lastCompletedRun`
+- The browser flow was revalidated after a full `docker compose down` and `up -d --build` restart:
+  - login succeeds
+  - dashboard loads
+  - "Splunk Not Configured" is no longer shown for the configured tenant
+  - dashboard header shows cached/published state and lifecycle inspector
+
+## Fresh Install / Fresh Restart Flow
+
+```mermaid
+flowchart TD
+    A["docker compose down"] --> B["docker compose up -d --build"]
+    B --> C["postgres healthy"]
+    C --> D["web healthy on localhost:3002"]
+    D --> E["worker healthy"]
+    E --> F["User logs in as admin"]
+    F --> G{"Tenant has Splunk config?"}
+    G -- yes --> H["Land on dashboard"]
+    G -- no --> I["Connection gate / settings flow"]
+    H --> J["Published snapshot loads"]
+    J --> K["Refresh triggers /api/cache"]
+    K --> L["pipeline_runs row created"]
+    L --> M["Worker processes AI decisions"]
+    M --> N["Published snapshot pointer updated"]
+    N --> O["/api/cache-status returns READY / READY / READY"]
+```
+
+## Fresh Browser Flow
+
+The current expected user journey is:
+
+1. Open `http://localhost:3002/login`
+2. Sign in
+3. If the tenant already has a stored Splunk config, user lands on `/`
+4. Dashboard reads:
+   - published snapshot state
+   - active lifecycle state
+   - latest AI decision metadata
+5. Refresh starts a new run and the header/inspector should transition:
+   - `PARTIAL / RUNNING` while AI is in progress
+   - `READY / READY` when completed
+
+## Why The Config Page Sometimes Does Not Appear
+
+That is currently intentional behavior, not a routing error:
+
+- If tenant config exists in `tenants`/Splunk config storage, login goes straight to the dashboard.
+- The settings/config screen remains reachable as a route, not as a mandatory setup step.
+- The older "always show config first" assumption is stale.
+
+## Current Known Product Gaps
+
+Execution is substantially healthier than dashboard correctness.
+
+### Runtime / lifecycle
+
+- Login -> dashboard flow works after a clean restart.
+- Refresh API accepts empty-body requests again.
+- Browser-authenticated API routes now derive tenant context from verified JWT claims when explicit headers are absent.
+- `pipelineRunId` is now surfaced again in cache-status.
+
+### Dashboard correctness still open
+
+- KPI trend charts can still render empty despite KPI cards showing current values.
+- ROI / GainScope / Low-Value Spend need formula certification against the latest published snapshot.
+- Coverage gap confidence gauge layout and arc bounds remain visually incorrect.
+- Data volume split and sourcetype split still need data-binding verification against snapshot rows.
+- Explainability is still incomplete:
+  - formulas
+  - confidence provenance
+  - source query/source table provenance
 
 ---
 
@@ -17,21 +103,51 @@
 | `v1.0-incremental-baseline` | 2026-05-21 | Incremental aggregation + parallel fetch | Contract gate |
 | `v1.0-refactor-plan` | 2026-05-23 | Approved phased architecture roadmap | `docs/refactor-plan.md` |
 | `v1.1-runtime-stable` | 2026-05-23 | **Phase 1 Runtime QA** | `artifacts/runtime-qa/MANIFEST.md` |
+| `v1.2-trust-stable` | 2026-05-23 | **Stabilization + Trust freeze** | `artifacts/runtime-qa/certification/phase-start-verify.txt` |
 
-### P3 Query Consolidation (Closeout)
+### P3 Query Consolidation (Validated)
 
 - Introduced app-layer orchestration service:
   - `/Users/ramakrishna/Desktop/Teja/Dashboards/apps/web/lib/services/dashboard-query-service.ts`
 - `page.tsx` mount and post-refresh reload now share one orchestration path (`getDashboardState`) over existing routes.
 - Validation:
   - `npx tsc --noEmit` ✅
-  - `npm run test:contract` ✅ `197/197`
+  - `npm run test:contract` ✅ `203/203`
   - `npm run test:e2e` ✅ `55/55`
+- This session re-validated: stream-excluded requests `49 → 15` single-pass
 - Evidence artifacts:
-  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-fetch-map.md`
-  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-query-design.md`
-  - `/Users/ramakrishna/Desktop/Teja/Dashboards/dashboard-request-comparison.md`
-  - `/Users/ramakrishna/Desktop/Teja/Dashboards/artifacts/runtime/p3-request-metrics.json`
+  - `artifacts/runtime-qa/p3-validation/request-comparison-rerun.md`
+  - `artifacts/runtime-qa/p3-validation/request-comparison-rerun.json`
+
+### Commit B Lifecycle Truth (Validated)
+
+- `/api/cache-status` returns canonical backend lifecycle truth:
+  - `snapshotStatus`, `llmStatus`, `pipelineStatus`
+  - `lastRunId`, `lastRunAt`, `lastDecisionAt`, `requestId`, `pipelineRunId`
+- READY status now depends on persisted published-run pointer state (`tenant_snapshot_pointer`) and run/stage linkage, not cache inference.
+- Lifecycle contract matrix covered:
+  - `snapshot READY + llm RUNNING => pipeline PARTIAL`
+  - `snapshot READY + llm READY => pipeline READY`
+  - `snapshot FAILED => pipeline FAILED`
+
+### Commit C Lifecycle Rendering (Validated)
+
+- UI now consumes backend lifecycle truth directly (no lifecycle inference in UI):
+  - `snapshotStatus`
+  - `llmStatus`
+  - `pipelineStatus`
+- Updated components:
+  - `/Users/ramakrishna/Desktop/Teja/Dashboards/apps/web/app/page.tsx`
+  - `/Users/ramakrishna/Desktop/Teja/Dashboards/apps/web/components/layout/TopAppBar.tsx`
+- Canonical UI mapping matrix:
+  - `READY + RUNNING` → `Snapshot complete · Intelligence pending`
+  - `READY + READY` → `Complete`
+  - `READY + FAILED/FAILED_TIMEOUT` → `Snapshot ready · Intelligence failed`
+  - `FAILED + *` (or pipeline `FAILED`) → `Pipeline failed`
+- Validation:
+  - `npx tsc --noEmit` ✅
+  - `npm run test:contract` ✅ `203/203`
+  - `npm run test:e2e` ✅ `55/55`
 
 ---
 

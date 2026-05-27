@@ -21,8 +21,16 @@ export default function ConnectionGatedUI({ children, onConnectionChange }: Prop
     const checkConnection = async () => {
       try {
         const res = await apiFetch('/api/splunk/status');
+        // Auth/context failures should not be interpreted as "not configured".
+        // Let the page-level data flow decide the final UX state.
+        if (res.status === 401 || res.status === 403) {
+          const state = { status: 'disconnected' as const, message: 'Authentication required' };
+          setConnection(state);
+          onConnectionChange?.(state);
+          return;
+        }
         if (!res.ok) {
-          const state = { status: 'unconfigured' as const, message: 'Splunk not configured' };
+          const state = { status: 'disconnected' as const, message: 'Splunk status unavailable' };
           setConnection(state);
           onConnectionChange?.(state);
           return;
@@ -39,7 +47,7 @@ export default function ConnectionGatedUI({ children, onConnectionChange }: Prop
           onConnectionChange?.(state);
         }
       } catch (err) {
-        const state = { status: 'unconfigured' as const, message: 'Splunk not configured' };
+        const state = { status: 'disconnected' as const, message: 'Splunk status unavailable' };
         setConnection(state);
         onConnectionChange?.(state);
       }
@@ -48,57 +56,9 @@ export default function ConnectionGatedUI({ children, onConnectionChange }: Prop
     checkConnection();
   }, [onConnectionChange]);
 
-  // Show banner for unconfigured or disconnected states
-  if (connection.status === 'unconfigured') {
-    return (
-      <div style={{ minHeight: '100vh', background: '#0f172a' }}>
-        <div
-          style={{
-            padding: '3rem 2rem',
-            textAlign: 'center',
-            maxWidth: '600px',
-            margin: '0 auto',
-            paddingTop: '8rem',
-          }}
-        >
-          <div
-            style={{
-              padding: '2rem',
-              background: '#1e293b',
-              borderRadius: 12,
-              border: '2px solid #3b82f6',
-            }}
-          >
-            <h1 style={{ color: '#f8fafc', marginBottom: '1rem' }}>Splunk Not Configured</h1>
-            <p style={{ color: '#cbd5e1', marginBottom: '2rem', lineHeight: 1.6 }}>
-              To view your Splunk telemetry intelligence dashboard, you need to configure your Splunk connection.
-            </p>
-            <button
-              onClick={() => {
-                window.location.href = '/settings?tab=splunk';
-              }}
-              style={{
-                padding: '0.75rem 2rem',
-                background: '#3b82f6',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: 6,
-                fontSize: '1rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Configure Splunk Connection
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (connection.status === 'disconnected') {
-    // Don't block the UI — the main page has its own data/error handling.
-    // Just render children normally; page.tsx shows its own stale/error banners.
+  // Never hard-block dashboard rendering here. The main page handles
+  // connection/config/empty states with richer context.
+  if (connection.status === 'unconfigured' || connection.status === 'disconnected') {
     return <>{children}</>;
   }
 

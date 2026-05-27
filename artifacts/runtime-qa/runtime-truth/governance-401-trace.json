@@ -1,0 +1,91 @@
+{
+  "testName": "governance-stream-401-classification",
+  "timestamp": "2026-05-23T16:55:00Z",
+  "description": "Governance and job stream SSE behavior analysis",
+  "findings": {
+    "streamAuthMechanism": {
+      "engine": "requireSSEContext (packages/auth/request-context.ts:88)",
+      "authSources": ["accessToken cookie (httpOnly, sameSite=lax, path=/)"],
+      "fallbackSources": ["Authorization header (Bearer token)"],
+      "streamEndpoints": [
+        { "path": "/api/governance/stream", "authRequired": true, "authMethod": "accessToken cookie" },
+        { "path": "/api/governance/events/stream", "authRequired": false },
+        { "path": "/api/job-stream", "authRequired": true, "authMethod": "accessToken cookie" }
+      ]
+    },
+    "liveTestResults": {
+      "sseWithCookie": { "status": 200, "works": true },
+      "sseWithoutCookie": { "status": 401, "works": false, "expected": true }
+    },
+    "cookieSettings": {
+      "httpOnly": true,
+      "secure": "production only",
+      "sameSite": "lax",
+      "path": "/",
+      "maxAge": 900
+    }
+  },
+  "e2eTestNoise": {
+    "failedRequestsPattern": {
+      "description": "E2E tests show SSE endpoints with status=0 (connection reset on page nav)",
+      "cause": "Playwright page.goto() tears down SSE connections, browser reports them as failed (status=0, not 401)",
+      "classification": "benign test noise",
+      "count": "~325 per test run (governance+job streams × reconnect intervals × test duration)"
+    },
+    "settingsExplainability401": {
+      "url": "/api/settings/explainability",
+      "status": 401,
+      "cause": "Public page (no auth) makes requests that fail before login",
+      "classification": "benign — occurs before login in beforeEach setup"
+    }
+  },
+  "clientReconnectAnalysis": {
+    "hook": "use-governance-stream.ts (apps/web/lib/use-governance-stream.ts)",
+    "reconnectDelay": {
+      "onError": "5 seconds (fixed, no exponential backoff)",
+      "onClose": "30 seconds (server-initiated close)"
+    },
+    "authBlockSafetyNet": {
+      "exists": true,
+      "mechanism": "On error, probes GET /api/cache-status; if 401, sets authBlockedRef=true and stops",
+      "effectiveness": "works when cookie is genuinely expired",
+      "gap": "transient network errors (fetch throws) are caught silently and do NOT set authBlockedRef"
+    },
+    "maxRetries": "unlimited",
+    "retryBehavior": "indefinite 5s retries with no backoff — potential issue under sustained auth failure"
+  },
+  "classification": {
+    "isUserVisibleRegression": false,
+    "blockingFreeze": false,
+    "deferredKnownIssues": [
+      {
+        "id": "STREAM-001",
+        "description": "Governance SSE stream reconnects without exponential backoff (fixed 5s delay)",
+        "impact": "Under sustained auth failure, creates ~12 req/min of auth traffic; non-blocking",
+        "fix": "Implement exponential backoff (1s, 2s, 4s, 8s, max 30s) in use-governance-stream.ts",
+        "phase": "P5 (Splunk optimization) or P7 (local AI hardening)"
+      },
+      {
+        "id": "STREAM-002",
+        "description": "Auth-block safety net does not engage on fetch exceptions (only on 401 responses)",
+        "impact": "If apiFetch probe throws (network error), authBlockedRef is never set, retries continue",
+        "fix": "Move authBlockedRef check outside the try/catch so connectivity errors also stop retries",
+        "phase": "P5"
+      },
+      {
+        "id": "STREAM-003",
+        "description": "Playwright E2E tests record SSE connection resets as status=0 in failedRequests",
+        "impact": "Test output is noisy (325 entries per run) but tests pass; cosmetic",
+        "fix": "Filter status=0 from failedRequests in test assertions (already done in assertions but not in summary)",
+        "phase": "P10 (browser audit automation)"
+      },
+      {
+        "id": "STREAM-004",
+        "description": "no-cors EventSource cannot set Authorization header — requires cookie auth",
+        "impact": "If cookie is cleared (e.g. browser cache clear), streams cannot reconnect until page refresh",
+        "fix": "Use fetch-based SSE polyfill instead of native EventSource to support Bearer token auth",
+        "phase": "P7"
+      }
+    ]
+  }
+}

@@ -14,7 +14,7 @@ export class AnthropicClient {
     this.apiKey = apiKey;
   }
 
-  async generate(prompt: string, opts?: { json?: boolean; temperature?: number; maxTokens?: number }): Promise<string> {
+  async generate(prompt: string, opts?: { json?: boolean; temperature?: number; maxTokens?: number; signal?: AbortSignal }): Promise<string> {
     const maxTokens = opts?.maxTokens ?? 4096;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -35,6 +35,7 @@ export class AnthropicClient {
         ],
         temperature: opts?.temperature ?? 0.1,
       }),
+      signal: opts?.signal,
     });
 
     if (!response.ok) {

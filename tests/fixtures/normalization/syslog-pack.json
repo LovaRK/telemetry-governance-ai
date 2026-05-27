@@ -1,0 +1,24 @@
+{
+  "name": "Syslog and Network",
+  "description": "Cisco, Fortinet, Palo Alto, Linux syslog patterns matching actual normalizer",
+  "entries": [
+    { "input": { "index": "network", "sourcetype": "cisco:asa" }, "expected": { "sourceType": "cisco_asa", "confidence": "HIGH" } },
+    { "input": { "index": "network", "sourcetype": "cisco:ios" }, "expected": { "sourceType": "cisco_ios", "confidence": "HIGH" } },
+    { "input": { "index": "network", "sourcetype": "cisco:nexus" }, "expected": { "sourceType": "cisco_nexus", "confidence": "HIGH" } },
+    { "input": { "index": "network", "sourcetype": "cisco:wireless" }, "expected": { "sourceType": "cisco_wireless", "confidence": "HIGH" } },
+    { "input": { "index": "network", "sourcetype": "cisco:meraki" }, "expected": { "sourceType": "cisco_generic", "confidence": "MEDIUM" } },
+    { "input": { "index": "network", "sourcetype": "fortigate" }, "expected": { "sourceType": "fortigate", "confidence": "HIGH" } },
+    { "input": { "index": "network", "sourcetype": "fortinet" }, "expected": { "sourceType": "fortinet", "confidence": "HIGH" } },
+    { "input": { "index": "network", "sourcetype": "pan:traffic" }, "expected": { "sourceType": "pan_traffic", "confidence": "HIGH" } },
+    { "input": { "index": "network", "sourcetype": "pan:threat" }, "expected": { "sourceType": "pan_threat", "confidence": "HIGH" } },
+    { "input": { "index": "network", "sourcetype": "pan:system" }, "expected": { "sourceType": "pan_system", "confidence": "HIGH" } },
+    { "input": { "index": "network", "sourcetype": "pan:config" }, "expected": { "sourceType": "pan_generic", "confidence": "MEDIUM" } },
+    { "input": { "index": "linux", "sourcetype": "linux_secure" }, "expected": { "sourceType": "linux_secure", "confidence": "HIGH" } },
+    { "input": { "index": "linux", "sourcetype": "linux_auth" }, "expected": { "sourceType": "linux_auth", "confidence": "HIGH" } },
+    { "input": { "index": "linux", "sourcetype": "linux_messages" }, "expected": { "sourceType": "linux_messages", "confidence": "HIGH" } },
+    { "input": { "index": "linux", "sourcetype": "linux_syslog" }, "expected": { "sourceType": "linux_syslog", "confidence": "HIGH" } },
+    { "input": { "index": "linux", "sourcetype": "linux_kernel" }, "expected": { "sourceType": "linux_generic", "confidence": "MEDIUM" } },
+    { "input": { "index": "linux", "sourcetype": "authlog" }, "expected": { "sourceType": "authlog", "confidence": "HIGH" } },
+    { "input": { "index": "linux", "sourcetype": "secure" }, "expected": { "sourceType": "secure", "confidence": "HIGH" } }
+  ]
+}

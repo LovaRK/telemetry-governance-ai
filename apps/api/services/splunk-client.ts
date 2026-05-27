@@ -39,6 +39,19 @@ export class SplunkClient {
     this.config = config;
   }
 
+  private parseJsonOrThrow(raw: string, endpoint: string): any {
+    const trimmed = (raw || '').trim();
+    if (!trimmed) {
+      throw new Error(`Splunk returned empty JSON payload from ${endpoint}`);
+    }
+    try {
+      return JSON.parse(trimmed);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown JSON parse error';
+      throw new Error(`Invalid JSON from ${endpoint}: ${msg}. Payload preview: ${trimmed.slice(0, 200)}`);
+    }
+  }
+
   private get timeoutMs(): number {
     return this.config.timeoutMs ?? 30000; // Default 30s (from env)
   }
@@ -179,7 +192,7 @@ export class SplunkClient {
         throw new Error(`Splunk index list failed: HTTP ${res.status}`);
       }
 
-      const data = JSON.parse(res.text);
+      const data = this.parseJsonOrThrow(res.text, '/services/data/indexes');
       const entries: any[] = data.entry || [];
 
       // Try to enrich with real 24h ingest bytes from license_usage (if permissions allow).
@@ -330,7 +343,7 @@ export class SplunkClient {
         throw new Error(`Saved searches failed: HTTP ${res.status}`);
       }
 
-      const data = JSON.parse(res.text);
+      const data = this.parseJsonOrThrow(res.text, '/servicesNS/-/-/saved/searches');
       return (data.entry || []).map((e: any) => {
         const c = e.content || {};
         return {
