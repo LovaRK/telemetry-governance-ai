@@ -56,11 +56,11 @@ export async function requireContext(
     return unauthorized(traceId, 'Token expired or invalid');
   }
 
-  // Prefer explicit tenant context headers (used by tests and service calls),
-  // but allow browser API calls to derive context directly from verified JWT claims.
-  const tenantId = req.headers.get('x-tenant-id') || payload?.tenantId || null;
-  const userId = req.headers.get('x-user-id') || payload?.sub || null;
-  const role = req.headers.get('x-user-role') || payload?.role || null;
+  // Require explicit context headers — no silent fallback to JWT claims.
+  // Browser clients set these via api-client.ts; SSE clients use requireSSEContext().
+  const tenantId = req.headers.get('x-tenant-id') || null;
+  const userId = req.headers.get('x-user-id') || null;
+  const role = req.headers.get('x-user-role') || null;
 
   if (!tenantId || !userId || !role) {
     return unauthorized(traceId, 'Unauthorized - missing tenant context');
