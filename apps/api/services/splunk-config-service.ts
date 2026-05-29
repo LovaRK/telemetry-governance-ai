@@ -58,7 +58,9 @@ function buildRestAuthHeader(config: SplunkConfig): string | null {
 }
 
 export class SplunkConfigService {
-  constructor(private pool: Pool) {}
+  constructor(private _pool: Pool) {}
+
+  get pool(): Pool { return this._pool; }
 
   async testSplunkConnection(config: SplunkConfig): Promise<SplunkTestResult> {
     const errors: string[] = [];
@@ -115,7 +117,7 @@ export class SplunkConfigService {
       actor_type?: 'human' | 'agent' | 'service';
     }
   ): Promise<TenantSplunkStatus> {
-    const pool = client || this.pool;
+    const pool = client || this._pool;
     try {
       // SECURITY: Validate URLs against environment restrictions (Layer 1 & 2)
       const urlValidation = environmentValidator.validateAllSplunkUrls(
@@ -305,7 +307,7 @@ export class SplunkConfigService {
     testResult: SplunkTestResult,
     client?: PoolClient
   ): Promise<void> {
-    const pool = client || this.pool;
+    const pool = client || this._pool;
     await pool.query(
       `UPDATE tenants SET
         last_splunk_test = NOW(),
@@ -319,7 +321,7 @@ export class SplunkConfigService {
   }
 
   async getSplunkConfig(tenant_id: string): Promise<SplunkConfig | null> {
-    const result = await this.pool.query(
+    const result = await this._pool.query(
       `SELECT splunk_url, splunk_api_url, splunk_hec_url, splunk_mcp_url,
               splunk_hec_token, splunk_username, splunk_password, splunk_ssl_verify,
               splunk_rest_auth_type, splunk_rest_auth_secret, splunk_rest_auth_secret_version
@@ -356,7 +358,7 @@ export class SplunkConfigService {
   }
 
   async getSplunkStatus(tenant_id: string): Promise<TenantSplunkStatus | null> {
-    const result = await this.pool.query(
+    const result = await this._pool.query(
       `SELECT id, is_configured, last_splunk_test, splunk_test_status, splunk_test_error
        FROM tenants WHERE id = $1`,
       [tenant_id]

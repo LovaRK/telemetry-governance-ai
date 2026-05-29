@@ -172,8 +172,13 @@ export const GET = createRoute(async (request: NextRequest) => {
       ? 'RUNTIME'
       : null;
 
+  // READY only when the pointer references a SUCCEEDED run that has data.
+  // A failed refresh attempt does not invalidate an existing published snapshot;
+  // but if the pointer itself points to a failed run, the snapshot is not READY.
   const snapshotStatus: SnapshotStatus =
-    runRow?.status === 'FAILED'
+    (hasData || hasKpis) && latestRun?.status === 'SUCCEEDED'
+      ? 'READY'
+      : runRow?.status === 'FAILED'
       ? 'FAILED'
       : (hasData || hasKpis)
       ? 'READY'

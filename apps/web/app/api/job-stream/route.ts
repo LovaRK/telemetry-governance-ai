@@ -128,7 +128,7 @@ export const POST = createRoute(async (request: NextRequest) => {
     console.log('[POST /api/job-stream] Job enqueued:', jobId);
 
     return {
-      data: { jobId },
+      data: { jobId, runId },
       meta: { source: 'system' },
     };
   } catch (err) {
