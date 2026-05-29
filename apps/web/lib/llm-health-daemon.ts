@@ -63,6 +63,17 @@ async function ensureSchema(): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Migrate existing tables that were created by an older schema (migration 132)
+  // which lacked the last_health_id and statistics columns.
+  await query(`
+    ALTER TABLE llm_health_cache
+      ADD COLUMN IF NOT EXISTS last_health_id UUID,
+      ADD COLUMN IF NOT EXISTS last_successful_poll_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS total_polls BIGINT NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS successful_polls BIGINT NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS failed_polls BIGINT NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  `);
   await query(`
     DO $$
     BEGIN

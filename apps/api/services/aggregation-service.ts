@@ -35,7 +35,6 @@ import { enqueueJob } from './job-service';
 import { applyGuardrailsToBatch } from './llm-output-guardrails';
 import { buildSnapshotHash, buildSourceHash } from './pipeline-hash-service';
 import { v4 as uuidv4 } from 'uuid';
-import crypto from 'crypto';
 
 export interface FastAggregationResult {
   snapshotId: string;
