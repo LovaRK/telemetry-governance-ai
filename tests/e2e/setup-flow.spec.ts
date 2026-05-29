@@ -2,8 +2,10 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Setup Flow - Connect & Refresh', () => {
   test('should progress from setup page to dashboard after Splunk connection', async ({ page, context }) => {
-    // Step 1: Clear all browser state
+    // Step 1: Clear all browser state (cookies + localStorage so no stale JWT redirects)
     await context.clearCookies();
+    await page.goto('http://localhost:3002/login');
+    await page.evaluate(() => localStorage.clear());
 
     // Step 2: Login
     await page.goto('http://localhost:3002/login');
@@ -33,7 +35,10 @@ test.describe('Setup Flow - Connect & Refresh', () => {
     // Wait a bit more for content to render
     await page.waitForTimeout(1000);
 
-    const setupForm = page.locator('input[placeholder*="Splunk URL"]');
+    // The true setup screen uses the specific placeholder "(managed in Settings)".
+    // The dashboard's compact connection bar also has a shorter "Splunk URL" input —
+    // we must NOT mistake that for the first-run setup form.
+    const setupForm = page.locator('input[placeholder="Splunk URL (managed in Settings)"]');
     const dashboardTab = page.locator('button:has-text("Executive Overview")');
 
     const setupVisible = await setupForm.isVisible().catch(() => false);
@@ -72,10 +77,18 @@ test.describe('Setup Flow - Connect & Refresh', () => {
         }
       });
 
-      // Fill Splunk credentials
+      // Fill Splunk credentials — select basic auth first in case config loaded a different type
       await page.fill('input[placeholder*="Splunk URL"]', 'https://144.202.48.85:8089');
-      await page.fill('input[placeholder="Username"]', 'ram');
-      await page.fill('input[placeholder="Password"]', 'Rama@1988');
+      const authSelect = page.locator('select').filter({ hasText: /basic/i }).first();
+      if (await authSelect.isVisible()) {
+        await authSelect.selectOption('basic');
+      }
+      // Setup screen uses placeholder="Username"; dashboard edit form uses placeholder="User"
+      const usernameInput = page.locator('input[placeholder="Username"], input[placeholder="User"]').first();
+      await usernameInput.waitFor({ state: 'visible', timeout: 10000 });
+      await usernameInput.fill('ram');
+      const passwordInput = page.locator('input[placeholder="Password"], input[placeholder="Pass"]').first();
+      await passwordInput.fill('Rama@1988');
 
       // Click Connect & Refresh
       await page.click('button:has-text("Connect & Refresh")');
@@ -113,8 +126,8 @@ test.describe('Setup Flow - Connect & Refresh', () => {
     const currentUrl = page.url();
     expect(currentUrl).not.toContain('setup');
 
-    // Setup form must NOT be visible anymore
-    const setupFormAfterConnect = page.locator('input[placeholder*="Splunk URL"]');
+    // The first-run setup screen must NOT be visible anymore
+    const setupFormAfterConnect = page.locator('input[placeholder="Splunk URL (managed in Settings)"]');
     await expect(setupFormAfterConnect).not.toBeVisible({ timeout: 5000 });
 
     // Step 8: Verify we've reached the dashboard page (not stuck on setup)

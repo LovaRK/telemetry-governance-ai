@@ -2,7 +2,7 @@ import { query } from '../../core/database/connection';
 import { loginAndGetToken, authPost, authGet } from './_helpers';
 import './setup';
 
-const SEEDED_TENANT_ID = 'e84f31d3-d285-46a1-a0d0-2f64698cd0df';
+const SEEDED_TENANT_ID = process.env.TEST_TENANT_ID || '6a917e40-329c-4702-ac27-c3af8978365a';
 
 describe('Contract: Governance Mutations (Phase 7)', () => {
   let token: string;
