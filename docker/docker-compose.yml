@@ -75,5 +75,26 @@ services:
       retries: ${HEALTH_CHECK_RETRIES:-5}
       start_period: 15s
 
+  splunk-mock:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mock
+    ports:
+      - "${MOCK_SPLUNK_PORT:-18089}:18089"
+    environment:
+      - APP_ENV=sandbox
+      - ALLOW_SYNTHETIC_DATA=true
+      - MOCK_PORT=18089
+      - NODE_ENV=development
+    profiles:
+      - sandbox
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:18089/services/server/info >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
 volumes:
   postgres_data:

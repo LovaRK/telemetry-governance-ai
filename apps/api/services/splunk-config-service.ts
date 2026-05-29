@@ -3,6 +3,13 @@ import fetch from 'node-fetch';
 import https from 'https';
 import { encryptSecret, decryptSecret } from '../../../core/security/secret-manager';
 import { environmentValidator } from '../../../core/security/environment-validator';
+import { governanceEngine, Decision, GovernanceDecision } from '../../../core/governance/engine';
+import { isGovernanceEnforcing, isGovernanceActive } from '../../../core/governance/governance-mode';
+import {
+  recordClassifiedMismatch,
+  recordShadowConsensusMatch,
+  MismatchType
+} from '../../../core/governance/governance-metrics';
 
 export interface SplunkConfig {
   url?: string;
@@ -99,7 +106,14 @@ export class SplunkConfigService {
   async saveSplunkConfig(
     tenant_id: string,
     config: SplunkConfig,
-    client?: PoolClient
+    client?: PoolClient,
+    requestContext?: {
+      trace_id?: string;
+      correlation_id?: string;
+      causation_id?: string;
+      actor_id?: string;
+      actor_type?: 'human' | 'agent' | 'service';
+    }
   ): Promise<TenantSplunkStatus> {
     const pool = client || this.pool;
     try {
@@ -116,6 +130,112 @@ export class SplunkConfigService {
         throw error;
       }
 
+      // PHASE 2A: Governance evaluation (mode-controlled)
+      // Shadow mode: RGE in parallel with old validator (observational)
+      // Enforcing mode: RGE authoritative (fail-closed)
+      // Disabled mode: No governance evaluation
+      let rgeDecision: GovernanceDecision | null = null;
+      try {
+        if (isGovernanceActive() && requestContext?.trace_id && requestContext?.correlation_id) {
+          rgeDecision = governanceEngine.evaluate({
+            action: 'SAVE_SPLUNK_CONFIG',
+            actor_id: requestContext.actor_id || tenant_id,
+            actor_type: requestContext.actor_type || 'human',
+            resource: `splunk:config:${config.apiUrl || config.url || 'unknown'}:8089`,
+            trace_id: requestContext.trace_id,
+            correlation_id: requestContext.correlation_id,
+            causation_id: requestContext.causation_id,
+            policy_snapshot_hash: 'policy-v1-phase-2a'
+          });
+
+          // Determine if there's a mismatch between RGE and old validator
+          const rgeDecisionStr = String(rgeDecision.decision);
+          const oldValidatorDecisionStr = urlValidation.valid ? 'ALLOW' : 'DENY';
+          const hasMismatch = rgeDecisionStr !== oldValidatorDecisionStr;
+
+          // Log RGE decision with semantic observability (not just boolean comparison)
+          console.log('[GOVERNANCE_DECISION]', {
+            trace_id: requestContext.trace_id,
+            correlation_id: requestContext.correlation_id,
+
+            // RGE decision (semantic detail for mismatch debugging)
+            rge_decision: rgeDecisionStr,
+            rge_risk_level: rgeDecision.risk_level,
+            rge_matched_policies: rgeDecision.matched_policy_ids,
+            rge_enforcement_mode: rgeDecision.enforcement_mode,
+            rge_reasons: rgeDecision.reasons,
+
+            // Old validator (for comparison)
+            old_validator_decision: oldValidatorDecisionStr,
+            old_validator_reasons: urlValidation.reasons,
+
+            // Input identity (for forensic grouping and replay)
+            input_fingerprint: rgeDecision.input_fingerprint,
+            normalized_resource: rgeDecision.resource,
+
+            // Mismatch detection (semantic)
+            mismatch: hasMismatch,
+
+            // Environment context
+            environment: governanceEngine.getEnvironment(),
+            actor_id: rgeDecision.actor_id,
+            action: rgeDecision.action,
+
+            // Metadata
+            decision_id: rgeDecision.decision_id,
+            created_at: rgeDecision.created_at
+          });
+
+          // Record mismatch or consensus for metrics
+          // CRITICAL: This enables shadow_consensus_rate calculation
+          if (hasMismatch) {
+            // Classify the mismatch type (for sophisticated debugging)
+            // Phase 2A: Only policy/environment mismatches possible
+            const mismatchType = rgeDecision.risk_level === 'CRITICAL'
+              ? MismatchType.ENVIRONMENT  // Environment isolation is critical in Phase 2A
+              : MismatchType.POLICY;      // Shouldn't happen in Phase 2A, but categorize if it does
+
+            recordClassifiedMismatch(
+              mismatchType,
+              rgeDecisionStr,
+              oldValidatorDecisionStr,
+              governanceEngine.getEnvironment()
+            );
+          } else {
+            // Decisions match: record consensus
+            recordShadowConsensusMatch(governanceEngine.getEnvironment());
+          }
+
+          // Enforcement: Controlled by GovernanceMode (not commented code)
+          if (isGovernanceEnforcing() && rgeDecision.decision === Decision.DENY) {
+            // Enforcing mode: RGE DENY blocks execution (fail-closed)
+            throw new Error(
+              `[GOVERNANCE_DENIED] ${rgeDecision.reasons.join('; ')} ` +
+              `(decision_id: ${rgeDecision.decision_id}, risk_level: ${rgeDecision.risk_level})`
+            );
+          }
+          // Shadow mode: RGE DENY is logged but does not block (observational)
+        }
+      } catch (rgeError) {
+        // RGE evaluation failed
+        if (isGovernanceEnforcing()) {
+          // Enforcing mode: RGE failure is fail-closed (block execution)
+          throw new Error(
+            `[GOVERNANCE_EVALUATION_FAILED] ${(rgeError as Error).message} ` +
+            `(fail-closed: governance unavailable)`
+          );
+        } else {
+          // Shadow/disabled mode: Log error but don't block
+          console.error('[GOVERNANCE_EVALUATION_ERROR]', {
+            error: (rgeError as Error).message,
+            trace_id: requestContext?.trace_id,
+            mode: isGovernanceEnforcing() ? 'ENFORCING' : 'SHADOW',
+            timestamp: new Date().toISOString()
+          });
+          // Continue executing - don't fail on RGE errors in shadow mode
+        }
+      }
+
       // Log approved URLs for audit trail (TEST 2.2)
       console.log('[SPLUNK_CONFIG_SAVE]', {
         tenant_id,
@@ -123,6 +243,8 @@ export class SplunkConfigService {
         apiUrl: config.apiUrl || config.url,
         hecUrl: config.hecUrl || config.url,
         mcpUrl: config.mcpUrl,
+        trace_id: requestContext?.trace_id,
+        rge_decision: rgeDecision?.decision,
         timestamp: new Date().toISOString(),
       });
 

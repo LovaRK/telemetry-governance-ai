@@ -257,9 +257,13 @@ export class SplunkClient {
    * This reflects fresh writes better than currentDBSize-based approximation.
    */
   private async getRecentDailyIngestGbByIndex(): Promise<Map<string, number>> {
+    // Phase 13: tstats audit — license_usage.log lives in _internal and has no CIM data model,
+    // so raw SPL is the correct last-resort per the tstats hierarchy (tstats→metadata→mstats→raw).
+    // Time bounds (earliest=-24h latest=now()) + | head 1000 circuit breaker are mandatory.
     const spl = `search index=_internal source=*license_usage.log type=Usage earliest=-24h latest=now()
 | eval index=coalesce(idx, index)
 | where isnotnull(index) AND index!="_internal"
+| head 1000
 | stats sum(b) as bytes by index`;
 
     const rows = await this.runSearchJob(spl);

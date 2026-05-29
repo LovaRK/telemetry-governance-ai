@@ -13,6 +13,7 @@
 
 import { SplunkClient } from './splunk-client';
 import type { UtilizationInputs, DetectionInputs, QualityInputs } from './deterministic-scoring-engine';
+import { auditSplQuery } from './parser-confidence-service';
 
 export interface FieldUsageResult {
   sourcetype: string;
@@ -172,33 +173,87 @@ export async function querySavedSearchInventory(
  */
 export async function queryParsingErrors(
   splunk: SplunkClient,
-  lookbackDays: number = 7
+  lookbackDays: number = 7,
+  tenantId?: string,
 ): Promise<Map<string, number>> {
   const result = new Map<string, number>();
 
-  // SPL: scan _internal for CRIPPLEDness / parsing issues grouped by sourcetype
-  // We use the log_level=WARN component=DateParser or component=LineBreaker pattern
-  const spl = `search index=_internal sourcetype=splunkd (component=DateParserVerbose OR component=DateParser OR component=LineBreaker OR component=TRANSFORMS) log_level=WARN earliest=-${lookbackDays}d
+  // MIGRATION NOTE: Previously used raw `search index=_internal` which collapses
+  // at enterprise scale (O(N) full scan). Now uses tstats with summariesonly=true
+  // to leverage accelerated data model summaries.
+  //
+  // tstats approach: pull component-level counts from the _internal data model.
+  // Falls back to raw SPL only if tstats returns zero results (data model not built yet).
+  //
+  // Anti-pattern eliminated:
+  //   BEFORE: search index=_internal sourcetype=splunkd ... (unbounded raw scan)
+  //   AFTER:  tstats summariesonly=true ... (data model accelerated)
+
+  // Primary: tstats against the InternalLogs data model (available in Splunk 8.0+)
+  const tsstatsSpl = `| tstats summariesonly=true
+    count AS event_count
+    WHERE index=_internal
+      sourcetype=splunkd
+      (component=DateParserVerbose OR component=DateParser OR component=LineBreaker OR component=TRANSFORMS)
+      earliest=-${lookbackDays}d
+      latest=now
+    BY index, sourcetype, component
+  | eval weight=if(component="DateParserVerbose", 0.5, 1.0)
+  | eval weighted_issues=event_count*weight
+  | stats sum(weighted_issues) AS weighted_issues BY index, sourcetype
+  | rename index AS idx, sourcetype AS st
+  | where isnotnull(idx) AND isnotnull(st)
+  | head 1000`;
+
+  // Fallback: raw SPL with explicit time bounds and head circuit breaker
+  // Used when tstats returns empty (data model not yet accelerated)
+  const fallbackSpl = `search index=_internal sourcetype=splunkd
+    (component=DateParserVerbose OR component=DateParser OR component=LineBreaker OR component=TRANSFORMS)
+    log_level=WARN
+    earliest=-${lookbackDays}d
+    latest=now
   | rex field=message "for sourcetype='(?<st>[^']+)'"
   | rex field=message "in source='[^']*index=(?<idx>[^'\\s]+)'"
   | eval weight=if(component="DateParserVerbose", 0.5, 1.0)
   | stats sum(weight) AS weighted_issues by idx, st
-  | where isnotnull(idx) AND isnotnull(st)`;
+  | where isnotnull(idx) AND isnotnull(st)
+  | head 1000`;
 
-  try {
-    const rows: Array<{ idx: string; st: string; weighted_issues: string }> =
-      await (splunk as any).runSearch(spl, { earliestTime: `-${lookbackDays}d`, latestTime: 'now' });
+  const tryQuery = async (spl: string, label: string): Promise<boolean> => {
+    try {
+      const rows: Array<{ idx: string; st: string; weighted_issues: string }> =
+        await (splunk as any).runSearch(spl, { earliestTime: `-${lookbackDays}d`, latestTime: 'now' });
 
-    if (Array.isArray(rows)) {
-      for (const row of rows) {
-        const key = `${row.idx}::${row.st}`;
-        result.set(key, parseFloat(row.weighted_issues) || 0);
+      if (Array.isArray(rows) && rows.length > 0) {
+        for (const row of rows) {
+          const key = `${row.idx}::${row.st}`;
+          result.set(key, parseFloat(row.weighted_issues) || 0);
+        }
+        console.log(`[ParsingErrors:${label}] Found ${result.size} sourcetypes with parsing issues (lookback=${lookbackDays}d)`);
+        return true;
       }
+      return false;
+    } catch (e) {
+      console.warn(`[ParsingErrors:${label}] Query failed:`, (e as Error).message);
+      return false;
     }
-    console.log(`[ParsingErrors] Found ${result.size} sourcetypes with parsing issues (lookback=${lookbackDays}d)`);
-  } catch (e) {
-    console.warn('[ParsingErrors] Query failed — quality scores default to 100:', (e as Error).message);
-    // Return empty map → buildQualityInputs defaults to weightedIssues=0 → quality=100
+  };
+
+  // Try tstats first; fall back to raw SPL if needed
+  const tsstatsSuccess = await tryQuery(tsstatsSpl, 'tstats');
+  const activeSpl = tsstatsSuccess ? tsstatsSpl : fallbackSpl;
+  if (!tsstatsSuccess) {
+    await tryQuery(fallbackSpl, 'raw_fallback');
+    if (result.size === 0) {
+      console.warn('[ParsingErrors] Both tstats and raw SPL returned no results — quality scores default to 100');
+    }
+  }
+
+  // ── Phase 9: Emit parser confidence audit record (fire-and-forget) ──
+  if (tenantId) {
+    void auditSplQuery(tenantId, activeSpl, {
+      indexName: '_internal',
+    }).catch(err => console.warn('[queryParsingErrors] Parser confidence audit failed:', err));
   }
 
   return result;

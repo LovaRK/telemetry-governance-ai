@@ -15,6 +15,7 @@ import { loadUserConfig } from '../apps/api/services/config-service';
 import { pool, query, transaction } from '../core/database/connection';
 import { ModelGovernanceService, RuntimeFingerprint } from '../apps/api/services/model-governance-service';
 import { appendStageEvent, markRunFailed, publishRunAtomic, setRunExecutionMetrics } from '../apps/api/services/pipeline-ledger-service';
+import { startSelfObservability, stopSelfObservability } from '../apps/api/services/governance-self-observability';
 
 const POLL_INTERVAL_MS = parseInt(process.env.WORKER_POLL_INTERVAL_MS || '5000', 10);
 const BATCH_SIZE = 1; // One index at a time — local Ollama memory constraint
@@ -940,6 +941,9 @@ async function main() {
   console.log('[Worker] Starting. Polling job_queue every', POLL_INTERVAL_MS, 'ms');
   console.log('[Worker] OLLAMA_BASE_URL:', process.env.OLLAMA_BASE_URL || 'http://localhost:11434');
 
+  // Phase 13: Start governance self-observability collector (5-minute window)
+  startSelfObservability(5 * 60_000);
+
   // Validate schema contract on startup
   try {
     await validateSchemaContract();
@@ -1014,6 +1018,7 @@ main().catch(err => {
 
 const shutdown = async () => {
   try {
+    stopSelfObservability();    // Phase 13: stop observability collector before exit
     await governanceService.shutdown();
   } catch (e) {
     console.error('[Worker] Governance shutdown warning:', e);

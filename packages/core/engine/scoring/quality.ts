@@ -6,6 +6,9 @@
 
 import type { QualityInputs } from '../types';
 
+/** Scoring sub-module version. Matches SCORING_VERSION in composite.ts. */
+export const SCORING_VERSION = '1.0';
+
 export function computeQualityScore(inp: QualityInputs): number {
   if (inp.dailyGb <= 0) return 100;
 

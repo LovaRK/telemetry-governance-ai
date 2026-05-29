@@ -28,6 +28,9 @@ import { recordDriftEvent, recordCleanSnapshot } from './confidence-recovery-ser
 import { getRiskWeightedSamplingService } from './risk-weighted-sampling-service';
 import { enqueueReanalysisJob } from './reanalysis-budget-service';
 import { query, transaction } from '../../../core/database/connection';
+import * as crypto from 'crypto';
+import { SCORING_VERSION } from '../../../packages/core/engine/scoring/composite';
+import { applyMinimumActivityGate } from '../../../packages/core/engine/scoring/composite';
 import { enqueueJob } from './job-service';
 import { applyGuardrailsToBatch } from './llm-output-guardrails';
 import { buildSnapshotHash, buildSourceHash } from './pipeline-hash-service';
@@ -571,6 +574,66 @@ export async function runAggregation(
 }
 
 // Sanitize decision fields: ensure all numeric fields are actual numbers (not strings)
+/**
+ * Compute a deterministic SHA256 hash for a telemetry snapshot.
+ * Used to implement the immutability chain:
+ *   snapshot_hash = SHA256(canonical_fields)
+ *   previous_snapshot_hash = snapshot_hash of prior row for same index
+ *
+ * The hash covers the fields that define the snapshot's "identity":
+ * scores, tier, scoring version, and the index. NOT timestamps.
+ */
+function computeSnapshotHash(fields: {
+  index_name: string;
+  utilization_score: number;
+  detection_score: number;
+  quality_score: number;
+  composite_score: number;
+  scoring_version: string;
+  scoring_profile: string;
+  pipeline_run_id: string;
+}): string {
+  const canonical = {
+    composite_score: fields.composite_score,
+    detection_score: fields.detection_score,
+    index_name: fields.index_name,
+    pipeline_run_id: fields.pipeline_run_id,
+    quality_score: fields.quality_score,
+    scoring_profile: fields.scoring_profile,
+    scoring_version: fields.scoring_version,
+    utilization_score: fields.utilization_score,
+  };
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(canonical, Object.keys(canonical).sort()))
+    .digest('hex');
+}
+
+/**
+ * Get the most recent snapshot_hash for an index (for chain linking).
+ * Returns null if no prior snapshot exists.
+ */
+async function getPreviousSnapshotHash(
+  client: PoolClient,
+  indexName: string,
+  sourcetype: string | null
+): Promise<string | null> {
+  try {
+    const result = await client.query<{ snapshot_hash: string }>(
+      `SELECT snapshot_hash FROM telemetry_snapshots
+       WHERE index_name = $1 AND (sourcetype = $2 OR ($2 IS NULL AND sourcetype IS NULL))
+         AND snapshot_hash IS NOT NULL
+       ORDER BY snapshot_date DESC, updated_at DESC
+       LIMIT 1`,
+      [indexName, sourcetype]
+    );
+    return result.rows[0]?.snapshot_hash ?? null;
+  } catch {
+    // Non-critical: chain linking failure doesn't block snapshot persistence
+    return null;
+  }
+}
+
 function sanitizeDecision(d: LLMDecision): any {
   const confidenceMap: Record<string, number> = { 'HIGH': 0.9, 'MEDIUM': 0.5, 'LOW': 0.3 };
   return {
@@ -609,6 +672,30 @@ async function upsertDecision(
     S3_CANDIDATE: 'ARCHIVE',
   };
 
+  // Apply minimum activity gate (prevents "clean but useless" data escaping Low-Value tier)
+  const { gated: minimum_activity_gated } = applyMinimumActivityGate(
+    clean.compositeScore,
+    clean.utilizationScore,
+    clean.detectionScore
+  );
+
+  // Compute immutability chain
+  const previous_snapshot_hash = await getPreviousSnapshotHash(
+    client,
+    clean.index,
+    clean.sourcetype || null
+  );
+  const snapshot_hash = computeSnapshotHash({
+    index_name: clean.index,
+    utilization_score: clean.utilizationScore,
+    detection_score: clean.detectionScore,
+    quality_score: clean.qualityScore,
+    composite_score: clean.compositeScore,
+    scoring_version: SCORING_VERSION,
+    scoring_profile: 'balanced',  // TODO Phase 6: read from active profile
+    pipeline_run_id: snapshotId,
+  });
+
   await client.query(
     `
     INSERT INTO telemetry_snapshots (
@@ -616,21 +703,33 @@ async function upsertDecision(
       total_events, daily_avg_gb, retention_days,
       utilization_pct, cost_per_year, risk_score,
       classification, confidence, recommendation, evidence,
-      raw_metadata
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      raw_metadata,
+      scoring_version, scoring_profile, minimum_activity_gated,
+      weight_utilization, weight_detection, weight_quality,
+      snapshot_hash, previous_snapshot_hash
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+              $18,$19,$20,$21,$22,$23,$24,$25)
     ON CONFLICT (snapshot_date, granularity, index_name, sourcetype) DO UPDATE SET
-      snapshot_id     = EXCLUDED.snapshot_id,
-      total_events    = EXCLUDED.total_events,
-      daily_avg_gb    = EXCLUDED.daily_avg_gb,
-      retention_days  = EXCLUDED.retention_days,
-      cost_per_year   = EXCLUDED.cost_per_year,
-      risk_score      = EXCLUDED.risk_score,
-      classification  = EXCLUDED.classification,
-      confidence      = EXCLUDED.confidence,
-      recommendation  = EXCLUDED.recommendation,
-      evidence        = EXCLUDED.evidence,
-      raw_metadata    = EXCLUDED.raw_metadata,
-      updated_at      = NOW()
+      snapshot_id              = EXCLUDED.snapshot_id,
+      total_events             = EXCLUDED.total_events,
+      daily_avg_gb             = EXCLUDED.daily_avg_gb,
+      retention_days           = EXCLUDED.retention_days,
+      cost_per_year            = EXCLUDED.cost_per_year,
+      risk_score               = EXCLUDED.risk_score,
+      classification           = EXCLUDED.classification,
+      confidence               = EXCLUDED.confidence,
+      recommendation           = EXCLUDED.recommendation,
+      evidence                 = EXCLUDED.evidence,
+      raw_metadata             = EXCLUDED.raw_metadata,
+      scoring_version          = EXCLUDED.scoring_version,
+      scoring_profile          = EXCLUDED.scoring_profile,
+      minimum_activity_gated   = EXCLUDED.minimum_activity_gated,
+      weight_utilization       = EXCLUDED.weight_utilization,
+      weight_detection         = EXCLUDED.weight_detection,
+      weight_quality           = EXCLUDED.weight_quality,
+      snapshot_hash            = EXCLUDED.snapshot_hash,
+      previous_snapshot_hash   = EXCLUDED.previous_snapshot_hash,
+      updated_at               = NOW()
     `,
     [
       snapshotId,
@@ -669,6 +768,15 @@ async function upsertDecision(
         reasoning: clean.reasoning,
         agentDecision: true,
       }),
+      // Scoring version fields (Phase 2)
+      SCORING_VERSION,
+      'balanced',            // TODO Phase 6: read active profile from scoring_profiles table
+      minimum_activity_gated,
+      0.35,                  // weight_utilization default (matches DEFAULT_WEIGHTS)
+      0.40,                  // weight_detection default
+      0.25,                  // weight_quality default
+      snapshot_hash,
+      previous_snapshot_hash,
     ]
   );
 }
