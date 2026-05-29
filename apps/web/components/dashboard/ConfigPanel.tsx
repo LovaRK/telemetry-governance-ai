@@ -2,7 +2,7 @@
 import { apiFetch } from '../../lib/api-client';
 
 import React, { useState, useEffect } from 'react';
-import type { UserConfig } from '../../app/api/config/route';
+import type { TenantRuntimeConfig as UserConfig } from '../../app/api/config/route';
 
 interface ConfigPanelProps {
   isOpen: boolean;

@@ -65,7 +65,7 @@ class GovernanceObserver {
     stage_transition_ready: false
   };
 
-  private observerInterval: NodeJS.Timer | null = null;
+  private observerInterval: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Start periodic monitoring.

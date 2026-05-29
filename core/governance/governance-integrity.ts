@@ -142,9 +142,9 @@ function evaluateReplayValidation(): GovernanceIntegrityCheck['checks']['replay_
 export function checkGovernanceIntegrity(): GovernanceIntegrityCheck {
   // Import metrics functions at runtime
   // (Deferred import to avoid circular dependencies)
-  let getGovernanceMetric: (name: string, tags?: any) => number;
-  let getShadowConsensusRate: (environment?: 'sandbox' | 'production') => number;
-  let getGovernanceLatencyPercentiles: (name: string, tags?: any) => { p50: number; p95: number; p99: number };
+  let getGovernanceMetric: ((name: string, tags?: any) => number) | undefined = undefined;
+  let getShadowConsensusRate: ((environment?: 'sandbox' | 'production') => number) | undefined = undefined;
+  let getGovernanceLatencyPercentiles: ((name: string, tags?: any) => { p50: number; p95: number; p99: number }) | undefined = undefined;
 
   try {
     const metricsModule = require('./governance-metrics');

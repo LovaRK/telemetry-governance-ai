@@ -10,9 +10,13 @@
 interface MetricTags {
   environment?: 'sandbox' | 'production';
   decision?: string; // ALLOW, DENY, etc.
+  rge_decision?: string;
+  old_validator_decision?: string;
   risk_level?: string; // LOW, MODERATE, HIGH, CRITICAL
   action?: string; // SAVE_SPLUNK_CONFIG, etc.
   mode?: string; // SHADOW, ENFORCING
+  reason?: string;
+  mismatch_type?: string;
 }
 
 /**
