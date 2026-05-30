@@ -6,6 +6,10 @@
  */
 
 import React from 'react';
+import {
+  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  Radar, Legend, ResponsiveContainer, Tooltip,
+} from 'recharts';
 import { TIER_COLORS, ACTION_COLORS, fmt$ } from './utils';
 import { ScoreBar } from './kpi-gauges';
 
@@ -37,6 +41,37 @@ interface TierDistributionProps {
   snapshotDate?: string;
   agentReasoning?: string;
   onTierClick?: (tierKey: string, tierLabel: string, count: number) => void;
+}
+
+/** Build per-tier averages for the radar chart. */
+function buildRadarData(snapshots: Snapshot[]) {
+  const tiers = [
+    { key: 'Critical',     pattern: /critical/i,     color: '#ef4444' },
+    { key: 'Important',    pattern: /important/i,     color: '#f59e0b' },
+    { key: 'Nice-to-Have', pattern: /nice.to.have/i,  color: '#3b82f6' },
+    { key: 'Low-Value',    pattern: /low.value|wasteful/i, color: '#64748b' },
+  ];
+
+  const radarData = [
+    { dimension: 'Utilization' },
+    { dimension: 'Detection' },
+    { dimension: 'Quality' },
+  ] as Array<Record<string, number | string>>;
+
+  tiers.forEach(({ key, pattern }) => {
+    const group = snapshots.filter(s => pattern.test(s.tier));
+    if (group.length === 0) return;
+    const avgU = group.reduce((s, v) => s + (v.utilizationScore || 0), 0) / group.length;
+    const avgD = group.reduce((s, v) => s + (v.detectionScore || 0), 0) / group.length;
+    const avgQ = group.reduce((s, v) => s + (v.qualityScore || 0), 0) / group.length;
+    radarData[0][key] = Math.round(avgU * 10) / 10;
+    radarData[1][key] = Math.round(avgD * 10) / 10;
+    radarData[2][key] = Math.round(avgQ * 10) / 10;
+  });
+
+  // Only return tiers that have data
+  const activeTiers = tiers.filter(({ key }) => radarData[0][key] !== undefined);
+  return { radarData, activeTiers };
 }
 
 export function TierDistribution({
@@ -114,15 +149,53 @@ export function TierDistribution({
         })}
       </div>
 
-      {/* Score Averages */}
+      {/* Score Profile by Tier — Radar Chart */}
       <div style={card}>
         {AIBadge}
-        <div style={cardTitle}>Score Averages</div>
-        <ScoreBar label="Utilization" value={avgUtilization} color="#3b82f6" />
-        <ScoreBar label="Detection Coverage" value={avgDetection} color="#8b5cf6" />
-        <ScoreBar label="Data Quality" value={avgQuality} color="#22c55e" />
-        <ScoreBar label="Confidence" value={avgConfidencePct} color="#f59e0b" />
-        <div style={{ marginTop: '0.75rem', fontSize: '0.7rem', color: '#475569', textAlign: 'right' }}>
+        <div style={cardTitle}>Score Profile by Tier</div>
+        {(() => {
+          const { radarData, activeTiers } = buildRadarData(snapshots);
+          if (activeTiers.length === 0) {
+            return (
+              <>
+                <ScoreBar label="Utilization" value={avgUtilization} color="#3b82f6" />
+                <ScoreBar label="Detection Coverage" value={avgDetection} color="#8b5cf6" />
+                <ScoreBar label="Data Quality" value={avgQuality} color="#22c55e" />
+                <ScoreBar label="Confidence" value={avgConfidencePct} color="#f59e0b" />
+              </>
+            );
+          }
+          return (
+            <ResponsiveContainer width="100%" height={200}>
+              <RadarChart data={radarData} margin={{ top: 4, right: 24, bottom: 4, left: 24 }}>
+                <PolarGrid stroke="#1e293b" />
+                <PolarAngleAxis dataKey="dimension" tick={{ fill: '#64748b', fontSize: 11 }} />
+                <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+                {activeTiers.map(({ key, color }) => (
+                  <Radar
+                    key={key}
+                    name={key}
+                    dataKey={key}
+                    stroke={color}
+                    fill={color}
+                    fillOpacity={0.15}
+                    strokeWidth={2}
+                  />
+                ))}
+                <Tooltip
+                  contentStyle={{ background: '#0f172a', border: '1px solid #334155', fontSize: '0.75rem' }}
+                  formatter={(v: number) => [`${v.toFixed(1)}`, '']}
+                />
+                <Legend
+                  iconType="circle"
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: '0.65rem', paddingTop: '0.25rem' }}
+                />
+              </RadarChart>
+            </ResponsiveContainer>
+          );
+        })()}
+        <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: '#475569', textAlign: 'right' }}>
           Snapshot: {snapshotDate ? new Date(snapshotDate).toLocaleDateString() : '—'}
         </div>
       </div>

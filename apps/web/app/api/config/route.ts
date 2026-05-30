@@ -23,7 +23,7 @@ export interface TenantRuntimeConfig {
 }
 
 const DEFAULTS: TenantRuntimeConfig = {
-  costPerGbPerDay: 0.5,
+  costPerGbPerDay: 10.0,   // $3,650/GB/year ÷ 365 — Splunk Enterprise legacy rate
   maxIndexesPerRun: 1000,
   llmTimeoutMs: 30000,
 };

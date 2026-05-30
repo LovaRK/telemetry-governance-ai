@@ -1,11 +1,15 @@
 'use client';
 
 /**
- * SpendRiskMatrix — D11 Utilization×Detection scatter + D8 Top Indexes by Volume + D12 Archive candidates.
+ * SpendRiskMatrix — D11 Utilization×Detection scatter + D8 Top 6 Sourcetypes Radar + D12 Archive candidates.
  * Pure visualization — receives all data as props, openDrawer callback lifted to parent.
  */
 
 import React from 'react';
+import {
+  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  Radar, Legend, ResponsiveContainer, Tooltip,
+} from 'recharts';
 import { fmt$, fmtGB, ACTION_COLORS, tierColor } from './utils';
 
 interface Snapshot {
@@ -180,33 +184,57 @@ export function SpendRiskMatrix({
           </div>
         </div>
 
-        {/* D8: Top Indexes by Volume */}
+        {/* D8: Top 6 Sourcetypes by Volume — Radar */}
         <div style={card}>
           {FactBadge}
-          <div style={cardTitle}>Top Indexes by Volume</div>
+          <div style={cardTitle}>Top 6 Sourcetypes by Volume</div>
           {top6ByVol.length === 0 ? (
             <div style={{ color: '#475569', fontSize: '0.875rem' }}>No data</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-              {top6ByVol.map((s) => {
-                const pct = (s.dailyAvgGb / maxVol) * 100;
-                const col = tierColor(s.tier);
-                return (
-                  <div key={s.indexName}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.2rem' }}>
-                      <span style={{ color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '62%' }}>
-                        {s.indexName}
-                      </span>
-                      <span style={{ color: col, fontWeight: 600 }}>{fmtGB(s.dailyAvgGb)}/d</span>
-                    </div>
-                    <div style={{ height: 8, background: '#1e293b', borderRadius: 4, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${pct}%`, background: col, borderRadius: 4 }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          ) : (() => {
+            // Build radar data: 3 axes, one polygon per sourcetype
+            const radarData = [
+              { dimension: 'Utilization', ...Object.fromEntries(top6ByVol.map(s => [s.indexName, Math.round(s.utilizationScore * 10) / 10])) },
+              { dimension: 'Detection',   ...Object.fromEntries(top6ByVol.map(s => [s.indexName, Math.round(s.detectionScore * 10) / 10])) },
+              { dimension: 'Quality',     ...Object.fromEntries(top6ByVol.map(s => [s.indexName, Math.round(s.qualityScore * 10) / 10])) },
+            ];
+            // Colours: cycle through tier colours then fallback palette
+            const PALETTE = ['#3b82f6','#f59e0b','#22c55e','#ef4444','#8b5cf6','#06b6d4'];
+            return (
+              <>
+                <ResponsiveContainer width="100%" height={190}>
+                  <RadarChart data={radarData} margin={{ top: 4, right: 20, bottom: 0, left: 20 }}>
+                    <PolarGrid stroke="#1e293b" />
+                    <PolarAngleAxis dataKey="dimension" tick={{ fill: '#64748b', fontSize: 11 }} />
+                    <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+                    {top6ByVol.map((s, i) => {
+                      const col = tierColor(s.tier) || PALETTE[i % PALETTE.length];
+                      const label = s.indexName.length > 14 ? s.indexName.slice(0, 13) + '…' : s.indexName;
+                      return (
+                        <Radar
+                          key={s.indexName}
+                          name={`${label} (${fmtGB(s.dailyAvgGb)}/d)`}
+                          dataKey={s.indexName}
+                          stroke={col}
+                          fill={col}
+                          fillOpacity={0.1}
+                          strokeWidth={2}
+                        />
+                      );
+                    })}
+                    <Tooltip
+                      contentStyle={{ background: '#0f172a', border: '1px solid #334155', fontSize: '0.7rem' }}
+                      formatter={(v: number, name: string) => [`${v.toFixed(1)}`, name]}
+                    />
+                    <Legend
+                      iconType="circle"
+                      iconSize={7}
+                      wrapperStyle={{ fontSize: '0.6rem', paddingTop: '0.15rem' }}
+                    />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </>
+            );
+          })()}
         </div>
       </div>
 
