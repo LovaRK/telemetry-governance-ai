@@ -112,10 +112,12 @@ export const POST = createRoute(async (request: NextRequest) => {
   const patch: Partial<TenantRuntimeConfig> = {};
 
   if (body.costPerGbPerDay !== undefined) {
-    if (typeof body.costPerGbPerDay !== 'number' || body.costPerGbPerDay <= 0) {
-      throw new Error('costPerGbPerDay must be a positive number');
+    const cost = Number(body.costPerGbPerDay);
+    if (!Number.isFinite(cost) || cost < 0.01 || cost > 1000) {
+      // $0.01–$1,000/GB/day = $3.65–$365,000/GB/year — covers all known Splunk contracts
+      throw new Error('costPerGbPerDay must be between 0.01 and 1000');
     }
-    patch.costPerGbPerDay = body.costPerGbPerDay;
+    patch.costPerGbPerDay = cost;
   }
 
   if (body.maxIndexesPerRun !== undefined) {

@@ -392,15 +392,24 @@ function DuplicateCollection({ snapshots }: { snapshots: SnapshotRow[] }) {
 // E7/E8: Security Detection Gaps
 function SecurityGaps({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer?: (data: DrawerData) => void }) {
   const gaps = snapshots.filter((s) => s.detectionGap || s.detectionScore < 50);
+  const avgDetection = snapshots.length > 0
+    ? snapshots.reduce((sum, s) => sum + (s.detectionScore || 0), 0) / snapshots.length
+    : 0;
+  const hasLowDetection = avgDetection < 40;
   const TIER_COLORS: Record<string, string> = {
     Critical: '#ef4444', Important: '#f59e0b', 'Nice-to-Have': '#3b82f6', 'Low Value': '#64748b',
   };
 
   if (gaps.length === 0) {
+    // Distinguish "genuinely great coverage" (avg detection ≥ 60) from
+    // "no MITRE/Lantern mapping for these sourcetypes" (avg detection < 40)
+    const emptyMsg = hasLowDetection
+      ? { icon: '⚠', color: '#f59e0b', text: `No unfired MITRE detections found — avg detection score is ${Math.round(avgDetection)}%. This may indicate no MITRE/Lantern mappings exist for these sourcetypes rather than full coverage.` }
+      : { icon: '✓', color: '#22c55e', text: 'No security detection gaps identified — all mapped detections are active.' };
     return (
-      <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
+      <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: `1px solid ${emptyMsg.color}30` }}>
         <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', fontWeight: 600 }}>Security Detection Gaps</div>
-        <div style={{ color: '#22c55e', fontSize: '0.875rem' }}>✓ No security detection gaps identified</div>
+        <div style={{ color: emptyMsg.color, fontSize: '0.875rem' }}>{emptyMsg.icon} {emptyMsg.text}</div>
       </div>
     );
   }

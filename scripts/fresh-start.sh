@@ -156,15 +156,75 @@ for i in $(seq 1 40); do
   fi
 done
 
-# ─── 6. Final status ─────────────────────────────────────────────
+# ─── 6. Auto-run pipeline twice for demo-ready state ────────────
+# Run 1 establishes the baseline snapshot.
+# Run 2 populates decision_history and drift comparisons.
+if curl -s --max-time 5 http://localhost:3002/api/health | grep -q '"status":"healthy"' 2>/dev/null; then
+  echo "▶ Auto-running pipeline (run 1 of 2)..."
+
+  # Login to get token
+  AUTH=$(curl -s -X POST http://localhost:3002/api/auth/login \
+    -H 'Content-Type: application/json' \
+    -d '{"email":"admin@bitso.com","password":"Admin@12345"}' 2>/dev/null)
+  TOKEN=$(echo "$AUTH" | grep -o '"accessToken":"[^"]*"' | cut -d'"' -f4)
+  TENANT=$(echo "$AUTH" | grep -o '"tenantId":"[^"]*"' | cut -d'"' -f4)
+
+  if [ -n "$TOKEN" ] && [ -n "$TENANT" ]; then
+    # Trigger run 1
+    curl -s -X POST "http://localhost:3002/api/cache" \
+      -H "Authorization: Bearer $TOKEN" -H "x-tenant-id: $TENANT" \
+      -H "x-user-id: admin" -H "x-user-role: admin" \
+      -H "Content-Type: application/json" -d '{"trigger":"fresh-start"}' \
+      > /dev/null 2>&1
+
+    # Wait for run 1 to complete (max 6 min)
+    echo "  Waiting for run 1 to complete (~3-4 min)..."
+    for i in $(seq 1 24); do
+      sleep 15
+      STATUS=$(curl -s "http://localhost:3002/api/cache-status" \
+        -H "Authorization: Bearer $TOKEN" -H "x-tenant-id: $TENANT" \
+        -H "x-user-id: admin" -H "x-user-role: admin" \
+        2>/dev/null | grep -o '"pipelineStatus":"[^"]*"' | cut -d'"' -f4)
+      if [ "$STATUS" = "READY" ] || [ "$STATUS" = "FAILED" ]; then
+        echo "  ✓ Run 1 complete: $STATUS"
+        break
+      fi
+    done
+
+    # Trigger run 2 (populates decision_history with drift comparisons)
+    echo "▶ Auto-running pipeline (run 2 of 2 — populates decision history)..."
+    curl -s -X POST "http://localhost:3002/api/cache" \
+      -H "Authorization: Bearer $TOKEN" -H "x-tenant-id: $TENANT" \
+      -H "x-user-id: admin" -H "x-user-role: admin" \
+      -H "Content-Type: application/json" -d '{"trigger":"fresh-start-2"}' \
+      > /dev/null 2>&1
+
+    echo "  Waiting for run 2 to complete..."
+    for i in $(seq 1 24); do
+      sleep 15
+      STATUS=$(curl -s "http://localhost:3002/api/cache-status" \
+        -H "Authorization: Bearer $TOKEN" -H "x-tenant-id: $TENANT" \
+        -H "x-user-id: admin" -H "x-user-role: admin" \
+        2>/dev/null | grep -o '"pipelineStatus":"[^"]*"' | cut -d'"' -f4)
+      if [ "$STATUS" = "READY" ] || [ "$STATUS" = "FAILED" ]; then
+        echo "  ✓ Run 2 complete: $STATUS"
+        break
+      fi
+    done
+  else
+    echo "  ⚠ Could not get auth token — skip auto-pipeline. Run manually after opening the dashboard."
+  fi
+else
+  echo "  ⚠ Web service not responding — skip auto-pipeline."
+fi
+
+# ─── 7. Final status ─────────────────────────────────────────────
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║  ✓ Fresh start complete                          ║"
+echo "║  ✓ Fresh start complete — dashboard ready        ║"
 echo "║                                                  ║"
-echo "║  Next steps:                                     ║"
-echo "║  1. Open http://localhost:3002                   ║"
-echo "║  2. Click ↺ Refresh to run the pipeline          ║"
-echo "║  3. Wait ~90s for PARTIAL → READY                ║"
+echo "║  Open: http://localhost:3002                     ║"
+echo "║  2 pipeline runs completed — history populated   ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 

@@ -220,12 +220,14 @@ export function ROIPanel({
             metric: 'security_gaps',
             value: securityGaps,
             title: `Security Gaps: ${securityGaps}`,
-            howCalculated: `Security Gaps = Sourcetypes not mapped to MITRE security framework\n\nTotal indexes: ${totalSourcetypes}\nWith security coverage: ${totalSourcetypes - securityGaps}\nGap percentage: ${totalSourcetypes > 0 ? ((securityGaps / totalSourcetypes) * 100).toFixed(1) : 0}%`,
+            howCalculated: `Security Gaps = sourcetypes that have MITRE ATT&CK technique mappings but whose active alert count is < 25% of that potential.\n\nA gap of 0 means either:\n  ✓ All mapped detections are firing (good)\n  ⚠ No MITRE/Lantern mappings found for these sourcetypes\n\nCheck the Detail Analysis page for per-sourcetype detection scores.\nTotal indexes: ${totalSourcetypes} | Avg detection score: ${Math.round(avgDetection ?? 0)}%`,
             llmReasoning: agentReasoning,
             evidence: [
-              `${securityGaps} indexes lack detection coverage`,
-              `Recommendation: Implement detection rules for security-sensitive data`,
-              `Prioritize critical and important tier indexes`,
+              `${securityGaps} indexes have unfired MITRE detection potential`,
+              securityGaps === 0 && avgDetection < 40
+                ? `⚠ Avg detection score ${Math.round(avgDetection ?? 0)}% — low scores may indicate missing MITRE/Lantern sourcetype mappings`
+                : `${totalSourcetypes - securityGaps} of ${totalSourcetypes} indexes have active detections`,
+              `See Detail Analysis → Security Detection Gaps for per-sourcetype breakdown`,
             ],
             confidence: avgConfidencePct,
             rawData: { securityGaps, totalSourcetypes },
@@ -237,12 +239,13 @@ export function ROIPanel({
             metric: 'operational_gaps',
             value: operationalGaps,
             title: `Operational Gaps: ${operationalGaps}`,
-            howCalculated: `Operational Gaps = Sourcetypes not supporting key operational use cases\n\nTotal indexes: ${totalSourcetypes}\nSupporting operations: ${totalSourcetypes - operationalGaps}\nGap percentage: ${totalSourcetypes > 0 ? ((operationalGaps / totalSourcetypes) * 100).toFixed(1) : 0}%`,
+            howCalculated: `Operational Gaps = sourcetypes that have Splunk Lantern use-case mappings but zero active scheduled searches.\n\nA gap of 0 means either:\n  ✓ All Lantern use cases have active coverage (good)\n  ⚠ No Lantern domain mappings found for these sourcetypes\n\nTotal indexes: ${totalSourcetypes}`,
             llmReasoning: agentReasoning,
             evidence: [
-              `${operationalGaps} indexes have operational gaps`,
-              `Recommendation: Review operational requirements and align indexing strategy`,
-              `Consider consolidation where operational overlap exists`,
+              `${operationalGaps} indexes have Lantern use cases with no active coverage`,
+              operationalGaps === 0
+                ? `Operational gap analysis requires Splunk Lantern domain mappings`
+                : `${totalSourcetypes - operationalGaps} of ${totalSourcetypes} indexes have operational coverage`,
             ],
             confidence: avgConfidencePct,
             rawData: { operationalGaps, totalSourcetypes },
