@@ -3,7 +3,8 @@ import { query } from '../../core/database/connection';
 import { authGet, loginAndGetToken } from './_helpers';
 
 describe('Contract: pipeline lifecycle integrity', () => {
-  const tenantId = '550e8400-e29b-41d4-a716-446655449900';
+  const testId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const tenantId = randomUUID();
 
   beforeAll(async () => {
     await query(

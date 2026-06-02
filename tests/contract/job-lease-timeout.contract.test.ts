@@ -1,6 +1,6 @@
 import { query } from '../../core/database/connection';
 import { authGet, loginAndGetToken } from './_helpers';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 function uuidV5From(ns: string, name: string): string {
   const hash = createHash('md5').update(`${ns}:${name}`).digest('hex');
@@ -47,8 +47,8 @@ describe('Contract: job lease timeout ownership', () => {
   });
 
   test('expired running lease is normalized to FAILED/TIMEOUT on status read', async () => {
-    const runId = '11111111-1111-4111-8111-111111111131';
-    const snapshotId = '22222222-2222-4222-8222-222222222232';
+    const runId = randomUUID();
+    const snapshotId = randomUUID();
 
     await query(
       `INSERT INTO pipeline_runs (
@@ -78,10 +78,10 @@ describe('Contract: job lease timeout ownership', () => {
   });
 
   test('status read for tenant A does not recover stale jobs for tenant B', async () => {
-    const runA = '31111111-1111-4111-8111-111111111131';
-    const snapA = '32222222-2222-4222-8222-222222222232';
-    const runB = '41111111-1111-4111-8111-111111111131';
-    const snapB = '42222222-2222-4222-8222-222222222232';
+    const runA = randomUUID();
+    const snapA = randomUUID();
+    const runB = randomUUID();
+    const snapB = randomUUID();
 
     await query(
       `INSERT INTO pipeline_runs (
@@ -136,8 +136,8 @@ describe('Contract: job lease timeout ownership', () => {
   });
 
   test('tenant B stale timeout is recovered only when tenant B queries cache-status', async () => {
-    const runB = '51111111-1111-4111-8111-111111111131';
-    const snapB = '52222222-2222-4222-8222-222222222232';
+    const runB = randomUUID();
+    const snapB = randomUUID();
 
     await query(
       `INSERT INTO pipeline_runs (
