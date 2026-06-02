@@ -242,6 +242,10 @@ describe('Contract: pipeline lifecycle integrity', () => {
     const runId = randomUUID();
     const snapshotId = randomUUID();
 
+    // Ensure clean state: delete any leftover data for this tenant
+    await query(`DELETE FROM pipeline_stage_events WHERE run_id = $1`, [runId]);
+    await query(`DELETE FROM pipeline_runs WHERE run_id = $1`, [runId]);
+
     await query(
       `INSERT INTO pipeline_runs (run_id, snapshot_id, tenant_id, status, published, pipeline_version, model_version, prompt_version, splunk_query_version, started_at)
        VALUES ($1,$2,$3,'RUNNING',true,'v1','m1','p1','q1', NOW() - INTERVAL '10 minutes')`,

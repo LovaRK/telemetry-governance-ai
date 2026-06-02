@@ -106,7 +106,7 @@ describe('Contract: job lease timeout ownership', () => {
       `INSERT INTO job_queue (job_type, snapshot_id, payload, status, progress, snapshot_date, started_at, heartbeat_at, lease_expires_at)
        VALUES
        ('llm_analysis', $1, $2::jsonb, 'running', '{"batch":0,"totalBatches":1,"decisionsWritten":0}', CURRENT_DATE, NOW() - INTERVAL '10 minutes', NOW() - INTERVAL '10 minutes', NOW() - INTERVAL '1 minute'),
-       ('llm_analysis', $3, $4::jsonb, 'running', '{"batch":0,"totalBatches":1,"decisionsWritten":0}', CURRENT_DATE, NOW(), NOW(), NOW() + INTERVAL '10 minutes')`,
+       ('llm_analysis', $3, $4::jsonb, 'running', '{"batch":0,"totalBatches":1,"decisionsWritten":0}', CURRENT_DATE, NOW() - INTERVAL '1 second', NOW() - INTERVAL '1 second', NOW() + INTERVAL '10 minutes')`,
       [
         snapA,
         JSON.stringify({ runId: runA, tenantId, userId: 'u-a', traceId: 't-a', snapshotId: snapA }),
