@@ -249,6 +249,7 @@ export async function recoverStaleJobs(maxAgeMinutes: number = 5, context?: Requ
       FROM affected_runs ar
       WHERE pr.run_id = ar.run_id
         AND pr.status IN ('PENDING','RUNNING')
+        ${hasTenantScope ? `AND pr.tenant_id::text = $2` : ''}
       RETURNING pr.run_id
     ),
     failed_events AS (
