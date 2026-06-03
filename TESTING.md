@@ -13,7 +13,13 @@ The integration and contract test suite uses Jest with the `--runInBand` flag to
 
 ### Why Serial Execution?
 
-The test suite uses a **shared PostgreSQL database instance** for integration testing. Under parallel execution (multiple Jest workers), race conditions can occur:
+**Evidence:**
+- Serial execution (`--runInBand`): 333/333 passing consistently
+- Parallel execution (default): Intermittent failures
+
+**Conclusion:** Parallel execution exposes shared-state test interference.
+
+The test suite uses a **shared PostgreSQL database instance**. Parallel execution (multiple Jest workers) causes test interference through shared state. The exact mechanism remains to be identified, but serial execution eliminates it.
 
 ```
 Scenario: Parallel execution with shared database
