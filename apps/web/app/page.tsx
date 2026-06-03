@@ -1291,13 +1291,13 @@ function Home() {
                   <ModelHealthMonitor />
                 </div>
                 <div>
-                  <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '1rem' }}>Queue Health</h3>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '1rem' }}>Pipeline Telemetry</h3>
                   <QueueHealthMetrics />
                 </div>
-                <div>
-                  <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '1rem' }}>Decision Review Queue</h3>
-                  <DecisionReviewQueue />
-                </div>
+                {/* HIDDEN: Decision Review Queue pending verification
+                    Needs: workflow validation, backing table identification, trigger documentation.
+                    Show: only after verification that this is production-ready.
+                */}
               </div>
             )}
           </>

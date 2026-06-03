@@ -299,13 +299,13 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '0.25rem' }}>Savings Potential</div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '1.5rem' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: kpis.securityGaps > 0 ? '#ef4444' : '#22c55e' }}>{kpis.securityGaps}</div>
-            <div style={{ fontSize: '0.6rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sec. Gaps</div>
+          <div style={{ textAlign: 'center', padding: '0.5rem 0.75rem', background: '#1e1b4b20', border: '1px solid #4f46e520', borderRadius: 6 }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#a78bfa', textTransform: 'uppercase' }}>Not Calculated</div>
+            <div style={{ fontSize: '0.6rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '0.25rem' }}>Sec. Gaps</div>
           </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: kpis.operationalGaps > 0 ? '#f59e0b' : '#22c55e' }}>{kpis.operationalGaps}</div>
-            <div style={{ fontSize: '0.6rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Ops Gaps</div>
+          <div style={{ textAlign: 'center', padding: '0.5rem 0.75rem', background: '#1e1b4b20', border: '1px solid #4f46e520', borderRadius: 6 }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#a78bfa', textTransform: 'uppercase' }}>Not Calculated</div>
+            <div style={{ fontSize: '0.6rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '0.25rem' }}>Ops Gaps</div>
           </div>
         </div>
       </div>
@@ -611,142 +611,9 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#f8fafc' }}>{fmtGB(kpis.totalDailyGb)}</div>
           <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>{kpis.totalSourcetypes} sourcetypes</div>
         </div>
-        <div style={{ ...card({ borderLeft: '4px solid #f59e0b' }), position: 'relative' }}>
-          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
-          <div style={cardTitle}>Coverage Gaps</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem', alignItems: 'start' }}>
-            <div>
-              <div style={{ cursor: 'pointer', marginBottom: '0.5rem' }} onClick={() => openDrawer({
-                isOpen: true,
-                metric: 'security_gaps',
-                value: kpis.securityGaps,
-                title: `Security Gaps: ${kpis.securityGaps}`,
-                howCalculated: `Security Gaps = Sourcetypes not mapped to MITRE security framework\n\nTotal indexes: ${kpis.totalSourcetypes}\nWith security coverage: ${kpis.totalSourcetypes - kpis.securityGaps}\nGap percentage: ${kpis.totalSourcetypes > 0 ? ((kpis.securityGaps / kpis.totalSourcetypes) * 100).toFixed(1) : 0}%`,
-                llmReasoning: agentReasoning,
-                evidence: [
-                  `${kpis.securityGaps} indexes lack detection coverage`,
-                  `Recommendation: Implement detection rules for security-sensitive data`,
-                  `Prioritize critical and important tier indexes`,
-                ],
-                confidence: avgConfidencePct,
-                rawData: {
-                  securityGaps: kpis.securityGaps,
-                  totalSourcetypes: kpis.totalSourcetypes,
-                },
-              })}>
-                <MiniGauge value={kpis.securityGaps} max={Math.max(kpis.totalSourcetypes, 1)} label="Security" color="#ef4444" />
-              </div>
-              <button
-                onClick={() => setOpenFormulaModal('security_gaps')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#64748b',
-                  cursor: 'pointer',
-                  fontSize: '0.75rem',
-                  padding: '0 0.25rem',
-                }}
-                title="View formula"
-              >
-                ⓘ Formula
-              </button>
-              <ProvenanceBadge
-                source="executive_kpis"
-                generatedAt={snapshotDate}
-                pipelineRunId={summary.runId}
-                classification="REAL"
-              />
-              <FormulaBreakdownModal
-                isOpen={openFormulaModal === 'security_gaps'}
-                metricName="Security Gaps"
-                formula="COUNT(sourcetype WHERE mitre_coverage = 0)"
-                components={[
-                  { label: 'Total Sourcetypes', value: kpis.totalSourcetypes },
-                  { label: 'With Coverage', value: kpis.totalSourcetypes - kpis.securityGaps },
-                ]}
-                result={kpis.securityGaps.toString()}
-                unit="gaps"
-                onClose={() => setOpenFormulaModal(null)}
-              />
-            </div>
-            <div>
-              <div style={{ cursor: 'pointer', marginBottom: '0.5rem' }} onClick={() => openDrawer({
-                isOpen: true,
-                metric: 'operational_gaps',
-                value: kpis.operationalGaps,
-                title: `Operational Gaps: ${kpis.operationalGaps}`,
-                howCalculated: `Operational Gaps = Sourcetypes not supporting key operational use cases\n\nTotal indexes: ${kpis.totalSourcetypes}\nSupporting operations: ${kpis.totalSourcetypes - kpis.operationalGaps}\nGap percentage: ${kpis.totalSourcetypes > 0 ? ((kpis.operationalGaps / kpis.totalSourcetypes) * 100).toFixed(1) : 0}%`,
-                llmReasoning: agentReasoning,
-                evidence: [
-                  `${kpis.operationalGaps} indexes have operational gaps`,
-                  `Recommendation: Review operational requirements and align indexing strategy`,
-                  `Consider consolidation where operational overlap exists`,
-                ],
-                confidence: avgConfidencePct,
-                rawData: {
-                  operationalGaps: kpis.operationalGaps,
-                  totalSourcetypes: kpis.totalSourcetypes,
-                },
-              })}>
-                <MiniGauge value={kpis.operationalGaps} max={Math.max(kpis.totalSourcetypes, 1)} label="Ops" color="#f59e0b" />
-              </div>
-              <button
-                onClick={() => setOpenFormulaModal('operational_gaps')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#64748b',
-                  cursor: 'pointer',
-                  fontSize: '0.75rem',
-                  padding: '0 0.25rem',
-                }}
-                title="View formula"
-              >
-                ⓘ Formula
-              </button>
-              <ProvenanceBadge
-                source="executive_kpis"
-                generatedAt={snapshotDate}
-                pipelineRunId={summary.runId}
-                classification="REAL"
-              />
-              <FormulaBreakdownModal
-                isOpen={openFormulaModal === 'operational_gaps'}
-                metricName="Operational Gaps"
-                formula="COUNT(sourcetype WHERE lantern_coverage = 0)"
-                components={[
-                  { label: 'Total Sourcetypes', value: kpis.totalSourcetypes },
-                  { label: 'With Coverage', value: kpis.totalSourcetypes - kpis.operationalGaps },
-                ]}
-                result={kpis.operationalGaps.toString()}
-                unit="gaps"
-                onClose={() => setOpenFormulaModal(null)}
-              />
-            </div>
-            <div style={{ cursor: 'pointer', gridColumn: '1 / -1' }} onClick={() => openDrawer({
-              isOpen: true,
-              metric: 'avg_confidence',
-              value: Math.round(avgConfidencePct),
-              title: `Confidence Score: ${Math.round(avgConfidencePct)}%`,
-              howCalculated: `Confidence Score = Average confidence of LLM decisions across all indexes\n\nBased on:\n• Evidence quality (utilization data, detection patterns)\n• Classification agreement with tier patterns\n• Data completeness and freshness`,
-              llmReasoning: agentReasoning,
-              evidence: [
-                `Overall LLM decision confidence: ${(avgConfidencePct).toFixed(1)}%`,
-                `Higher confidence indicates stronger classification signals`,
-                `Low confidence suggests need for manual review of edge cases`,
-              ],
-              confidence: avgConfidencePct,
-              rawData: {
-                avgConfidence: kpis.avgConfidence,
-                confidencePercent: Math.round(avgConfidencePct),
-              },
-            })}>
-              <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <MiniGauge value={Math.round(avgConfidencePct)} max={100} label="Confidence" color="#22c55e" />
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* UNIMPLEMENTED: Coverage Gaps card hidden */}
+        {/* Security Gaps and Operational Gaps are not yet calculated by the LLM */}
+        {/* Hidden until the LLM agent is configured to calculate these metrics */}
       </div>
 
       {/* Trend Charts — Historical KPI Tracking with synced period selector */}
