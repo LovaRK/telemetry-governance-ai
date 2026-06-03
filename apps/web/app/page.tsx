@@ -838,6 +838,7 @@ function Home() {
               </div>
             )}
             <button onClick={handleRefresh} disabled={refreshing || !canRefresh}
+              title={!canRefresh ? 'Please enter Splunk connection details above first' : 'Connect to Splunk → Fetch data → Calculate metrics → Run LLM → Update dashboard'}
               style={{ padding: '0.75rem', background: refreshing ? '#1e293b' : '#3b82f6', color: refreshing ? '#64748b' : '#fff', border: 'none', borderRadius: 8, cursor: refreshing || !canRefresh ? 'not-allowed' : 'pointer', fontSize: '0.875rem', fontWeight: 600, opacity: !canRefresh ? 0.5 : 1 }}>
               {refreshing ? '⟳ Running LLM pipeline… (up to 5 min)' : '↺ Connect & Refresh'}
             </button>
@@ -905,7 +906,7 @@ function Home() {
             </div>
             {refreshing && <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Running LLM pipeline…</span>}
             <button onClick={handleRefresh} disabled={refreshing || !canRefresh}
-              title={!canRefresh ? 'Splunk configuration is not saved in Settings yet.' : 'Fetch latest live data from Splunk'}
+              title={!canRefresh ? 'Splunk configuration is not saved in Settings yet.' : 'Refresh: Fetch latest Splunk data → Recalculate metrics → Run LLM recommendations → Update dashboard (2–10 min)'}
               style={{ padding: '0.375rem 0.875rem', background: (refreshing || !canRefresh) ? '#1e293b' : '#3b82f6', color: (refreshing || !canRefresh) ? '#64748b' : '#fff', border: 'none', borderRadius: 6, cursor: refreshing || !canRefresh ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: 600, opacity: canRefresh ? 1 : 0.65 }}>
               {refreshing ? '⟳ Fetching…' : '↺ Refresh'}
             </button>

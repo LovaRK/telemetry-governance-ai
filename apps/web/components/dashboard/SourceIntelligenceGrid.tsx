@@ -176,7 +176,7 @@ export default function SourceIntelligenceGrid({ snapshots, hasAgentDecisions = 
                     <td style={{ padding: '0.625rem 0.75rem', color: s.estimatedSavings > 0 ? '#22c55e' : '#475569', fontWeight: 600 }}>
                       {s.estimatedSavings > 0 ? fmt$(s.estimatedSavings) : '—'}
                     </td>
-                    <td style={{ padding: '0.625rem 0.75rem', color: '#94a3b8' }}>{(s.confidence * 100).toFixed(0)}%</td>
+                    <td style={{ padding: '0.625rem 0.75rem', color: '#94a3b8' }}>{(s.confidence <= 1 ? s.confidence * 100 : s.confidence).toFixed(0)}%</td>
                     <td style={{ padding: '0.625rem 0.75rem' }}>
                       {s.detectionGap
                         ? <span style={{ padding: '0.1rem 0.4rem', borderRadius: 3, fontSize: '0.7rem', background: '#ef444420', color: '#ef4444', fontWeight: 600 }}>Yes</span>

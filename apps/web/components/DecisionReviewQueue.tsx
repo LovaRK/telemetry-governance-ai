@@ -152,27 +152,20 @@ export function DecisionReviewQueue() {
 
   if (decisions.length === 0) {
     return (
-      <div style={{ padding: '20px', color: '#666', textAlign: 'center' }}>
-        <p>No decisions awaiting review</p>
-        <button
-          onClick={fetchPendingDecisions}
-          style={{
-            padding: '8px 16px',
-            backgroundColor: '#1976d2',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer'
-          }}
-        >
-          Refresh
-        </button>
+      <div style={{ padding: '20px', background: '#f5f5f5', borderRadius: '8px', textAlign: 'center', color: '#666' }}>
+        <p style={{ marginBottom: '12px', fontWeight: 600 }}>✓ No decisions pending review</p>
+        <p style={{ fontSize: '0.9rem', color: '#999', margin: 0 }}>
+          Decisions awaiting human approval appear here. This includes high-stakes recommendations, edge cases, and low-confidence predictions that need validation before being applied.
+        </p>
       </div>
     );
   }
 
   return (
     <div style={{ padding: '20px' }}>
+      <div style={{ marginBottom: '20px', padding: '12px 16px', background: '#fff3e0', border: '1px solid #ffb74d', borderRadius: '6px', fontSize: '0.85rem', color: '#e65100', lineHeight: '1.4' }}>
+        <strong>⚠️ Decision Review Queue:</strong> Shows recommendations that need human approval. These are edge cases, low-confidence decisions, or high-impact actions. Review each decision and approve or reject based on your governance policies.
+      </div>
       <h2 style={{ marginBottom: '20px', color: '#333' }}>
         Decision Review Queue ({decisions.length} pending)
       </h2>

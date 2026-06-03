@@ -375,17 +375,24 @@ export function ParserExplainabilityDrawer({
                         </td>
                         <td style={{ padding: '0.4rem 0.75rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <div style={{ flex: 1, height: 4, background: '#1e293b', borderRadius: 2, overflow: 'hidden', minWidth: 40 }}>
-                              <div style={{
-                                height: '100%',
-                                width: `${Math.round(f.confidence * 100)}%`,
-                                background: confidenceColor(f.confidence),
-                                borderRadius: 2,
-                              }} />
-                            </div>
-                            <span style={{ color: confidenceColor(f.confidence), fontSize: '0.68rem', fontWeight: 600, minWidth: 28 }}>
-                              {Math.round(f.confidence * 100)}%
-                            </span>
+                            {(() => {
+                              const confPct = f.confidence <= 1 ? f.confidence * 100 : f.confidence;
+                              return (
+                                <>
+                                  <div style={{ flex: 1, height: 4, background: '#1e293b', borderRadius: 2, overflow: 'hidden', minWidth: 40 }}>
+                                    <div style={{
+                                      height: '100%',
+                                      width: `${Math.round(confPct)}%`,
+                                      background: confidenceColor(f.confidence),
+                                      borderRadius: 2,
+                                    }} />
+                                  </div>
+                                  <span style={{ color: confidenceColor(f.confidence), fontSize: '0.68rem', fontWeight: 600, minWidth: 28 }}>
+                                    {Math.round(confPct)}%
+                                  </span>
+                                </>
+                              );
+                            })()}
                           </div>
                         </td>
                       </tr>
