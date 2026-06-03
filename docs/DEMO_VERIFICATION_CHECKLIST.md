@@ -234,37 +234,51 @@ MODAL_VALUE: 0.37
 
 ## Demo Rehearsal (15 min after verification passes)
 
-1. **Load dashboard** (30 sec)
-   - Browser showing Executive Overview tab
-   - All KPI cards visible
+### Opening (1 min)
 
-2. **Show ROI transparency** (3 min)
-   - Point to ROI Score card
-   - "This metric shows average composite score..."
-   - Click ⓘ → Modal shows formula breakdown
+**Lead with this:**
+> "Every KPI in this dashboard is traceable. For any metric we can show you: source data, aggregation logic, formula, pipeline run, provenance metadata, and recommended action."
+
+### Proof Point: ROI (4 min)
+
+1. **Show ROI card** (20 sec)
+   - Point: "ROI Score, 52.3"
+   - "This tells us overall value from our data investments"
+
+2. **Click ROI ⓘ** (2 min)
+   - Modal shows:
+     - Formula: "avg(composite_score) across sourcetypes"
+     - Components: (utilization, detection, quality values)
+     - Result: 52.3
    - "Here's exactly how it's calculated"
-   - Close modal
 
-3. **Show provenance** (2 min)
-   - Point to ProvenanceBadge below any metric
-   - "Source: executive_kpis, generated 2 minutes ago"
-   - "This data is fresh and verified"
+3. **Point to ProvenanceBadge** (1 min)
+   - Shows: "Data-backed • executive_kpis"
+   - Hover: timestamp + pipeline ID
+   - "Fresh data, generated 2 minutes ago by pipeline run 3b055b3b"
 
-4. **Show tier breakdown** (2 min)
-   - Point to "Annual License Spend by Tier"
-   - "We break down spend by business value"
-   - Click Tier 1 ⓘ → Modal shows calculation
-   - "Critical tier spending is [amount]"
+4. **Summarize** (40 sec)
+   - "Every other metric works the same way"
+   - "All data is timestamped and auditable"
 
-5. **Handle MITRE question** (2 min)
-   - If asked: Use prepared answer from Check 5
-   - Show transparency about baseline values
-   - Explain Phase 2 path
+### Secondary Proof: Different Formula Type (3 min)
 
-6. **Q&A** (3 min)
-   - Customer can ask any metric question
-   - You can click ⓘ to show formula
-   - You can show badge to prove freshness
+- **Click Tier 1 Spend ⓘ**
+  - Different formula type: "SUM(annual_license_cost) WHERE tier = 'Critical'"
+  - Shows "we decompose spend by business value"
+  - Reinforces: formulas vary, but all transparent
+
+### MITRE/Lantern Prepared Answer (2 min)
+
+- If customer asks: Use prepared answer from Check 5
+- "Demo uses baseline reference values. Production design supports live integration in Phase 2."
+- Show transparency, no ambiguity
+
+### Q&A (5 min)
+
+- Customer can ask any metric question
+- You can click ⓘ to show formula
+- You can show badge to prove freshness
 
 ---
 
