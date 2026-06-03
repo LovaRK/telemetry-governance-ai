@@ -76,18 +76,36 @@ Shared-state interference occurs under parallel execution. Specific mechanism re
 - ✅ Technical debt documented
 - ✅ Runbook for test maintenance created (TESTING.md)
 
-## Expected Runtime Assertion
+## CI Metrics & Monitoring
 
-For CI and local development, expect:
+Track the following to detect when serial execution becomes a bottleneck:
 
-```
-Expected test runtime: 14-20 seconds
-If runtime exceeds 60 seconds:
-  → Investigate test growth
-  → Consider TEST-ARCH-001 optimization
-```
+### Test Execution Time
 
-If serial execution becomes slow enough to impact developer velocity or CI throughput, TEST-ARCH-001 becomes a candidate for prioritization.
+| Threshold | Action |
+|-----------|--------|
+| 14-20s | Current baseline (healthy) |
+| 20-30s | Monitor (acceptable) |
+| 30-60s | Review if trending upward |
+| >60s | Promote TEST-ARCH-001 to Medium priority |
+
+### Test Growth
+
+| Threshold | Action |
+|-----------|--------|
+| <350 tests | Current baseline (healthy) |
+| 350-500 tests | Monitor (consider optimization) |
+| >500 tests | Revisit parallel-safe strategy |
+
+### Developer Impact
+
+| Signal | Action |
+|--------|--------|
+| Developers waiting for CI | Promote TEST-ARCH-001 |
+| CI parallelization needed | Promote TEST-ARCH-001 |
+| Complaints about test speed | Collect data, evaluate |
+
+**Recommendation:** Add CI assertion to alert if test runtime exceeds 60 seconds. This prevents silent degradation as the suite grows.
 
 ## Final Assessment
 
