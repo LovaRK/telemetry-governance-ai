@@ -68,6 +68,15 @@ export const GET = createRoute(async (request: NextRequest) => {
           totalDailyGb: 0,
           totalSourcetypes: 0,
           tierCounts: { critical: 0, important: 0, niceToHave: 0, lowValue: 0 },
+          tierSpend: { critical: 0, important: 0, niceToHave: 0, lowValue: 0 },
+          tierSpendMetadata: {
+            classification: 'EMPTY',
+            source: 'agent_decisions',
+            pipelineRunId: 'unknown',
+            generatedAt: new Date().toISOString(),
+            reconciled: true,
+            delta: 0,
+          },
           securityGaps: 0,
           operationalGaps: 0,
           avgUtilization: 0,
@@ -126,6 +135,15 @@ export const GET = createRoute(async (request: NextRequest) => {
           totalDailyGb: 0,
           totalSourcetypes: 0,
           tierCounts: { critical: 0, important: 0, niceToHave: 0, lowValue: 0 },
+          tierSpend: { critical: 0, important: 0, niceToHave: 0, lowValue: 0 },
+          tierSpendMetadata: {
+            classification: 'EMPTY',
+            source: 'agent_decisions',
+            pipelineRunId: publishedRun.runId || 'unknown',
+            generatedAt: publishedRun.publishedAt || publishedRun.startedAt,
+            reconciled: true,
+            delta: 0,
+          },
           securityGaps: 0,
           operationalGaps: 0,
           avgUtilization: 0,
@@ -224,6 +242,33 @@ export const GET = createRoute(async (request: NextRequest) => {
     if (!decisionsByKey.has(key)) decisionsByKey.set(key, d);
   }
 
+  // ── PHASE 2: API CONTRACT ────────────────────────────────────────────────────
+  // Build tier spend aggregates from executive_kpis (persisted tier spend columns)
+  const tierSpend = {
+    critical: parseFloat(kpi?.tier_1_spend_annual || '0'),
+    important: parseFloat(kpi?.tier_2_spend_annual || '0'),
+    niceToHave: parseFloat(kpi?.tier_3_spend_annual || '0'),
+    lowValue: parseFloat(kpi?.tier_4_spend_annual || '0'),
+  };
+
+  // Build tier counts (use persisted counts if available, fallback to computed counts)
+  const tierCountsFinal = {
+    critical: parseInt(kpi?.tier_1_count || String(tierCounts.critical) || '0', 10),
+    important: parseInt(kpi?.tier_2_count || String(tierCounts.important) || '0', 10),
+    niceToHave: parseInt(kpi?.tier_3_count || String(tierCounts.niceToHave) || '0', 10),
+    lowValue: parseInt(kpi?.tier_4_count || String(tierCounts.lowValue) || '0', 10),
+  };
+
+  // Build tier spend metadata with classification
+  const tierSpendMetadata = {
+    classification: snapshotRows.length === 0 ? 'EMPTY' : 'REAL',
+    source: 'agent_decisions',
+    pipelineRunId: publishedRun.runId || 'unknown',
+    generatedAt: kpi?.created_at ? new Date(kpi.created_at).toISOString() : new Date().toISOString(),
+    reconciled: kpi?.tier_spend_reconciled !== false, // Default to true if not specified
+    delta: parseFloat(kpi?.tier_spend_delta || '0'),
+  };
+
   return {
     data: {
       kpis: {
@@ -234,7 +279,9 @@ export const GET = createRoute(async (request: NextRequest) => {
         storageSavingsPotential: parseFloat(kpi?.storage_savings_potential || '0'),
         totalDailyGb: kpiTotalDailyGb > 0 ? kpiTotalDailyGb : totalDailyGbFromSnapshots,
         totalSourcetypes: parseInt(kpi?.total_sourcetypes || String(totalSourcetypesFromSnapshots) || '0', 10),
-        tierCounts,
+        tierCounts: tierCountsFinal,
+        tierSpend,
+        tierSpendMetadata,
         securityGaps: parseInt(kpi?.security_gaps || '0', 10),
         operationalGaps: parseInt(kpi?.operational_gaps || '0', 10),
         avgUtilization: parseFloat(kpi?.avg_utilization || '0'),

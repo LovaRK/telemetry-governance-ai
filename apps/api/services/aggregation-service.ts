@@ -438,6 +438,68 @@ export async function runAggregation(
         ) / 10
       : 0;
 
+    // ── PHASE 3.3: TIER SPEND AGGREGATION ──────────────────────────────────────
+    // Aggregate annual_license_cost by tier from all scored sourcetypes
+    const tierSpend = {
+      tier1:     allScored.filter(s => s.tier === 'Critical').reduce((sum, s) => sum + s.annualCostUsd, 0),
+      tier2:     allScored.filter(s => s.tier === 'Important').reduce((sum, s) => sum + s.annualCostUsd, 0),
+      tier3:     allScored.filter(s => s.tier === 'Nice-to-Have').reduce((sum, s) => sum + s.annualCostUsd, 0),
+      tier4:     allScored.filter(s => s.tier === 'Low-Value').reduce((sum, s) => sum + s.annualCostUsd, 0),
+    };
+
+    const tierSpendTotal = tierSpend.tier1 + tierSpend.tier2 + tierSpend.tier3 + tierSpend.tier4;
+
+    // ── SNAPSHOT PROMOTION RULE (HARD REJECTION GATE) ──────────────────────────
+    // Reconciliation: tier spends must sum to total_license_spend (±0.01 tolerance)
+    const tierSpendDelta = Math.abs(tierSpendTotal - deterministicTotalLicenseSpend);
+    const tierSpendReconciled = tierSpendDelta <= 0.01;
+
+    if (!tierSpendReconciled) {
+      // HARD REJECTION: Invalid snapshot
+      console.error('[Aggregation] HARD REJECTION: Tier spend reconciliation failed', {
+        expected_total_license_spend: deterministicTotalLicenseSpend,
+        actual_tier_spend_sum: tierSpendTotal,
+        delta: tierSpendDelta,
+        tolerance: 0.01,
+        snapshot_id: snapshotId,
+        pipeline_run_id: SCORING_VERSION,
+      });
+
+      // Emit governance event for audit trail
+      try {
+        await client.query(
+          `INSERT INTO governance_events (
+            event_type, severity, snapshot_id, message, details, created_at
+          ) VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [
+            'reconciliation_failed',
+            'error',
+            snapshotId,
+            'Tier spend reconciliation failed - snapshot rejected',
+            JSON.stringify({
+              expected_total_license_spend: deterministicTotalLicenseSpend,
+              actual_tier_spend_sum: tierSpendTotal,
+              delta: tierSpendDelta,
+              tier_breakdown: tierSpend,
+            }),
+          ]
+        );
+      } catch (e) {
+        console.error('[Aggregation] Failed to emit governance event:', e);
+      }
+
+      // Return early - do NOT call upsertExecutiveKpis
+      // Previous valid snapshot remains in production
+      console.warn('[Aggregation] Keeping previous valid snapshot in production');
+      return {
+        snapshotId,
+        inserted,
+        errors: 1,
+        durationMs: Date.now() - start,
+        agentReasoning: `Snapshot rejected: tier spend reconciliation failed (delta=${tierSpendDelta.toFixed(2)} > 0.01)`,
+      };
+    }
+
     // Patch agentSummary tier counts and avg scores with deterministic values
     if (allScored.length > 0) {
       agentSummary.tierCounts    = deterministicTierCounts;
@@ -459,6 +521,16 @@ export async function runAggregation(
       tierImportant:       deterministicTierCounts.important,
       tierNiceToHave:      deterministicTierCounts.niceToHave,
       tierLowValue:        deterministicTierCounts.lowValue,
+      tier1SpendAnnual:    tierSpend.tier1,
+      tier2SpendAnnual:    tierSpend.tier2,
+      tier3SpendAnnual:    tierSpend.tier3,
+      tier4SpendAnnual:    tierSpend.tier4,
+      tier1Count:          deterministicTierCounts.critical,
+      tier2Count:          deterministicTierCounts.important,
+      tier3Count:          deterministicTierCounts.niceToHave,
+      tier4Count:          deterministicTierCounts.lowValue,
+      tierSpendReconciled: tierSpendReconciled,
+      tierSpendDelta:      tierSpendDelta,
       securityGaps:        securityGapCount,
       operationalGaps:     operationalGapCount,
       avgUtilization:      deterministicAvgUtil,
@@ -798,6 +870,16 @@ async function upsertExecutiveKpis(
     tierImportant: number;
     tierNiceToHave: number;
     tierLowValue: number;
+    tier1SpendAnnual: number;
+    tier2SpendAnnual: number;
+    tier3SpendAnnual: number;
+    tier4SpendAnnual: number;
+    tier1Count: number;
+    tier2Count: number;
+    tier3Count: number;
+    tier4Count: number;
+    tierSpendReconciled: boolean;
+    tierSpendDelta: number;
     securityGaps: number;
     operationalGaps: number;
     avgUtilization: number;
@@ -814,10 +896,13 @@ async function upsertExecutiveKpis(
       total_license_spend, license_spend_low_value, storage_savings_potential,
       total_daily_gb, total_sourcetypes,
       tier_critical, tier_important, tier_nice_to_have, tier_low_value,
+      tier_1_spend_annual, tier_2_spend_annual, tier_3_spend_annual, tier_4_spend_annual,
+      tier_1_count, tier_2_count, tier_3_count, tier_4_count,
+      tier_spend_reconciled, tier_spend_delta,
       security_gaps, operational_gaps,
       avg_utilization, avg_detection, avg_quality, avg_confidence,
       quick_wins, savings_staircase, agent_reasoning
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
     ON CONFLICT (tenant_id, snapshot_id) DO UPDATE SET
       snapshot_id             = EXCLUDED.snapshot_id,
       snapshot_date           = EXCLUDED.snapshot_date,
@@ -832,6 +917,16 @@ async function upsertExecutiveKpis(
       tier_important          = EXCLUDED.tier_important,
       tier_nice_to_have       = EXCLUDED.tier_nice_to_have,
       tier_low_value          = EXCLUDED.tier_low_value,
+      tier_1_spend_annual     = EXCLUDED.tier_1_spend_annual,
+      tier_2_spend_annual     = EXCLUDED.tier_2_spend_annual,
+      tier_3_spend_annual     = EXCLUDED.tier_3_spend_annual,
+      tier_4_spend_annual     = EXCLUDED.tier_4_spend_annual,
+      tier_1_count            = EXCLUDED.tier_1_count,
+      tier_2_count            = EXCLUDED.tier_2_count,
+      tier_3_count            = EXCLUDED.tier_3_count,
+      tier_4_count            = EXCLUDED.tier_4_count,
+      tier_spend_reconciled   = EXCLUDED.tier_spend_reconciled,
+      tier_spend_delta        = EXCLUDED.tier_spend_delta,
       security_gaps           = EXCLUDED.security_gaps,
       operational_gaps        = EXCLUDED.operational_gaps,
       avg_utilization         = EXCLUDED.avg_utilization,
@@ -856,6 +951,16 @@ async function upsertExecutiveKpis(
       overrides?.tierImportant     ?? summary.tierCounts.important,
       overrides?.tierNiceToHave    ?? summary.tierCounts.niceToHave,
       overrides?.tierLowValue      ?? summary.tierCounts.lowValue,
+      overrides?.tier1SpendAnnual  ?? 0,
+      overrides?.tier2SpendAnnual  ?? 0,
+      overrides?.tier3SpendAnnual  ?? 0,
+      overrides?.tier4SpendAnnual  ?? 0,
+      overrides?.tier1Count        ?? summary.tierCounts.critical,
+      overrides?.tier2Count        ?? summary.tierCounts.important,
+      overrides?.tier3Count        ?? summary.tierCounts.niceToHave,
+      overrides?.tier4Count        ?? summary.tierCounts.lowValue,
+      overrides?.tierSpendReconciled ?? true,
+      overrides?.tierSpendDelta    ?? 0,
       overrides?.securityGaps      ?? summary.securityGaps,
       overrides?.operationalGaps   ?? summary.operationalGaps,
       overrides?.avgUtilization    ?? summary.avgUtilization,

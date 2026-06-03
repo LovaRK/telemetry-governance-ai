@@ -4,6 +4,9 @@ import React, { useState } from 'react';
 import { ExecutiveSummary } from '../../lib/types';
 import ReasoningDrawer from '../shared/ReasoningDrawer';
 import KPITrendChart from '../KPITrendChart';
+import FormulaBreakdownModal from '../shared/FormulaBreakdownModal';
+import ProvenanceBadge from '../shared/ProvenanceBadge';
+import BaselineBadge from '../shared/BaselineBadge';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ResponsiveContainer } from 'recharts';
 
 function fmt$(v: number | string | null | undefined): string {
@@ -192,6 +195,9 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
     setDrawer({ ...next, snapshotId: next.snapshotId || summary.snapshotId, runId: next.runId || summary.runId, computedAt: next.computedAt || snapshotDate });
   };
 
+  // Formula modal states for transparency
+  const [openFormulaModal, setOpenFormulaModal] = useState<string | null>(null);
+
   const tierTotal = kpis.tierCounts.critical + kpis.tierCounts.important + kpis.tierCounts.niceToHave + kpis.tierCounts.lowValue;
   const tierBars = [
     { label: 'Critical', key: 'critical', value: kpis.tierCounts.critical, color: TIER_COLORS.critical },
@@ -349,7 +355,23 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
       <div style={{ display: hasAgentDecisions ? 'grid' : 'none', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '1rem' }}>
         <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
-          <div style={cardTitle}>ROI Score</div>
+          <div style={{ ...cardTitle, display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', justifyContent: 'center' }}>
+            ROI Score
+            <button
+              onClick={() => setOpenFormulaModal('roi_score')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                padding: '0 0.25rem',
+              }}
+              title="View formula"
+            >
+              ⓘ
+            </button>
+          </div>
           <Gauge
             value={kpis.roiScore}
             label=""
@@ -376,10 +398,46 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
               },
             })}
           />
+          <ProvenanceBadge
+            source="executive_kpis"
+            generatedAt={snapshotDate}
+            pipelineRunId={summary.runId}
+            classification="REAL"
+          />
+          <FormulaBreakdownModal
+            isOpen={openFormulaModal === 'roi_score'}
+            metricName="ROI Score"
+            formula="avg(composite_score) across all sourcetypes"
+            components={[
+              { label: 'Savings Potential', value: fmt$(kpis.storageSavingsPotential) },
+              { label: 'Annual Spend', value: fmt$(kpis.totalLicenseSpend) },
+              { label: 'Critical Indexes', value: kpis.tierCounts.critical, weight: '35%' },
+              { label: 'Important Indexes', value: kpis.tierCounts.important, weight: '40%' },
+            ]}
+            result={kpis.roiScore.toFixed(1)}
+            unit="%"
+            onClose={() => setOpenFormulaModal(null)}
+          />
         </div>
         <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
-          <div style={cardTitle}>GainScope</div>
+          <div style={{ ...cardTitle, display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', justifyContent: 'center' }}>
+            GainScope
+            <button
+              onClick={() => setOpenFormulaModal('gainscope')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                padding: '0 0.25rem',
+              }}
+              title="View formula"
+            >
+              ⓘ
+            </button>
+          </div>
           <Gauge
             value={kpis.gainScopeScore}
             label=""
@@ -406,10 +464,45 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
               },
             })}
           />
+          <ProvenanceBadge
+            source="executive_kpis"
+            generatedAt={snapshotDate}
+            pipelineRunId={summary.runId}
+            classification="REAL"
+          />
+          <FormulaBreakdownModal
+            isOpen={openFormulaModal === 'gainscope'}
+            metricName="GainScope %"
+            formula="(avg(utilization) + avg(detection) + avg(quality)) / 3"
+            components={[
+              { label: 'Avg Utilization', value: kpis.avgUtilization.toFixed(1), weight: '33.3%' },
+              { label: 'Avg Detection', value: kpis.avgDetection.toFixed(1), weight: '33.3%' },
+              { label: 'Avg Quality', value: kpis.avgQuality.toFixed(1), weight: '33.3%' },
+            ]}
+            result={kpis.gainScopeScore.toFixed(1)}
+            unit="%"
+            onClose={() => setOpenFormulaModal(null)}
+          />
         </div>
         <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
-          <div style={cardTitle}>Low-Value Spend</div>
+          <div style={{ ...cardTitle, display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', justifyContent: 'center' }}>
+            Low-Value Spend
+            <button
+              onClick={() => setOpenFormulaModal('low_value_spend')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                padding: '0 0.25rem',
+              }}
+              title="View formula"
+            >
+              ⓘ
+            </button>
+          </div>
           <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
             isOpen: true,
             metric: 'license_spend_low_value',
@@ -432,10 +525,44 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           })}>
             <SpendGauge amount={kpis.licenseSpendLowValue} total={kpis.totalLicenseSpend} label="" color="#ef4444" />
           </div>
+          <ProvenanceBadge
+            source="executive_kpis"
+            generatedAt={snapshotDate}
+            pipelineRunId={summary.runId}
+            classification="REAL"
+          />
+          <FormulaBreakdownModal
+            isOpen={openFormulaModal === 'low_value_spend'}
+            metricName="Low-Value Annual Spend"
+            formula="SUM(annual_license_cost) WHERE tier = 'Low-Value'"
+            components={[
+              { label: 'Low-Value Count', value: kpis.tierCounts.lowValue },
+              { label: 'Total Annual Spend', value: fmt$(kpis.totalLicenseSpend) },
+            ]}
+            result={fmt$(kpis.licenseSpendLowValue)}
+            unit=""
+            onClose={() => setOpenFormulaModal(null)}
+          />
         </div>
         <div style={{ ...card(), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
-          <div style={cardTitle}>Savings Potential</div>
+          <div style={{ ...cardTitle, display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', justifyContent: 'center' }}>
+            Savings Potential
+            <button
+              onClick={() => setOpenFormulaModal('savings_potential')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                padding: '0 0.25rem',
+              }}
+              title="View formula"
+            >
+              ⓘ
+            </button>
+          </div>
           <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
             isOpen: true,
             metric: 'storage_savings_potential',
@@ -458,6 +585,25 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           })}>
             <SpendGauge amount={kpis.storageSavingsPotential} total={kpis.totalLicenseSpend} label="" color="#22c55e" />
           </div>
+          <ProvenanceBadge
+            source="executive_kpis"
+            generatedAt={snapshotDate}
+            pipelineRunId={summary.runId}
+            classification="REAL"
+          />
+          <FormulaBreakdownModal
+            isOpen={openFormulaModal === 'savings_potential'}
+            metricName="Storage Savings Potential"
+            formula="SUM(estimated_savings) from all ARCHIVE, ELIMINATE, OPTIMIZE actions"
+            components={[
+              { label: 'Low-Value Spend', value: fmt$(kpis.licenseSpendLowValue) },
+              { label: 'Total Annual Spend', value: fmt$(kpis.totalLicenseSpend) },
+              { label: 'Potential Savings %', value: kpis.totalLicenseSpend > 0 ? ((kpis.storageSavingsPotential / kpis.totalLicenseSpend) * 100).toFixed(1) : '0', weight: '100%' },
+            ]}
+            result={fmt$(kpis.storageSavingsPotential)}
+            unit=""
+            onClose={() => setOpenFormulaModal(null)}
+          />
         </div>
         <div style={{ ...card({ borderLeft: '4px solid #8b5cf6' }), position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#27AE60', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>✓ FACT</div>
@@ -468,46 +614,114 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
         <div style={{ ...card({ borderLeft: '4px solid #f59e0b' }), position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Coverage Gaps</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem', alignItems: 'start' }}>
-            <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
-              isOpen: true,
-              metric: 'security_gaps',
-              value: kpis.securityGaps,
-              title: `Security Gaps: ${kpis.securityGaps}`,
-              howCalculated: `Security Gaps = Sourcetypes not mapped to MITRE security framework\n\nTotal indexes: ${kpis.totalSourcetypes}\nWith security coverage: ${kpis.totalSourcetypes - kpis.securityGaps}\nGap percentage: ${kpis.totalSourcetypes > 0 ? ((kpis.securityGaps / kpis.totalSourcetypes) * 100).toFixed(1) : 0}%`,
-              llmReasoning: agentReasoning,
-              evidence: [
-                `${kpis.securityGaps} indexes lack detection coverage`,
-                `Recommendation: Implement detection rules for security-sensitive data`,
-                `Prioritize critical and important tier indexes`,
-              ],
-              confidence: avgConfidencePct,
-              rawData: {
-                securityGaps: kpis.securityGaps,
-                totalSourcetypes: kpis.totalSourcetypes,
-              },
-            })}>
-              <MiniGauge value={kpis.securityGaps} max={Math.max(kpis.totalSourcetypes, 1)} label="Security" color="#ef4444" />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem', alignItems: 'start' }}>
+            <div>
+              <div style={{ cursor: 'pointer', marginBottom: '0.5rem' }} onClick={() => openDrawer({
+                isOpen: true,
+                metric: 'security_gaps',
+                value: kpis.securityGaps,
+                title: `Security Gaps: ${kpis.securityGaps}`,
+                howCalculated: `Security Gaps = Sourcetypes not mapped to MITRE security framework\n\nTotal indexes: ${kpis.totalSourcetypes}\nWith security coverage: ${kpis.totalSourcetypes - kpis.securityGaps}\nGap percentage: ${kpis.totalSourcetypes > 0 ? ((kpis.securityGaps / kpis.totalSourcetypes) * 100).toFixed(1) : 0}%`,
+                llmReasoning: agentReasoning,
+                evidence: [
+                  `${kpis.securityGaps} indexes lack detection coverage`,
+                  `Recommendation: Implement detection rules for security-sensitive data`,
+                  `Prioritize critical and important tier indexes`,
+                ],
+                confidence: avgConfidencePct,
+                rawData: {
+                  securityGaps: kpis.securityGaps,
+                  totalSourcetypes: kpis.totalSourcetypes,
+                },
+              })}>
+                <MiniGauge value={kpis.securityGaps} max={Math.max(kpis.totalSourcetypes, 1)} label="Security" color="#ef4444" />
+              </div>
+              <button
+                onClick={() => setOpenFormulaModal('security_gaps')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  padding: '0 0.25rem',
+                }}
+                title="View formula"
+              >
+                ⓘ Formula
+              </button>
+              <ProvenanceBadge
+                source="executive_kpis"
+                generatedAt={snapshotDate}
+                pipelineRunId={summary.runId}
+                classification="REAL"
+              />
+              <FormulaBreakdownModal
+                isOpen={openFormulaModal === 'security_gaps'}
+                metricName="Security Gaps"
+                formula="COUNT(sourcetype WHERE mitre_coverage = 0)"
+                components={[
+                  { label: 'Total Sourcetypes', value: kpis.totalSourcetypes },
+                  { label: 'With Coverage', value: kpis.totalSourcetypes - kpis.securityGaps },
+                ]}
+                result={kpis.securityGaps.toString()}
+                unit="gaps"
+                onClose={() => setOpenFormulaModal(null)}
+              />
             </div>
-            <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
-              isOpen: true,
-              metric: 'operational_gaps',
-              value: kpis.operationalGaps,
-              title: `Operational Gaps: ${kpis.operationalGaps}`,
-              howCalculated: `Operational Gaps = Sourcetypes not supporting key operational use cases\n\nTotal indexes: ${kpis.totalSourcetypes}\nSupporting operations: ${kpis.totalSourcetypes - kpis.operationalGaps}\nGap percentage: ${kpis.totalSourcetypes > 0 ? ((kpis.operationalGaps / kpis.totalSourcetypes) * 100).toFixed(1) : 0}%`,
-              llmReasoning: agentReasoning,
-              evidence: [
-                `${kpis.operationalGaps} indexes have operational gaps`,
-                `Recommendation: Review operational requirements and align indexing strategy`,
-                `Consider consolidation where operational overlap exists`,
-              ],
-              confidence: avgConfidencePct,
-              rawData: {
-                operationalGaps: kpis.operationalGaps,
-                totalSourcetypes: kpis.totalSourcetypes,
-              },
-            })}>
-              <MiniGauge value={kpis.operationalGaps} max={Math.max(kpis.totalSourcetypes, 1)} label="Ops" color="#f59e0b" />
+            <div>
+              <div style={{ cursor: 'pointer', marginBottom: '0.5rem' }} onClick={() => openDrawer({
+                isOpen: true,
+                metric: 'operational_gaps',
+                value: kpis.operationalGaps,
+                title: `Operational Gaps: ${kpis.operationalGaps}`,
+                howCalculated: `Operational Gaps = Sourcetypes not supporting key operational use cases\n\nTotal indexes: ${kpis.totalSourcetypes}\nSupporting operations: ${kpis.totalSourcetypes - kpis.operationalGaps}\nGap percentage: ${kpis.totalSourcetypes > 0 ? ((kpis.operationalGaps / kpis.totalSourcetypes) * 100).toFixed(1) : 0}%`,
+                llmReasoning: agentReasoning,
+                evidence: [
+                  `${kpis.operationalGaps} indexes have operational gaps`,
+                  `Recommendation: Review operational requirements and align indexing strategy`,
+                  `Consider consolidation where operational overlap exists`,
+                ],
+                confidence: avgConfidencePct,
+                rawData: {
+                  operationalGaps: kpis.operationalGaps,
+                  totalSourcetypes: kpis.totalSourcetypes,
+                },
+              })}>
+                <MiniGauge value={kpis.operationalGaps} max={Math.max(kpis.totalSourcetypes, 1)} label="Ops" color="#f59e0b" />
+              </div>
+              <button
+                onClick={() => setOpenFormulaModal('operational_gaps')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  padding: '0 0.25rem',
+                }}
+                title="View formula"
+              >
+                ⓘ Formula
+              </button>
+              <ProvenanceBadge
+                source="executive_kpis"
+                generatedAt={snapshotDate}
+                pipelineRunId={summary.runId}
+                classification="REAL"
+              />
+              <FormulaBreakdownModal
+                isOpen={openFormulaModal === 'operational_gaps'}
+                metricName="Operational Gaps"
+                formula="COUNT(sourcetype WHERE lantern_coverage = 0)"
+                components={[
+                  { label: 'Total Sourcetypes', value: kpis.totalSourcetypes },
+                  { label: 'With Coverage', value: kpis.totalSourcetypes - kpis.operationalGaps },
+                ]}
+                result={kpis.operationalGaps.toString()}
+                unit="gaps"
+                onClose={() => setOpenFormulaModal(null)}
+              />
             </div>
             <div style={{ cursor: 'pointer', gridColumn: '1 / -1' }} onClick={() => openDrawer({
               isOpen: true,
@@ -814,18 +1028,55 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
         <div style={{ ...card(), position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Annual License Spend by Tier</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {spendByTier.map((tier) => (
-              <div key={tier.label}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
-                  <span style={{ color: '#94a3b8' }}>{tier.label}</span>
-                  <span style={{ color: tier.color, fontWeight: 600 }}>{fmt$(tier.value)}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {spendByTier.map((tier, idx) => {
+              const tierKey = tier.label.toLowerCase().replace(/ /g, '_');
+              return (
+                <div key={tier.label}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', marginBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ color: '#94a3b8' }}>{tier.label}</span>
+                      <button
+                        onClick={() => setOpenFormulaModal(`tier_${idx}_spend`)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#64748b',
+                          cursor: 'pointer',
+                          fontSize: '0.875rem',
+                          padding: 0,
+                        }}
+                        title="View formula"
+                      >
+                        ⓘ
+                      </button>
+                    </div>
+                    <span style={{ color: tier.color, fontWeight: 600 }}>{fmt$(tier.value)}</span>
+                  </div>
+                  <div style={{ height: 8, background: '#1e293b', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${maxTierSpend > 0 ? (tier.value / maxTierSpend) * 100 : 0}%`, background: tier.color, borderRadius: 4, minWidth: tier.value > 0 ? 2 : 0 }} />
+                  </div>
+                  <ProvenanceBadge
+                    source="executive_kpis"
+                    generatedAt={snapshotDate}
+                    pipelineRunId={summary.runId}
+                    classification="REAL"
+                  />
+                  <FormulaBreakdownModal
+                    isOpen={openFormulaModal === `tier_${idx}_spend`}
+                    metricName={`${tier.label} Annual Spend`}
+                    formula={`SUM(annual_license_cost) WHERE tier = '${tier.label}'`}
+                    components={[
+                      { label: `${tier.label} Count`, value: kpis.tierCounts[tier.label.toLowerCase().replace(/[^a-z]/g, '') as keyof typeof kpis.tierCounts] || 0 },
+                      { label: 'Total Spend', value: fmt$(kpis.totalLicenseSpend) },
+                    ]}
+                    result={fmt$(tier.value)}
+                    unit=""
+                    onClose={() => setOpenFormulaModal(null)}
+                  />
                 </div>
-                <div style={{ height: 8, background: '#1e293b', borderRadius: 4, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${maxTierSpend > 0 ? (tier.value / maxTierSpend) * 100 : 0}%`, background: tier.color, borderRadius: 4, minWidth: tier.value > 0 ? 2 : 0 }} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
