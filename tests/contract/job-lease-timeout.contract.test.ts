@@ -120,6 +120,7 @@ describe('Contract: job lease timeout ownership', () => {
 
     const runAStatus = await query<{ status: string }>(`SELECT status FROM pipeline_runs WHERE run_id = $1`, [runA]);
     const runBStatus = await query<{ status: string }>(`SELECT status FROM pipeline_runs WHERE run_id = $1`, [runB]);
+
     expect(runAStatus.rows[0]?.status).toBe('FAILED');
     expect(runBStatus.rows[0]?.status).toBe('RUNNING');
 
