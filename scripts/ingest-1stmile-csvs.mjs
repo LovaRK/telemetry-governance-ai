@@ -29,8 +29,25 @@ async function resolveTenantId(pool) {
     console.log(`  Tenant ID from env: ${process.env.TENANT_ID}`);
     return process.env.TENANT_ID;
   }
-  const result = await pool.query(`SELECT id, name FROM tenants LIMIT 1`);
-  if (result.rows.length === 0) throw new Error('No tenant found in database');
+  // Prefer a tenant that has Splunk configured (is_configured=true).
+  // Order by created_at ASC so the first real tenant wins, not a test tenant
+  // inserted later by the test suite.
+  const result = await pool.query(`
+    SELECT id, name FROM tenants
+    WHERE name NOT ILIKE '%test%'
+      AND name NOT ILIKE '%lifecycle%'
+      AND name NOT ILIKE '%integration%'
+    ORDER BY created_at ASC NULLS LAST
+    LIMIT 1
+  `);
+  if (result.rows.length === 0) {
+    // Fallback: any tenant, oldest first
+    const fallback = await pool.query(`SELECT id, name FROM tenants ORDER BY created_at ASC LIMIT 1`);
+    if (fallback.rows.length === 0) throw new Error('No tenant found in database');
+    const { id, name } = fallback.rows[0];
+    console.log(`  Tenant ID from DB (fallback): ${id} (${name})`);
+    return id;
+  }
   const { id, name } = result.rows[0];
   console.log(`  Tenant ID from DB: ${id} (${name})`);
   return id;
@@ -470,6 +487,40 @@ async function main() {
       insertedSnapshots++;
     }
     console.log(`  Inserted ${insertedSnapshots} telemetry snapshots`);
+
+    // Write governance_audit_events — one record per sourcetype per snapshot
+    // This is the immutable scoring-decision audit trail: scores → tier → recommendation
+    let insertedAuditEvents = 0;
+    for (const row of scoredSourcetypes) {
+      await client.query(`
+        INSERT INTO governance_audit_events (
+          tenant_id, snapshot_id, sourcetype, index_name,
+          composite_score, utilization_score, detection_score, quality_score,
+          tier, recommendation, decision_source, reasoning
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ON CONFLICT DO NOTHING
+      `, [
+        TENANT_ID, snapshotId, row.st, row.idx,
+        row.composite.toFixed(2), row.utilScore.toFixed(2),
+        row.detScore.toFixed(2), row.qualScore.toFixed(2),
+        row.tier,
+        `${row.action}: ${row.tier} tier — composite ${row.composite.toFixed(1)}`,
+        'csv_analytics',
+        JSON.stringify({
+          weights:    { utilization: 0.35, detection: 0.40, quality: 0.25 },
+          components: {
+            utilization: { score: row.utilScore.toFixed(2), inputs: { alerts: row.ko.alerts, scheduled: row.ko.scheduled, dashboards: row.ko.dashboards, adhoc: row.ko.adhoc, users: row.users } },
+            detection:   { score: row.detScore.toFixed(2), inputs: { mitre_techniques: row.mitreTechniques, lantern_usecases: row.lanternUsecases, alert_count: row.alertCount } },
+            quality:     { score: row.qualScore.toFixed(2), inputs: { weighted_issues: row.weightedIssues, daily_gb: row.dailyGb } },
+          },
+          tier_thresholds: { critical: 65, important: 40, nice_to_have: 20, wasteful: 0 },
+          annual_cost_usd: row.annualCost.toFixed(2),
+          cost_per_gb_year: COST_PER_GB_YEAR,
+        })
+      ]);
+      insertedAuditEvents++;
+    }
+    console.log(`  Inserted ${insertedAuditEvents} governance audit events`);
 
     // Write agent_decisions
     let insertedDecisions = 0;
