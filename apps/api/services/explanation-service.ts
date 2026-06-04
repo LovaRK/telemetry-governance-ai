@@ -202,7 +202,12 @@ export class ExplanationService {
 
   async explainExecutiveSummary(ctx: PortfolioContext): Promise<ExplanationResult> {
     const start = Date.now();
-    const grounding: Record<string, unknown> = { ...ctx };
+    // Include all derived values the template or LLM may reference,
+    // so Gate 2 (no invented numbers) can verify every number in the narrative.
+    const lowValuePct = ctx.annual_spend > 0
+      ? Math.round((ctx.low_value_spend / ctx.annual_spend) * 100)
+      : 0;
+    const grounding: Record<string, unknown> = { ...ctx, low_value_pct: lowValuePct };
 
     try {
       const prompt   = buildExecutiveSummaryPrompt(ctx);
