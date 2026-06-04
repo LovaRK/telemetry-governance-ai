@@ -366,8 +366,7 @@ export async function queryAuditEventsFromDB(
   options: AuditQueryOptions = {}
 ): Promise<AuditQueryResult> {
   try {
-    const dbModule = require('../database/db-client');
-    const pool = dbModule.getPool?.() || dbModule.pool || dbModule.default;
+    const { pool } = await import('../database/connection');
 
     if (!pool) {
       return { events: [], total: 0, from_cache: false };
