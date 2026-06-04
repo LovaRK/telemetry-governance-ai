@@ -342,6 +342,15 @@ export class SplunkConfigService {
       }
     }
 
+    let decryptedPassword: string | undefined;
+    if (row.splunk_password) {
+      try {
+        decryptedPassword = decryptSecret(row.splunk_password);
+      } catch {
+        decryptedPassword = undefined;
+      }
+    }
+
     return {
       url: row.splunk_url,
       apiUrl: row.splunk_api_url || row.splunk_url,
@@ -349,7 +358,7 @@ export class SplunkConfigService {
       mcpUrl: row.splunk_mcp_url,
       hec_token: row.splunk_hec_token,
       username: row.splunk_username,
-      password: row.splunk_password,
+      password: decryptedPassword,
       ssl_verify: row.splunk_ssl_verify,
       restAuthType: row.splunk_rest_auth_type,
       restAuthSecret: decryptedSecret,
