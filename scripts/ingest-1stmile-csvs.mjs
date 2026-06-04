@@ -160,6 +160,60 @@ function tierToClassification(tier) {
   return 'ELIMINATE';
 }
 
+// ── Snapshot certification (runs inside the open transaction) ─────────────────
+async function certifySnapshot(client, snapshotId, tenantId) {
+  const failures = [];
+  let ruleCount = 0, passCount = 0;
+
+  // R1: > 0 sourcetypes
+  ruleCount++;
+  const c1 = await client.query('SELECT COUNT(DISTINCT sourcetype)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2', [tenantId, snapshotId]);
+  parseInt(c1.rows[0].n, 10) > 0 ? passCount++ : failures.push('R1: No sourcetypes');
+
+  // R2: Valid tiers only
+  ruleCount++;
+  const c2 = await client.query("SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND tier NOT IN ('Critical','Important','Nice-to-Have','Wasteful')", [tenantId, snapshotId]);
+  parseInt(c2.rows[0].n, 10) === 0 ? passCount++ : failures.push('R2: Invalid tier values');
+
+  // R3: Action matches tier
+  ruleCount++;
+  const c3 = await client.query("SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND ((tier IN ('Critical','Important') AND action!='KEEP') OR (tier='Nice-to-Have' AND action!='OPTIMIZE') OR (tier='Wasteful' AND action!='ELIMINATE'))", [tenantId, snapshotId]);
+  parseInt(c3.rows[0].n, 10) === 0 ? passCount++ : failures.push(`R3: ${c3.rows[0].n} action/tier mismatches`);
+
+  // R4: Savings formula correct
+  ruleCount++;
+  const c4 = await client.query("SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND NOT ((tier='Wasteful' AND ABS(estimated_savings-annual_license_cost*0.95)<1) OR (tier='Nice-to-Have' AND ABS(estimated_savings-annual_license_cost*0.50)<1) OR (tier IN ('Critical','Important') AND estimated_savings=0))", [tenantId, snapshotId]);
+  parseInt(c4.rows[0].n, 10) === 0 ? passCount++ : failures.push(`R4: ${c4.rows[0].n} savings formula violations`);
+
+  // R5: Critical/Important → savings = 0
+  ruleCount++;
+  const c5 = await client.query("SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND tier IN ('Critical','Important') AND estimated_savings>0.01", [tenantId, snapshotId]);
+  parseInt(c5.rows[0].n, 10) === 0 ? passCount++ : failures.push(`R5: ${c5.rows[0].n} critical/important rows with savings>0`);
+
+  // R6: Quick-win flag consistency
+  ruleCount++;
+  const c6 = await client.query("SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND ((is_quick_win=true AND tier NOT IN ('Nice-to-Have','Wasteful')) OR (is_quick_win=true AND tier IN ('Nice-to-Have','Wasteful') AND annual_license_cost<=500) OR (is_quick_win=false AND tier IN ('Nice-to-Have','Wasteful') AND annual_license_cost>500))", [tenantId, snapshotId]);
+  parseInt(c6.rows[0].n, 10) === 0 ? passCount++ : failures.push(`R6: ${c6.rows[0].n} quick-win flag violations`);
+
+  // R7: Composite in [0,100]
+  ruleCount++;
+  const c7 = await client.query('SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND (composite_score<0 OR composite_score>100)', [tenantId, snapshotId]);
+  parseInt(c7.rows[0].n, 10) === 0 ? passCount++ : failures.push(`R7: Composite scores out of range`);
+
+  // R8: Audit count = decision count
+  ruleCount++;
+  const c8 = await client.query('SELECT (SELECT COUNT(*) FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2) AS d, (SELECT COUNT(*) FROM governance_audit_events WHERE tenant_id=$1 AND snapshot_id=$2) AS a', [tenantId, snapshotId]);
+  const d = parseInt(c8.rows[0].d, 10), a = parseInt(c8.rows[0].a, 10);
+  d === a ? passCount++ : failures.push(`R8: Decisions(${d}) ≠ AuditEvents(${a})`);
+
+  const certified = failures.length === 0;
+  await client.query(
+    `INSERT INTO snapshot_certifications (tenant_id,snapshot_id,snapshot_source,validated_by,rule_count,passed_checks,failed_checks,certified,failure_reasons) VALUES ($1,$2,'csv_analytics','system',$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+    [tenantId, snapshotId, ruleCount, passCount, failures.length, certified, failures.length ? JSON.stringify(failures) : null]
+  );
+  return { certified, passed_checks: passCount, rule_count: ruleCount, failure_reasons: failures };
+}
+
 // ── Main ingestion ────────────────────────────────────────────────────────────
 
 async function main() {
@@ -637,6 +691,19 @@ async function main() {
         Buffer.from(snapshotId).toString('hex').slice(0, 64),
         idempHash]);
     console.log(`  Created pipeline_run: ${runId}`);
+
+    // ── Certification gate: validate before publishing ──────────────────────
+    // All 8 rules must pass. If any fail, ROLLBACK and do not publish.
+    console.log('\n🔍 Certifying snapshot...');
+    const certResult = await certifySnapshot(client, snapshotId, TENANT_ID);
+    if (!certResult.certified) {
+      await client.query('ROLLBACK');
+      console.error('❌ Certification FAILED — snapshot NOT published');
+      certResult.failure_reasons.forEach(r => console.error('   ✗', r));
+      console.error(`   Passed ${certResult.passed_checks}/${certResult.rule_count} rules`);
+      throw new Error(`Snapshot certification failed: ${certResult.failure_reasons.join('; ')}`);
+    }
+    console.log(`  ✅ Certified: ${certResult.passed_checks}/${certResult.rule_count} rules passed`);
 
     // Update the csv_analytics pointer — never touches splunk_live
     await client.query(`

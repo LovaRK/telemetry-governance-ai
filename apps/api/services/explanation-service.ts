@@ -19,6 +19,13 @@
  */
 
 import { LLMRouter } from '../../../agents/reasoning/llm-router';
+import { Pool } from 'pg';
+
+// Lazy-loaded pool to avoid circular dependency at module load time
+async function getPool(): Promise<Pool> {
+  const mod = require('../../../core/database/connection');
+  return mod.pool ?? mod.getPool?.() ?? mod.default;
+}
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -200,10 +207,40 @@ export class ExplanationService {
     this.router = new LLMRouter();
   }
 
-  async explainExecutiveSummary(ctx: PortfolioContext): Promise<ExplanationResult> {
+  /** Fire-and-forget metric logging — never throws, never blocks the response. */
+  private logMetric(params: {
+    tenantId:        string;
+    explanationType: string;
+    sourcetype?:     string;
+    provider:        string;
+    latencyMs:       number;
+    fallbackUsed:    boolean;
+    success:         boolean;
+    errorMessage?:   string;
+  }): void {
+    void (async () => {
+      try {
+        const pool = await getPool();
+        await pool.query(
+          `INSERT INTO llm_execution_metrics
+             (tenant_id, explanation_type, sourcetype, provider,
+              latency_ms, success, fallback_used, error_message)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [
+            params.tenantId, params.explanationType,
+            params.sourcetype ?? null, params.provider,
+            params.latencyMs, params.success, params.fallbackUsed,
+            params.errorMessage ?? null,
+          ]
+        );
+      } catch {
+        // Silent — metrics must never disrupt the explanation path
+      }
+    })();
+  }
+
+  async explainExecutiveSummary(ctx: PortfolioContext, tenantId?: string): Promise<ExplanationResult> {
     const start = Date.now();
-    // Include all derived values the template or LLM may reference,
-    // so Gate 2 (no invented numbers) can verify every number in the narrative.
     const lowValuePct = ctx.annual_spend > 0
       ? Math.round((ctx.low_value_spend / ctx.annual_spend) * 100)
       : 0;
@@ -211,87 +248,48 @@ export class ExplanationService {
 
     try {
       const prompt   = buildExecutiveSummaryPrompt(ctx);
-      const { response, provider } = await this.router.generate(prompt, {
-        temperature: 0.3,
-        maxTokens: 200,
-      });
-      return {
-        explanation_type: 'executive_summary',
-        narrative:        response.trim(),
-        provider,
-        fallback_used:    false,
-        latency_ms:       Date.now() - start,
-        grounding,
-      };
-    } catch {
-      return {
-        explanation_type: 'executive_summary',
-        narrative:        templateExecutiveSummary(ctx),
-        provider:         'template',
-        fallback_used:    true,
-        latency_ms:       Date.now() - start,
-        grounding,
-      };
+      const { response, provider } = await this.router.generate(prompt, { temperature: 0.3, maxTokens: 200 });
+      const latency  = Date.now() - start;
+      if (tenantId) this.logMetric({ tenantId, explanationType: 'executive_summary', provider, latencyMs: latency, fallbackUsed: false, success: true });
+      return { explanation_type: 'executive_summary', narrative: response.trim(), provider, fallback_used: false, latency_ms: latency, grounding };
+    } catch (err) {
+      const latency = Date.now() - start;
+      if (tenantId) this.logMetric({ tenantId, explanationType: 'executive_summary', provider: 'template', latencyMs: latency, fallbackUsed: true, success: true, errorMessage: err instanceof Error ? err.message : String(err) });
+      return { explanation_type: 'executive_summary', narrative: templateExecutiveSummary(ctx), provider: 'template', fallback_used: true, latency_ms: latency, grounding };
     }
   }
 
-  async explainSourcetype(ctx: SourcetypeContext): Promise<ExplanationResult> {
-    const start = Date.now();
+  async explainSourcetype(ctx: SourcetypeContext, tenantId?: string): Promise<ExplanationResult> {
+    const start    = Date.now();
     const grounding: Record<string, unknown> = { ...ctx };
 
     try {
       const prompt = buildSourcetypePrompt(ctx);
-      const { response, provider } = await this.router.generate(prompt, {
-        temperature: 0.3,
-        maxTokens: 150,
-      });
-      return {
-        explanation_type: 'sourcetype',
-        narrative:        response.trim(),
-        provider,
-        fallback_used:    false,
-        latency_ms:       Date.now() - start,
-        grounding,
-      };
-    } catch {
-      return {
-        explanation_type: 'sourcetype',
-        narrative:        templateSourcetype(ctx),
-        provider:         'template',
-        fallback_used:    true,
-        latency_ms:       Date.now() - start,
-        grounding,
-      };
+      const { response, provider } = await this.router.generate(prompt, { temperature: 0.3, maxTokens: 150 });
+      const latency = Date.now() - start;
+      if (tenantId) this.logMetric({ tenantId, explanationType: 'sourcetype', sourcetype: ctx.sourcetype, provider, latencyMs: latency, fallbackUsed: false, success: true });
+      return { explanation_type: 'sourcetype', narrative: response.trim(), provider, fallback_used: false, latency_ms: latency, grounding };
+    } catch (err) {
+      const latency = Date.now() - start;
+      if (tenantId) this.logMetric({ tenantId, explanationType: 'sourcetype', sourcetype: ctx.sourcetype, provider: 'template', latencyMs: latency, fallbackUsed: true, success: true, errorMessage: err instanceof Error ? err.message : String(err) });
+      return { explanation_type: 'sourcetype', narrative: templateSourcetype(ctx), provider: 'template', fallback_used: true, latency_ms: latency, grounding };
     }
   }
 
-  async explainGovernance(ctx: SourcetypeContext): Promise<ExplanationResult> {
-    const start = Date.now();
+  async explainGovernance(ctx: SourcetypeContext, tenantId?: string): Promise<ExplanationResult> {
+    const start    = Date.now();
     const grounding: Record<string, unknown> = { ...ctx };
 
     try {
       const prompt = buildGovernancePrompt(ctx);
-      const { response, provider } = await this.router.generate(prompt, {
-        temperature: 0.1,   // lowest temperature: governance explanations must be precise
-        maxTokens: 120,
-      });
-      return {
-        explanation_type: 'governance',
-        narrative:        response.trim(),
-        provider,
-        fallback_used:    false,
-        latency_ms:       Date.now() - start,
-        grounding,
-      };
-    } catch {
-      return {
-        explanation_type: 'governance',
-        narrative:        templateGovernance(ctx),
-        provider:         'template',
-        fallback_used:    true,
-        latency_ms:       Date.now() - start,
-        grounding,
-      };
+      const { response, provider } = await this.router.generate(prompt, { temperature: 0.1, maxTokens: 120 });
+      const latency = Date.now() - start;
+      if (tenantId) this.logMetric({ tenantId, explanationType: 'governance', sourcetype: ctx.sourcetype, provider, latencyMs: latency, fallbackUsed: false, success: true });
+      return { explanation_type: 'governance', narrative: response.trim(), provider, fallback_used: false, latency_ms: latency, grounding };
+    } catch (err) {
+      const latency = Date.now() - start;
+      if (tenantId) this.logMetric({ tenantId, explanationType: 'governance', sourcetype: ctx.sourcetype, provider: 'template', latencyMs: latency, fallbackUsed: true, success: true, errorMessage: err instanceof Error ? err.message : String(err) });
+      return { explanation_type: 'governance', narrative: templateGovernance(ctx), provider: 'template', fallback_used: true, latency_ms: latency, grounding };
     }
   }
 }

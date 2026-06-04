@@ -111,7 +111,7 @@ export const POST = createRoute(async (request: NextRequest) => {
       snapshot_date:      row.snapshot_date,
     };
 
-    const result = await service.explainExecutiveSummary(ctx);
+    const result = await service.explainExecutiveSummary(ctx, tenantId);
     return { data: { ...result, sufficient_data: true }, meta: { tenantId } };
   }
 
@@ -194,8 +194,8 @@ export const POST = createRoute(async (request: NextRequest) => {
   };
 
   const result = type === 'governance'
-    ? await service.explainGovernance(ctx)
-    : await service.explainSourcetype(ctx);
+    ? await service.explainGovernance(ctx, tenantId)
+    : await service.explainSourcetype(ctx, tenantId);
 
   return { data: { ...result, sufficient_data: true }, meta: { tenantId } };
 });
