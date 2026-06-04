@@ -101,9 +101,9 @@ export const GET = createRoute(async (request: NextRequest) => {
   const snapshotId = publishedRun.snapshotId;
 
   const snapshotRowsResult = await query(
-    `SELECT * FROM telemetry_snapshots
+    `SELECT DISTINCT ON (index_name, sourcetype) * FROM telemetry_snapshots
      WHERE tenant_id = $1 AND snapshot_id = $2
-     ORDER BY index_name ASC, sourcetype ASC NULLS FIRST`,
+     ORDER BY index_name ASC, sourcetype ASC NULLS FIRST, created_at DESC`,
     [tenantId, snapshotId]
   );
   const snapshotRows = snapshotRowsResult.rows || [];
