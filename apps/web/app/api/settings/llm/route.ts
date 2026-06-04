@@ -5,22 +5,25 @@ import { updateRuntimeConfig } from '@/lib/runtime-config';
 
 export const GET = createRoute(async () => {
   const res = await query<any>(
-    `SELECT llm_provider, anthropic_api_key, anthropic_model
+    `SELECT llm_provider, llm_mode, anthropic_api_key, anthropic_model
      FROM user_config WHERE config_key = 'default' LIMIT 1`
   );
   const rawProvider = res.rows[0]?.llm_provider;
+  const rawMode = res.rows[0]?.llm_mode || 'local_only';
   const rawApiKey = res.rows[0]?.anthropic_api_key;
   const rawModel = res.rows[0]?.anthropic_model;
 
-  const hasValidAnthropicConfig =
-    rawProvider === 'anthropic' &&
-    typeof rawApiKey === 'string' &&
-    rawApiKey.trim().startsWith('sk-ant-');
+  const hasKey = typeof rawApiKey === 'string' && rawApiKey.trim().length > 10;
 
-  // Fail safe: if cloud provider is configured without a valid key, force local mode.
+  // Fail safe: if cloud mode is configured without a valid key, force local_only.
+  const effectiveMode = (rawMode !== 'local_only' && !hasKey) ? 'local_only' : rawMode;
+  const effectiveProvider = effectiveMode === 'local_only' ? 'local' : 'anthropic';
+
   const config = {
-    llmProvider: hasValidAnthropicConfig ? 'anthropic' : 'local',
-    anthropicApiKey: typeof rawApiKey === 'string' ? rawApiKey : null,
+    llmMode: effectiveMode,
+    llmProvider: effectiveProvider,
+    // Return masked key (last 4 chars) — never return the full key to the client
+    anthropicApiKey: hasKey ? rawApiKey : null,
     anthropicModel: typeof rawModel === 'string' && rawModel.trim().length > 0
       ? rawModel.trim()
       : 'claude-3-5-sonnet-20241022',
@@ -30,40 +33,49 @@ export const GET = createRoute(async () => {
 
 export const POST = createRoute(async (request: NextRequest) => {
   const body = await request.json();
-  const providerInput = typeof body?.llmProvider === 'string' ? body.llmProvider.trim() : '';
+  const modeInput = typeof body?.llmMode === 'string' ? body.llmMode.trim() : 'local_only';
+  const providerInput = typeof body?.llmProvider === 'string' ? body.llmProvider.trim() : 'local';
   const apiKeyInput = typeof body?.anthropicApiKey === 'string' ? body.anthropicApiKey.trim() : '';
   const modelInput = typeof body?.anthropicModel === 'string' ? body.anthropicModel.trim() : '';
-  const llmProvider: 'local' | 'anthropic' = providerInput === 'anthropic' ? 'anthropic' : 'local';
 
-  if (providerInput && !['local', 'anthropic'].includes(providerInput)) {
-    throw new Error('llmProvider must be "local" or "anthropic"');
-  }
-  if (llmProvider === 'anthropic' && !apiKeyInput) {
-    throw new Error('Anthropic API key is required when using Cloud provider');
-  }
-  if (llmProvider === 'anthropic' && !apiKeyInput.startsWith('sk-ant-')) {
-    throw new Error('Anthropic API key format is invalid');
-  }
-  if (llmProvider === 'anthropic' && !modelInput) {
-    throw new Error('Anthropic model is required when using Cloud provider');
+  const validModes = ['local_only', 'local_then_anthropic', 'anthropic_only'];
+  if (!validModes.includes(modeInput)) {
+    throw new Error(`llmMode must be one of: ${validModes.join(', ')}`);
   }
 
-  const persistedApiKey = llmProvider === 'anthropic' ? apiKeyInput : null;
-  const persistedModel = llmProvider === 'anthropic'
+  const needsKey = modeInput !== 'local_only';
+
+  // Fetch current key to preserve it if no new key is provided
+  const current = await query<any>(`SELECT anthropic_api_key FROM user_config WHERE config_key = 'default' LIMIT 1`);
+  const existingKey = current.rows[0]?.anthropic_api_key || '';
+
+  // If mode requires key, either new key or existing key must be present
+  const resolvedKey = apiKeyInput || existingKey;
+  if (needsKey && !resolvedKey) {
+    throw new Error('Anthropic API key is required for this mode. Enter your key to enable Anthropic.');
+  }
+  if (apiKeyInput && !apiKeyInput.startsWith('sk-')) {
+    throw new Error('Anthropic API key must start with "sk-"');
+  }
+
+  const llmProvider = modeInput === 'local_only' ? 'local' : 'anthropic';
+  const persistedKey = modeInput === 'local_only' ? null : (apiKeyInput || existingKey);
+  const persistedModel = (modeInput !== 'local_only' && modelInput)
     ? modelInput
     : 'claude-3-5-sonnet-20241022';
 
   await query(
     `UPDATE user_config
-     SET llm_provider = COALESCE($1, llm_provider),
-         anthropic_api_key = $2,
-         anthropic_model = COALESCE($3, anthropic_model),
+     SET llm_provider = $1,
+         llm_mode = $2,
+         anthropic_api_key = $3,
+         anthropic_model = $4,
          updated_at = NOW()
      WHERE config_key = 'default'`,
-    [llmProvider, persistedApiKey, persistedModel]
+    [llmProvider, modeInput, persistedKey, persistedModel]
   );
 
-  updateRuntimeConfig({ llmProvider, anthropicApiKey: persistedApiKey, anthropicModel: persistedModel });
+  updateRuntimeConfig({ llmProvider, anthropicApiKey: persistedKey, anthropicModel: persistedModel });
 
-  return { data: { ok: true }, meta: { source: 'postgres' } };
+  return { data: { ok: true, mode: modeInput, provider: llmProvider }, meta: { source: 'postgres' } };
 });

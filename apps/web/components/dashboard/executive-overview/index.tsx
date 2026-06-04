@@ -279,18 +279,34 @@ export default function ExecutiveOverview({
       {hasAgentDecisions && (
         <ROIPanel
           roiScore={kpis.roiScore}
+          roiScoreClassification={kpis.roiScoreClassification}
           gainScopeScore={kpis.gainScopeScore}
+          gainScopeScoreClassification={kpis.gainScopeScoreClassification}
           licenseSpendLowValue={kpis.licenseSpendLowValue}
+          licenseSpendLowValueClassification={kpis.licenseSpendLowValueClassification}
           storageSavingsPotential={kpis.storageSavingsPotential}
+          storageSavingsPotentialClassification={kpis.storageSavingsPotentialClassification}
           totalLicenseSpend={kpis.totalLicenseSpend}
+          totalLicenseSpendClassification={kpis.totalLicenseSpendClassification}
+          tier1SpendAnnual={kpis.tier1SpendAnnual}
+          tier1SpendAnnualClassification={kpis.tier1SpendAnnualClassification}
+          tier2SpendAnnual={kpis.tier2SpendAnnual}
+          tier2SpendAnnualClassification={kpis.tier2SpendAnnualClassification}
+          tier3SpendAnnual={kpis.tier3SpendAnnual}
+          tier3SpendAnnualClassification={kpis.tier3SpendAnnualClassification}
+          tier4SpendAnnual={kpis.tier4SpendAnnual}
+          tier4SpendAnnualClassification={kpis.tier4SpendAnnualClassification}
           totalDailyGb={kpis.totalDailyGb}
           totalSourcetypes={kpis.totalSourcetypes}
           securityGaps={kpis.securityGaps}
           operationalGaps={kpis.operationalGaps}
           tierCounts={kpis.tierCounts}
           avgUtilization={avgUtilization}
+          avgUtilizationClassification={kpis.avgUtilizationClassification}
           avgDetection={avgDetection}
+          avgDetectionClassification={kpis.avgDetectionClassification}
           avgQuality={avgQuality}
+          avgQualityClassification={kpis.avgQualityClassification}
           avgConfidencePct={avgConfidencePct}
           agentReasoning={agentReasoning}
           onOpenDrawer={explainabilityEnabled ? openDrawer : undefined}

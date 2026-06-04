@@ -35,8 +35,13 @@ export default function AgentIntelligencePanel({ snapshots, kpis, hasAgentDecisi
           : topByRisk.length === 0
             ? <div style={{ color: '#475569', fontSize: '0.8rem' }}>No data</div>
             : topByRisk.map((s) => (
-              <div key={s.indexName} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
-                <span style={{ color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>{s.indexName}</span>
+              <div key={`${s.indexName}-${s.sourcetype || ''}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
+                <span style={{ color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>
+                  {s.sourcetype ? `${s.sourcetype}` : s.indexName}
+                  {s.sourcetype && s.indexName !== s.sourcetype && (
+                    <span style={{ color: '#475569', fontSize: '0.7rem', marginLeft: 4 }}>({s.indexName})</span>
+                  )}
+                </span>
                 <span style={{ color: Number(s.riskScore) > 70 ? '#ef4444' : Number(s.riskScore) > 40 ? '#f59e0b' : '#22c55e', fontWeight: 700 }}>
                   {Number(s.riskScore).toFixed(0)}
                 </span>
@@ -52,7 +57,7 @@ export default function AgentIntelligencePanel({ snapshots, kpis, hasAgentDecisi
         {detectionGaps.length === 0
           ? <div style={{ color: '#22c55e', fontSize: '0.8rem' }}>✓ No critical detection gaps identified</div>
           : detectionGaps.slice(0, 5).map((s) => (
-            <div key={s.indexName} style={{ marginBottom: '0.625rem', paddingBottom: '0.625rem', borderBottom: '1px solid #1e293b' }}>
+            <div key={`${s.indexName}-${s.sourcetype || ''}`} style={{ marginBottom: '0.625rem', paddingBottom: '0.625rem', borderBottom: '1px solid #1e293b' }}>
               <div style={{ color: '#f8fafc', fontSize: '0.8rem', fontWeight: 600 }}>{s.indexName}</div>
               {s.recommendation && (
                 <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem', fontStyle: 'italic' }}>

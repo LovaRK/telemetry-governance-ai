@@ -252,7 +252,7 @@ export default function DecisionExplainabilityPanel({ decisions }: Props) {
             🧠 AI Decision Explainability
           </div>
           <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: 2 }}>
-            {decisions.length} index{decisions.length !== 1 ? 'es' : ''} analyzed by LLM
+            {decisions.length} sourcetype{decisions.length !== 1 ? 's' : ''} scored &amp; classified
           </div>
         </div>
         <button

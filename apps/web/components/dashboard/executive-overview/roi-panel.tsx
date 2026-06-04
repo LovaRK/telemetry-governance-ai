@@ -24,19 +24,35 @@ interface DrawerPayload {
 }
 
 interface ROIPanelProps {
-  roiScore: number;
-  gainScopeScore: number;
-  licenseSpendLowValue: number;
-  storageSavingsPotential: number;
-  totalLicenseSpend: number;
+  roiScore: number | null;
+  roiScoreClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+  gainScopeScore: number | null;
+  gainScopeScoreClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+  licenseSpendLowValue: number | null;
+  licenseSpendLowValueClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+  storageSavingsPotential: number | null;
+  storageSavingsPotentialClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+  totalLicenseSpend: number | null;
+  totalLicenseSpendClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+  tier1SpendAnnual?: number | null;
+  tier1SpendAnnualClassification?: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+  tier2SpendAnnual?: number | null;
+  tier2SpendAnnualClassification?: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+  tier3SpendAnnual?: number | null;
+  tier3SpendAnnualClassification?: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+  tier4SpendAnnual?: number | null;
+  tier4SpendAnnualClassification?: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
   totalDailyGb: number;
   totalSourcetypes: number;
   securityGaps: number;
   operationalGaps: number;
   tierCounts: { critical: number; important: number; niceToHave: number; lowValue: number };
-  avgUtilization: number;
-  avgDetection: number;
-  avgQuality: number;
+  avgUtilization: number | null;
+  avgUtilizationClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+  avgDetection: number | null;
+  avgDetectionClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+  avgQuality: number | null;
+  avgQualityClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
   avgConfidencePct: number;
   agentReasoning?: string;
   onOpenDrawer?: (payload: DrawerPayload) => void;
@@ -58,6 +74,24 @@ const FactBadge = (
   }}>✓ FACT</div>
 );
 
+// Classification-aware rendering helper
+const renderMetricByClassification = (
+  value: number | null,
+  classification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE'
+) => {
+  if (classification === 'EMPTY') {
+    return { text: 'No data available', className: 'text-gray-400', badgeColor: '#f59e0b' };
+  }
+  if (classification === 'UNIMPLEMENTED') {
+    return { text: 'Not calculated', className: 'text-gray-400', badgeColor: '#6b7280' };
+  }
+  if (classification === 'BASELINE') {
+    return { text: value !== null ? value.toFixed(1) : '--', className: 'text-blue-400', badgeColor: '#3b82f6' };
+  }
+  // REAL
+  return { text: value !== null ? value.toFixed(0) : '--', className: 'text-green-400', badgeColor: '#10b981' };
+};
+
 const card: React.CSSProperties = {
   padding: '1.5rem', background: '#0f172a', borderRadius: 12,
   border: '1px solid #1e293b', display: 'flex', flexDirection: 'column',
@@ -71,18 +105,34 @@ const cardTitle: React.CSSProperties = {
 
 export function ROIPanel({
   roiScore,
+  roiScoreClassification,
   gainScopeScore,
+  gainScopeScoreClassification,
   licenseSpendLowValue,
+  licenseSpendLowValueClassification,
   storageSavingsPotential,
+  storageSavingsPotentialClassification,
   totalLicenseSpend,
+  totalLicenseSpendClassification,
+  tier1SpendAnnual,
+  tier1SpendAnnualClassification,
+  tier2SpendAnnual,
+  tier2SpendAnnualClassification,
+  tier3SpendAnnual,
+  tier3SpendAnnualClassification,
+  tier4SpendAnnual,
+  tier4SpendAnnualClassification,
   totalDailyGb,
   totalSourcetypes,
   securityGaps,
   operationalGaps,
   tierCounts,
   avgUtilization,
+  avgUtilizationClassification,
   avgDetection,
+  avgDetectionClassification,
   avgQuality,
+  avgQualityClassification,
   avgConfidencePct,
   agentReasoning = '',
   onOpenDrawer,
@@ -94,104 +144,148 @@ export function ROIPanel({
 
       {/* ROI Score */}
       <div style={card}>
-        {AIBadge}
+        {roiScoreClassification === 'REAL' ? AIBadge : FactBadge}
         <div style={cardTitle}>ROI Score</div>
-        <Gauge
-          value={roiScore}
-          label=""
-          color="#22c55e"
-          onClick={() => open({
-            isOpen: true,
-            metric: 'roi_score',
-            value: roiScore,
-            title: `ROI Score: ${roiScore.toFixed(0)}`,
-            howCalculated: `ROI Score = (Total Savings Potential / Annual Spend) × 100\n\nCritical: ${tierCounts.critical}\nImportant: ${tierCounts.important}\nNice-to-Have: ${tierCounts.niceToHave}\nLow Value: ${tierCounts.lowValue}\n\nThe score combines tier distribution with potential cost savings.`,
-            llmReasoning: agentReasoning,
-            evidence: [
-              `Savings potential: ${fmt$(storageSavingsPotential)}`,
-              `Current annual spend: ${fmt$(totalLicenseSpend)}`,
-              `${tierCounts.lowValue} low-value indexes identified`,
-              `${tierCounts.critical + tierCounts.important} high-value indexes protected`,
-            ],
-            confidence: avgConfidencePct,
-            rawData: { tierCounts, roiScore, storageSavingsPotential, totalLicenseSpend },
-          })}
-        />
+        {roiScoreClassification !== 'REAL' ? (
+          <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.9rem' }}>
+            {roiScoreClassification === 'EMPTY' && 'No data available'}
+            {roiScoreClassification === 'UNIMPLEMENTED' && 'Not calculated'}
+            {roiScoreClassification === 'BASELINE' && 'Baseline data'}
+            <div style={{ fontSize: '0.65rem', marginTop: '0.5rem', color: '#475569' }}>
+              [{roiScoreClassification}]
+            </div>
+          </div>
+        ) : (
+          <Gauge
+            value={roiScore || 0}
+            label=""
+            color="#22c55e"
+            onClick={() => open({
+              isOpen: true,
+              metric: 'roi_score',
+              value: roiScore,
+              title: `ROI Score: ${roiScore?.toFixed(0) || '--'}`,
+              howCalculated: `ROI Score = (Total Savings Potential / Annual Spend) × 100\n\nCritical: ${tierCounts.critical}\nImportant: ${tierCounts.important}\nNice-to-Have: ${tierCounts.niceToHave}\nLow Value: ${tierCounts.lowValue}\n\nThe score combines tier distribution with potential cost savings.`,
+              llmReasoning: agentReasoning,
+              evidence: [
+                `Savings potential: ${fmt$(storageSavingsPotential || 0)}`,
+                `Current annual spend: ${fmt$(totalLicenseSpend || 0)}`,
+                `${tierCounts.lowValue} low-value indexes identified`,
+                `${tierCounts.critical + tierCounts.important} high-value indexes protected`,
+              ],
+              confidence: avgConfidencePct,
+              rawData: { tierCounts, roiScore, storageSavingsPotential, totalLicenseSpend },
+            })}
+          />
+        )}
       </div>
 
       {/* GainScope */}
       <div style={card}>
-        {AIBadge}
+        {gainScopeScoreClassification === 'REAL' ? AIBadge : FactBadge}
         <div style={cardTitle}>GainScope</div>
-        <Gauge
-          value={gainScopeScore}
-          label=""
-          color="#3b82f6"
-          onClick={() => open({
-            isOpen: true,
-            metric: 'gainscope_score',
-            value: gainScopeScore,
-            title: `GainScope Score: ${gainScopeScore.toFixed(0)}`,
-            howCalculated: `GainScope Score = (Utilization + Detection + Quality) / 3\n\nUtilization: ${avgUtilization.toFixed(0)}%\nDetection Coverage: ${avgDetection.toFixed(0)}%\nData Quality: ${avgQuality.toFixed(0)}%\n\nMeasures overall data health and business impact.`,
-            llmReasoning: agentReasoning,
-            evidence: [
-              `Average utilization score: ${avgUtilization.toFixed(0)}%`,
-              `Average detection coverage: ${avgDetection.toFixed(0)}%`,
-              `Average data quality: ${avgQuality.toFixed(0)}%`,
-              `${totalSourcetypes} indexes analyzed`,
-            ],
-            confidence: avgConfidencePct,
-            rawData: { gainScopeScore, avgUtilization, avgDetection, avgQuality },
-          })}
-        />
+        {gainScopeScoreClassification !== 'REAL' ? (
+          <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.9rem' }}>
+            {gainScopeScoreClassification === 'EMPTY' && 'No data available'}
+            {gainScopeScoreClassification === 'UNIMPLEMENTED' && 'Not calculated'}
+            {gainScopeScoreClassification === 'BASELINE' && 'Baseline data'}
+            <div style={{ fontSize: '0.65rem', marginTop: '0.5rem', color: '#475569' }}>
+              [{gainScopeScoreClassification}]
+            </div>
+          </div>
+        ) : (
+          <Gauge
+            value={gainScopeScore || 0}
+            label=""
+            color="#3b82f6"
+            onClick={() => open({
+              isOpen: true,
+              metric: 'gainscope_score',
+              value: gainScopeScore,
+              title: `GainScope Score: ${gainScopeScore?.toFixed(0) || '--'}`,
+              howCalculated: `GainScope Score = (Utilization + Detection + Quality) / 3\n\nUtilization: ${(avgUtilization || 0).toFixed(0)}%\nDetection Coverage: ${(avgDetection || 0).toFixed(0)}%\nData Quality: ${(avgQuality || 0).toFixed(0)}%\n\nMeasures overall data health and business impact.`,
+              llmReasoning: agentReasoning,
+              evidence: [
+                `Average utilization score: ${(avgUtilization || 0).toFixed(0)}%`,
+                `Average detection coverage: ${(avgDetection || 0).toFixed(0)}%`,
+                `Average data quality: ${(avgQuality || 0).toFixed(0)}%`,
+                `${totalSourcetypes} indexes analyzed`,
+              ],
+              confidence: avgConfidencePct,
+              rawData: { gainScopeScore, avgUtilization, avgDetection, avgQuality },
+            })}
+          />
+        )}
       </div>
 
       {/* Low-Value Spend */}
       <div style={card}>
-        {AIBadge}
+        {licenseSpendLowValueClassification === 'REAL' ? AIBadge : FactBadge}
         <div style={cardTitle}>Low-Value Spend</div>
-        <div style={{ cursor: 'pointer' }} onClick={() => open({
-          isOpen: true,
-          metric: 'license_spend_low_value',
-          value: licenseSpendLowValue,
-          title: `Low-Value Spend: ${fmt$(licenseSpendLowValue)}`,
-          howCalculated: `Low-Value Spend = Annual cost of indexes classified as Low Value tier\n\nLow-Value indexes: ${tierCounts.lowValue}\nTotal annual spend: ${fmt$(totalLicenseSpend)}\nPercentage: ${totalLicenseSpend > 0 ? ((licenseSpendLowValue / totalLicenseSpend) * 100).toFixed(1) : 0}%`,
-          llmReasoning: agentReasoning,
-          evidence: [
-            `${tierCounts.lowValue} indexes classified as low-value`,
-            `Annual cost: ${fmt$(licenseSpendLowValue)}`,
-            `Potential savings: ${fmt$(storageSavingsPotential)}`,
-            `Recommended action: Archive or eliminate low-utilization indexes`,
-          ],
-          confidence: avgConfidencePct,
-          rawData: { licenseSpendLowValue, lowValueCount: tierCounts.lowValue, totalLicenseSpend },
-        })}>
-          <SpendGauge amount={licenseSpendLowValue} total={totalLicenseSpend} label="" color="#ef4444" />
-        </div>
+        {licenseSpendLowValueClassification !== 'REAL' ? (
+          <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.9rem' }}>
+            {licenseSpendLowValueClassification === 'EMPTY' && 'No data available'}
+            {licenseSpendLowValueClassification === 'UNIMPLEMENTED' && 'Not calculated'}
+            {licenseSpendLowValueClassification === 'BASELINE' && 'Baseline data'}
+            <div style={{ fontSize: '0.65rem', marginTop: '0.5rem', color: '#475569' }}>
+              [{licenseSpendLowValueClassification}]
+            </div>
+          </div>
+        ) : (
+          <div style={{ cursor: 'pointer' }} onClick={() => open({
+            isOpen: true,
+            metric: 'license_spend_low_value',
+            value: licenseSpendLowValue,
+            title: `Low-Value Spend: ${fmt$(licenseSpendLowValue || 0)}`,
+            howCalculated: `Low-Value Spend = Annual cost of indexes classified as Low Value tier\n\nLow-Value indexes: ${tierCounts.lowValue}\nTotal annual spend: ${fmt$(totalLicenseSpend || 0)}\nPercentage: ${(totalLicenseSpend || 0) > 0 ? (((licenseSpendLowValue || 0) / (totalLicenseSpend || 0)) * 100).toFixed(1) : 0}%`,
+            llmReasoning: agentReasoning,
+            evidence: [
+              `${tierCounts.lowValue} indexes classified as low-value`,
+              `Annual cost: ${fmt$(licenseSpendLowValue || 0)}`,
+              `Potential savings: ${fmt$(storageSavingsPotential || 0)}`,
+              `Recommended action: Archive or eliminate low-utilization indexes`,
+            ],
+            confidence: avgConfidencePct,
+            rawData: { licenseSpendLowValue, lowValueCount: tierCounts.lowValue, totalLicenseSpend },
+          })}>
+            <SpendGauge amount={licenseSpendLowValue || 0} total={totalLicenseSpend || 0} label="" color="#ef4444" />
+          </div>
+        )}
       </div>
 
       {/* Savings Potential */}
       <div style={card}>
-        {AIBadge}
+        {storageSavingsPotentialClassification === 'REAL' ? AIBadge : FactBadge}
         <div style={cardTitle}>Savings Potential</div>
-        <div style={{ cursor: 'pointer' }} onClick={() => open({
-          isOpen: true,
-          metric: 'storage_savings_potential',
-          value: storageSavingsPotential,
-          title: `Savings Potential: ${fmt$(storageSavingsPotential)}`,
-          howCalculated: `Savings Potential = Sum of cost reduction from optimization and elimination actions\n\nARCHIVE savings: Reduce retention on cold data\nELIMINATE savings: Remove unused indexes\nOPTIMIZE savings: Reduce daily ingest through deduplication`,
-          llmReasoning: agentReasoning,
-          evidence: [
-            `Estimated annual savings: ${fmt$(storageSavingsPotential)}`,
-            `Percentage of current spend: ${totalLicenseSpend > 0 ? ((storageSavingsPotential / totalLicenseSpend) * 100).toFixed(1) : 0}%`,
-            `Low-value spend to reduce: ${fmt$(licenseSpendLowValue)}`,
-            `${tierCounts.critical + tierCounts.important} high-value indexes remain protected`,
-          ],
-          confidence: avgConfidencePct,
-          rawData: { storageSavingsPotential, totalLicenseSpend, licenseSpendLowValue },
-        })}>
-          <SpendGauge amount={storageSavingsPotential} total={totalLicenseSpend} label="" color="#22c55e" />
-        </div>
+        {storageSavingsPotentialClassification !== 'REAL' ? (
+          <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.9rem' }}>
+            {storageSavingsPotentialClassification === 'EMPTY' && 'No data available'}
+            {storageSavingsPotentialClassification === 'UNIMPLEMENTED' && 'Not calculated'}
+            {storageSavingsPotentialClassification === 'BASELINE' && 'Baseline data'}
+            <div style={{ fontSize: '0.65rem', marginTop: '0.5rem', color: '#475569' }}>
+              [{storageSavingsPotentialClassification}]
+            </div>
+          </div>
+        ) : (
+          <div style={{ cursor: 'pointer' }} onClick={() => open({
+            isOpen: true,
+            metric: 'storage_savings_potential',
+            value: storageSavingsPotential,
+            title: `Savings Potential: ${fmt$(storageSavingsPotential || 0)}`,
+            howCalculated: `Savings Potential = Sum of cost reduction from optimization and elimination actions\n\nARCHIVE savings: Reduce retention on cold data\nELIMINATE savings: Remove unused indexes\nOPTIMIZE savings: Reduce daily ingest through deduplication`,
+            llmReasoning: agentReasoning,
+            evidence: [
+              `Estimated annual savings: ${fmt$(storageSavingsPotential || 0)}`,
+              `Percentage of current spend: ${(totalLicenseSpend || 0) > 0 ? (((storageSavingsPotential || 0) / (totalLicenseSpend || 0)) * 100).toFixed(1) : 0}%`,
+              `Low-value spend to reduce: ${fmt$(licenseSpendLowValue || 0)}`,
+              `${tierCounts.critical + tierCounts.important} high-value indexes remain protected`,
+            ],
+            confidence: avgConfidencePct,
+            rawData: { storageSavingsPotential, totalLicenseSpend, licenseSpendLowValue },
+          })}>
+            <SpendGauge amount={storageSavingsPotential || 0} total={totalLicenseSpend || 0} label="" color="#22c55e" />
+          </div>
+        )}
       </div>
 
       {/* Daily Ingest (fact card — no LLM) */}
@@ -215,42 +309,61 @@ export function ROIPanel({
         {AIBadge}
         <div style={cardTitle}>Coverage Gaps</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem', alignItems: 'start' }}>
+          {/* Security Gaps */}
           <div style={{ cursor: 'pointer' }} onClick={() => open({
             isOpen: true,
             metric: 'security_gaps',
             value: securityGaps,
             title: `Security Gaps: ${securityGaps}`,
-            howCalculated: `Security Gaps = sourcetypes that have MITRE ATT&CK technique mappings but whose active alert count is < 25% of that potential.\n\nA gap of 0 means either:\n  ✓ All mapped detections are firing (good)\n  ⚠ No MITRE/Lantern mappings found for these sourcetypes\n\nCheck the Detail Analysis page for per-sourcetype detection scores.\nTotal indexes: ${totalSourcetypes} | Avg detection score: ${Math.round(avgDetection ?? 0)}%`,
+            howCalculated: `Security Gaps = sourcetypes that have ≥15 MITRE ATT&CK technique mappings AND active alert coverage < 25%.\n\nCurrent avg detection score: ${Math.round(avgDetection ?? 0)}%\n\n${avgDetection === 0 ? '⚠ Detection score is 0% across all sourcetypes. This means MITRE ATT&CK and Lantern use-case mapping CSVs were not provided. Gap detection requires sourcetype_attack_mapping.csv to be loaded.' : 'Gap detection is active.'}`,
             llmReasoning: agentReasoning,
             evidence: [
-              `${securityGaps} indexes have unfired MITRE detection potential`,
-              securityGaps === 0 && avgDetection < 40
-                ? `⚠ Avg detection score ${Math.round(avgDetection ?? 0)}% — low scores may indicate missing MITRE/Lantern sourcetype mappings`
-                : `${totalSourcetypes - securityGaps} of ${totalSourcetypes} indexes have active detections`,
+              avgDetection === 0
+                ? `⚠ MITRE mapping data not loaded — provide sourcetype_attack_mapping.csv to enable gap detection`
+                : `${securityGaps} of ${totalSourcetypes} indexes have unfired MITRE detection potential`,
+              `Avg detection score: ${Math.round(avgDetection ?? 0)}%`,
               `See Detail Analysis → Security Detection Gaps for per-sourcetype breakdown`,
             ],
             confidence: avgConfidencePct,
-            rawData: { securityGaps, totalSourcetypes },
+            rawData: { securityGaps, avgDetection, totalSourcetypes },
           })}>
-            <MiniGauge value={securityGaps} max={Math.max(totalSourcetypes, 1)} label="Security" color="#ef4444" />
+            {avgDetection === 0 ? (
+              <div style={{ fontSize: '0.7rem', color: '#f59e0b', lineHeight: 1.4 }}>
+                <div style={{ fontWeight: 700, color: '#94a3b8' }}>Security Gaps</div>
+                <div style={{ color: '#f59e0b', marginTop: 2 }}>⚠ No MITRE data</div>
+                <div style={{ color: '#64748b', fontSize: '0.62rem', marginTop: 1 }}>Load MITRE mapping CSV</div>
+              </div>
+            ) : (
+              <MiniGauge value={securityGaps} max={Math.max(totalSourcetypes, 1)} label="Security" color="#ef4444" />
+            )}
           </div>
+
+          {/* Operational Gaps */}
           <div style={{ cursor: 'pointer' }} onClick={() => open({
             isOpen: true,
             metric: 'operational_gaps',
             value: operationalGaps,
             title: `Operational Gaps: ${operationalGaps}`,
-            howCalculated: `Operational Gaps = sourcetypes that have Splunk Lantern use-case mappings but zero active scheduled searches.\n\nA gap of 0 means either:\n  ✓ All Lantern use cases have active coverage (good)\n  ⚠ No Lantern domain mappings found for these sourcetypes\n\nTotal indexes: ${totalSourcetypes}`,
+            howCalculated: `Operational Gaps = sourcetypes with ≥4 Splunk Lantern use-case mappings AND zero active scheduled searches.\n\n${avgDetection === 0 ? '⚠ Lantern domain mapping CSV (sourcetype_lantern_mapping.csv) was not provided. Operational gap detection is unavailable.' : 'Gap detection is active.'}`,
             llmReasoning: agentReasoning,
             evidence: [
-              `${operationalGaps} indexes have Lantern use cases with no active coverage`,
-              operationalGaps === 0
-                ? `Operational gap analysis requires Splunk Lantern domain mappings`
-                : `${totalSourcetypes - operationalGaps} of ${totalSourcetypes} indexes have operational coverage`,
+              avgDetection === 0
+                ? `⚠ Lantern mapping data not loaded — provide sourcetype_lantern_mapping.csv to enable gap detection`
+                : `${operationalGaps} of ${totalSourcetypes} indexes have Lantern use cases with no coverage`,
+              `See Detail Analysis → Operational Coverage for per-sourcetype breakdown`,
             ],
             confidence: avgConfidencePct,
             rawData: { operationalGaps, totalSourcetypes },
           })}>
-            <MiniGauge value={operationalGaps} max={Math.max(totalSourcetypes, 1)} label="Ops" color="#f59e0b" />
+            {avgDetection === 0 ? (
+              <div style={{ fontSize: '0.7rem', color: '#f59e0b', lineHeight: 1.4 }}>
+                <div style={{ fontWeight: 700, color: '#94a3b8' }}>Ops Gaps</div>
+                <div style={{ color: '#f59e0b', marginTop: 2 }}>⚠ No Lantern data</div>
+                <div style={{ color: '#64748b', fontSize: '0.62rem', marginTop: 1 }}>Load Lantern mapping CSV</div>
+              </div>
+            ) : (
+              <MiniGauge value={operationalGaps} max={Math.max(totalSourcetypes, 1)} label="Ops" color="#f59e0b" />
+            )}
           </div>
           <div
             style={{ cursor: 'pointer', gridColumn: '1 / -1' }}

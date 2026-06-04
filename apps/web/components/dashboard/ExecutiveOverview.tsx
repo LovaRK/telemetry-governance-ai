@@ -1265,11 +1265,11 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
             ? <div style={{ color: '#475569', fontSize: '0.875rem' }}>No data</div>
             : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-                {top6ByVol.map((s) => {
+                {top6ByVol.map((s, i) => {
                   const pct = (s.dailyAvgGb / maxVol) * 100;
                   const col = tierColor(s.tier);
                   return (
-                    <div key={s.indexName}>
+                    <div key={`${s.indexName}-${s.sourcetype || ''}-${i}`}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.2rem' }}>
                         <span style={{ color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '62%' }}>{s.indexName}</span>
                         <span style={{ color: col, fontWeight: 600 }}>{fmtGB(s.dailyAvgGb)}/d</span>
@@ -1305,7 +1305,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                   const col = tierColor(s.tier);
                   const actColor = ACTION_COLORS[s.action] || '#3b82f6';
                   return (
-                    <tr key={s.indexName} style={{ borderBottom: '1px solid #0f172a', background: i % 2 ? '#ffffff05' : 'transparent' }}>
+                    <tr key={`${s.indexName}-${s.sourcetype || ''}-${i}`} style={{ borderBottom: '1px solid #0f172a', background: i % 2 ? '#ffffff05' : 'transparent' }}>
                       <td style={{ padding: '0.5rem 0.75rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
                       <td style={{ padding: '0.5rem 0.75rem' }}>
                         <span style={{ padding: '0.1rem 0.4rem', borderRadius: 3, fontSize: '0.65rem', fontWeight: 600, background: col + '20', color: col }}>{s.tier}</span>

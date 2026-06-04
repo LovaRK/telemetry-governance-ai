@@ -943,8 +943,8 @@ function Home() {
         )}
 
         {intelligenceFailed && (
-          <div style={alertStyle('#ef4444')}>
-            ⚠ Snapshot ready · Intelligence failed. Re-run refresh to regenerate LLM decisions.
+          <div style={alertStyle('#f59e0b')}>
+            ⚠ AI recommendations unavailable. Data refresh completed successfully — KPIs and scores are accurate. To enable AI recommendations, configure an AI provider in <strong>Settings → AI</strong>.
           </div>
         )}
 
@@ -954,11 +954,11 @@ function Home() {
           </div>
         )}
 
-        {cacheStatus?.hasEverRefreshed && (
+        {cacheStatus?.hasEverRefreshed && process.env.NEXT_PUBLIC_SHOW_AI_DEBUG === 'true' && (
           <div style={{ ...alertStyle('#334155'), borderColor: '#1e293b', background: '#0b1220' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
               <div style={{ fontSize: '0.78rem', color: '#cbd5e1' }}>
-                AI Debug: live backend pipeline state and logs (always visible for local debugging).
+                AI Debug: live backend pipeline state and logs.
               </div>
               <button
                 onClick={captureAiDebug}

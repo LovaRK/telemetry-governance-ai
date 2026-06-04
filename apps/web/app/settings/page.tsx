@@ -21,11 +21,16 @@ function SettingsPageContent() {
   const [userSaved, setUserSaved] = useState(false);
   const [explainabilityMode, setExplainabilityMode] = useState(false);
   const [explainabilitySaved, setExplainabilitySaved] = useState(false);
+  // AI Provider: local_only | local_then_anthropic | anthropic_only
+  const [llmMode, setLlmMode] = useState<'local_only' | 'local_then_anthropic' | 'anthropic_only'>('local_only');
   const [llmProvider, setLlmProvider] = useState<'local' | 'anthropic'>('local');
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [anthropicModel, setAnthropicModel] = useState('claude-3-5-sonnet-20241022');
+  const [anthropicKeyMasked, setAnthropicKeyMasked] = useState('');
   const [llmSaved, setLlmSaved] = useState(false);
   const [llmError, setLlmError] = useState<string | null>(null);
+  const [llmTesting, setLlmTesting] = useState(false);
+  const [llmTestResult, setLlmTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Scoring weights state (must sum to 1.0)
   const [utilWeight, setUtilWeight] = useState(0.35);
@@ -71,8 +76,14 @@ function SettingsPageContent() {
       .then(data => {
         const cfg = data?.data;
         if (!cfg) return;
+        const mode = cfg.llmMode || (cfg.llmProvider === 'anthropic' ? 'anthropic_only' : 'local_only');
+        setLlmMode(mode as any);
         setLlmProvider(cfg.llmProvider === 'anthropic' ? 'anthropic' : 'local');
-        setAnthropicApiKey(cfg.anthropicApiKey || '');
+        // Mask saved key: show last 4 chars only
+        const rawKey = cfg.anthropicApiKey || '';
+        if (rawKey && rawKey.length > 8) {
+          setAnthropicKeyMasked(`sk-ant-...${rawKey.slice(-4)}`);
+        }
         setAnthropicModel(cfg.anthropicModel || 'claude-3-5-sonnet-20241022');
       })
       .catch(() => {});
@@ -343,71 +354,150 @@ function SettingsPageContent() {
             ) : null}
 
             <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
-              <h3 style={{ color: '#f8fafc', marginTop: 0 }}>Cloud LLM (Optional)</h3>
+              <h3 style={{ color: '#f8fafc', marginTop: 0 }}>AI Provider Configuration</h3>
               <p style={{ color: '#94a3b8', fontSize: '0.86rem' }}>
-                Default is Local model. Cloud provider is used only when explicitly enabled here.
+                Default is <strong>Local Only</strong>. Anthropic is used only when you explicitly enter a key and select a fallback mode.
+                No cloud calls are ever made without your explicit configuration.
               </p>
-              <div style={{ display: 'grid', gap: '0.75rem', maxWidth: 520 }}>
-                <label style={{ color: '#cbd5e1', fontSize: '0.82rem' }}>
-                  Provider
-                  <select
-                    value={llmProvider}
-                    onChange={(e) => setLlmProvider(e.target.value as 'local' | 'anthropic')}
-                    style={{ width: '100%', marginTop: 6, padding: '0.55rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#f8fafc' }}
-                  >
-                    <option value="local">Local (Ollama)</option>
-                    <option value="anthropic">Cloud (Anthropic)</option>
-                  </select>
-                </label>
-                {llmProvider === 'anthropic' && (
-                  <>
+
+              {/* Mode selector */}
+              <div style={{ display: 'grid', gap: '0.6rem', marginTop: '0.75rem', maxWidth: 560 }}>
+                <div style={{ color: '#cbd5e1', fontSize: '0.82rem', fontWeight: 600, marginBottom: 4 }}>AI Mode</div>
+                {([
+                  { value: 'local_only',           label: 'Local Only',                  desc: 'Only use local Ollama model. Anthropic never called.' },
+                  { value: 'local_then_anthropic',  label: 'Local → Anthropic Fallback',  desc: 'Try Ollama first. Fall back to Anthropic if local fails and key is set.' },
+                  { value: 'anthropic_only',        label: 'Anthropic Only',              desc: 'Always use Anthropic API. Requires valid API key.' },
+                ] as const).map(opt => (
+                  <label key={opt.value} style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
+                    padding: '0.65rem 0.85rem', borderRadius: 8, cursor: 'pointer',
+                    border: `1px solid ${llmMode === opt.value ? '#6366f1' : '#334155'}`,
+                    background: llmMode === opt.value ? '#1e1b4b' : '#0f172a',
+                  }}>
+                    <input
+                      type="radio" name="llmMode" value={opt.value}
+                      checked={llmMode === opt.value}
+                      onChange={() => {
+                        setLlmMode(opt.value);
+                        setLlmProvider(opt.value === 'local_only' ? 'local' : 'anthropic');
+                      }}
+                      style={{ marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ color: '#f1f5f9', fontWeight: 600, fontSize: '0.85rem' }}>{opt.label}</div>
+                      <div style={{ color: '#94a3b8', fontSize: '0.78rem', marginTop: 2 }}>{opt.desc}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              {/* Anthropic section — only shown when mode needs it */}
+              {llmMode !== 'local_only' && (
+                <div style={{ marginTop: '1rem', padding: '1rem', borderRadius: 8, border: '1px solid #334155', background: '#0b1220' }}>
+                  <div style={{ color: '#93c5fd', fontWeight: 700, fontSize: '0.82rem', marginBottom: '0.75rem' }}>
+                    🔑 Anthropic API Configuration
+                  </div>
+                  <div style={{ display: 'grid', gap: '0.75rem', maxWidth: 520 }}>
                     <label style={{ color: '#cbd5e1', fontSize: '0.82rem' }}>
                       Anthropic API Key
+                      {anthropicKeyMasked && !anthropicApiKey && (
+                        <div style={{ color: '#6366f1', fontSize: '0.75rem', marginTop: 2 }}>
+                          Saved: {anthropicKeyMasked} — Enter new key to replace
+                        </div>
+                      )}
                       <input
                         type="password"
                         value={anthropicApiKey}
                         onChange={(e) => setAnthropicApiKey(e.target.value)}
-                        placeholder="sk-ant-..."
-                        style={{ width: '100%', marginTop: 6, padding: '0.55rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#f8fafc' }}
+                        placeholder={anthropicKeyMasked || 'sk-ant-api03-...'}
+                        style={{ width: '100%', marginTop: 6, padding: '0.55rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#f8fafc', boxSizing: 'border-box' }}
+                        suppressHydrationWarning
                       />
                     </label>
                     <label style={{ color: '#cbd5e1', fontSize: '0.82rem' }}>
-                      Anthropic Model
-                      <input
-                        type="text"
+                      Model
+                      <select
                         value={anthropicModel}
                         onChange={(e) => setAnthropicModel(e.target.value)}
                         style={{ width: '100%', marginTop: 6, padding: '0.55rem', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#f8fafc' }}
-                      />
+                      >
+                        <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022 (Recommended)</option>
+                        <option value="claude-3-5-haiku-20241022">claude-3-5-haiku-20241022 (Fast)</option>
+                        <option value="claude-opus-4-5">claude-opus-4-5 (Most capable)</option>
+                        <option value="claude-sonnet-4-5">claude-sonnet-4-5</option>
+                      </select>
                     </label>
-                  </>
-                )}
-              </div>
+                  </div>
+                  {/* Test connection button */}
+                  <button
+                    onClick={async () => {
+                      if (!anthropicApiKey.trim() && !anthropicKeyMasked) {
+                        setLlmTestResult({ ok: false, message: 'Enter your Anthropic API key first.' });
+                        return;
+                      }
+                      setLlmTesting(true);
+                      setLlmTestResult(null);
+                      try {
+                        const res = await apiFetch('/api/config/ai', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ action: 'test', anthropicApiKey, anthropicModel }),
+                        });
+                        const d = await res.json().catch(() => ({}));
+                        setLlmTestResult({ ok: res.ok, message: res.ok ? '✓ Anthropic connection successful' : (d?.error || 'Connection failed') });
+                      } catch {
+                        setLlmTestResult({ ok: false, message: 'Network error testing connection' });
+                      } finally {
+                        setLlmTesting(false);
+                      }
+                    }}
+                    style={{ marginTop: '0.75rem', padding: '0.4rem 0.85rem', border: '1px solid #334155', borderRadius: 6, background: '#0f172a', color: '#93c5fd', cursor: 'pointer', fontSize: '0.8rem' }}
+                  >
+                    {llmTesting ? 'Testing…' : 'Test Anthropic Connection'}
+                  </button>
+                  {llmTestResult && (
+                    <div style={{ color: llmTestResult.ok ? '#22c55e' : '#ef4444', marginTop: '0.5rem', fontSize: '0.8rem' }}>
+                      {llmTestResult.message}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button
                 onClick={async () => {
                   setLlmError(null);
-                  if (llmProvider === 'anthropic' && !anthropicApiKey.trim()) {
-                    setLlmError('Anthropic API key is required when Cloud provider is selected.');
+                  if (llmMode !== 'local_only' && !anthropicApiKey.trim() && !anthropicKeyMasked) {
+                    setLlmError('Anthropic API key is required for this mode.');
                     return;
                   }
+                  const resolvedProvider = llmMode === 'local_only' ? 'local' : 'anthropic';
                   const res = await apiFetch('/api/settings/llm', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ llmProvider, anthropicApiKey: anthropicApiKey || null, anthropicModel }),
+                    body: JSON.stringify({
+                      llmProvider: resolvedProvider,
+                      llmMode,
+                      anthropicApiKey: anthropicApiKey || null,
+                      anthropicModel,
+                    }),
                   });
                   if (res.ok) {
+                    if (anthropicApiKey && anthropicApiKey.length > 8) {
+                      setAnthropicKeyMasked(`sk-ant-...${anthropicApiKey.slice(-4)}`);
+                      setAnthropicApiKey('');
+                    }
                     setLlmSaved(true);
-                    setTimeout(() => setLlmSaved(false), 1500);
+                    setTimeout(() => setLlmSaved(false), 2000);
                   } else {
                     const d = await res.json().catch(() => ({}));
-                    setLlmError(d?.error || 'Failed to save LLM settings');
+                    setLlmError(d?.error || 'Failed to save AI settings');
                   }
                 }}
-                style={{ marginTop: '1rem', padding: '0.55rem 1rem', border: '1px solid #334155', borderRadius: 6, background: '#0f172a', color: '#f8fafc', cursor: 'pointer' }}
+                style={{ marginTop: '1rem', padding: '0.55rem 1.25rem', border: 'none', borderRadius: 6, background: '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
               >
-                Save LLM Provider
+                Save AI Settings
               </button>
-              {llmSaved && <div style={{ color: '#22c55e', marginTop: '0.65rem', fontSize: '0.82rem' }}>✓ LLM settings saved.</div>}
+              {llmSaved && <div style={{ color: '#22c55e', marginTop: '0.65rem', fontSize: '0.82rem' }}>✓ AI settings saved.</div>}
               {llmError && <div style={{ color: '#ef4444', marginTop: '0.65rem', fontSize: '0.82rem' }}>✕ {llmError}</div>}
             </div>
           </div>

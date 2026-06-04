@@ -211,7 +211,7 @@ export function SpendRiskMatrix({
                       const label = s.indexName.length > 14 ? s.indexName.slice(0, 13) + '…' : s.indexName;
                       return (
                         <Radar
-                          key={s.indexName}
+                          key={`${s.indexName}-${s.sourcetype || ''}-${i}`}
                           name={`${label} (${fmtGB(s.dailyAvgGb)}/d)`}
                           dataKey={s.indexName}
                           stroke={col}
@@ -262,7 +262,7 @@ export function SpendRiskMatrix({
                   const col = tierColor(s.tier);
                   const actColor = ACTION_COLORS[s.action] || '#3b82f6';
                   return (
-                    <tr key={s.indexName} style={{
+                    <tr key={`${s.indexName}-${s.sourcetype || ''}-${i}`} style={{
                       borderBottom: '1px solid #0f172a',
                       background: i % 2 ? '#ffffff05' : 'transparent',
                     }}>
