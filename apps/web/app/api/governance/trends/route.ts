@@ -111,7 +111,7 @@ export const GET = createRoute(async (request: NextRequest) => {
      JOIN pipeline_runs pr ON pr.snapshot_id = ek.snapshot_id
      WHERE ek.tenant_id = $1
        AND pr.published    = true
-       AND pr.source_hash  != '3173746d696c652d736f75726365'  -- exclude splunk_live runs
+       AND pr.source_hash  = '3173746d696c652d736f75726365'  -- include only csv_analytics runs
      ORDER BY pr.published_at DESC
      LIMIT 2`,
     [tenantId]

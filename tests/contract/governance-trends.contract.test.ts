@@ -51,8 +51,9 @@ async function seedKpiSnapshot(params: {
   const runId      = randomUUID();
   const snapshotId = randomUUID();
   const idem       = `trend-test-${runId}`.padEnd(64, '0').slice(0, 64);
-  // source_hash intentionally NOT the splunk_live sentinel, so trends API includes it
-  const srcHash    = `csv-analytics-${runId}`.padEnd(64, '0').slice(0, 64);
+  // Use the real csv_analytics source_hash so the trends API filter includes this run.
+  // Buffer.from('1stmile-source').toString('hex') = '3173746d696c652d736f75726365'
+  const srcHash    = '3173746d696c652d736f75726365';
 
   await query(
     `INSERT INTO pipeline_runs
