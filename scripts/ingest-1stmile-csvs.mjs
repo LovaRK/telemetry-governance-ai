@@ -587,16 +587,17 @@ async function main() {
         idempHash]);
     console.log(`  Created pipeline_run: ${runId}`);
 
-    // Update tenant_snapshot_pointer so getLatestPublishedRun() returns this run
+    // Update the csv_analytics pointer — never touches splunk_live
     await client.query(`
-      INSERT INTO tenant_snapshot_pointer (tenant_id, active_run_id, active_snapshot_id, updated_at)
-      VALUES ($1, $2, $3, NOW())
-      ON CONFLICT (tenant_id) DO UPDATE SET
-        active_run_id = EXCLUDED.active_run_id,
+      INSERT INTO tenant_snapshot_pointer
+        (tenant_id, snapshot_source, active_run_id, active_snapshot_id, updated_at)
+      VALUES ($1, 'csv_analytics', $2, $3, NOW())
+      ON CONFLICT (tenant_id, snapshot_source) DO UPDATE SET
+        active_run_id      = EXCLUDED.active_run_id,
         active_snapshot_id = EXCLUDED.active_snapshot_id,
-        updated_at = NOW()
+        updated_at         = NOW()
     `, [TENANT_ID, runId, snapshotId]);
-    console.log(`  Updated tenant_snapshot_pointer → run ${runId}`);
+    console.log(`  Updated tenant_snapshot_pointer [csv_analytics] → run ${runId}`);
 
     // Update cache_metadata (simple key-value style)
     await client.query(`

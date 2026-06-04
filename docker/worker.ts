@@ -124,7 +124,7 @@ async function processJob(job: any): Promise<void> {
         metadata: { mode: 'no_material_candidates', requestId },
       });
       await appendStageEvent({ runId, stage: 'PUBLISH', status: 'IN_PROGRESS', requestId });
-      await publishRunAtomic({ runId, snapshotId, tenantId });
+      await publishRunAtomic({ runId, snapshotId, tenantId, snapshotSource: 'splunk_live' });
       await appendStageEvent({ runId, stage: 'PUBLISH', status: 'SUCCESS', requestId });
     }
     await setJobComplete(job.jobId, snapshotId);
@@ -477,7 +477,7 @@ async function processJob(job: any): Promise<void> {
     });
     await appendStageEvent({ runId, stage: 'PUBLISH', status: 'IN_PROGRESS', requestId });
     try {
-      await publishRunAtomic({ runId, snapshotId, tenantId });
+      await publishRunAtomic({ runId, snapshotId, tenantId, snapshotSource: 'splunk_live' });
       await appendStageEvent({ runId, stage: 'PUBLISH', status: 'SUCCESS', requestId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

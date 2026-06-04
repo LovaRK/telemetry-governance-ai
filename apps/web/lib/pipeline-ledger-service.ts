@@ -418,24 +418,41 @@ export async function markRunFailed(runId: string, errorMessage: string): Promis
   await query(`UPDATE pipeline_runs SET status = 'FAILED', published = false, error_message = $2, idempotency_hash = NULL WHERE run_id = $1`, [runId, errorMessage]);
 }
 
-export async function publishRunAtomic(params: { runId: string; snapshotId: string; tenantId: string }): Promise<void> {
+export async function publishRunAtomic(params: {
+  runId: string;
+  snapshotId: string;
+  tenantId: string;
+  snapshotSource?: 'splunk_live' | 'csv_analytics'; // default: splunk_live
+}): Promise<void> {
+  const source = params.snapshotSource ?? 'splunk_live';
   const client = await getClient();
   try {
     await client.query('BEGIN');
-    const pointerRes = await client.query<any>(`SELECT active_run_id FROM tenant_snapshot_pointer WHERE tenant_id = $1 FOR UPDATE`, [params.tenantId]);
+    // Lock only the row for THIS source — does not touch the other source's pointer
+    const pointerRes = await client.query<any>(
+      `SELECT active_run_id FROM tenant_snapshot_pointer
+       WHERE tenant_id = $1 AND snapshot_source = $2 FOR UPDATE`,
+      [params.tenantId, source]
+    );
     if (pointerRes.rows.length > 0) {
       const previousRunId = pointerRes.rows[0].active_run_id;
-      await client.query(`UPDATE pipeline_runs SET superseded_by_run_id = $1 WHERE run_id = $2`, [params.runId, previousRunId]);
+      await client.query(
+        `UPDATE pipeline_runs SET superseded_by_run_id = $1 WHERE run_id = $2`,
+        [params.runId, previousRunId]
+      );
     }
-    await client.query(`UPDATE pipeline_runs SET status = 'SUCCEEDED', published = true, published_at = NOW(), idempotency_hash = NULL WHERE run_id = $1`, [params.runId]);
     await client.query(
-      `INSERT INTO tenant_snapshot_pointer (tenant_id, active_run_id, active_snapshot_id, updated_at)
-       VALUES ($1,$2,$3,NOW())
-       ON CONFLICT (tenant_id) DO UPDATE
-       SET active_run_id = EXCLUDED.active_run_id,
+      `UPDATE pipeline_runs SET status = 'SUCCEEDED', published = true, published_at = NOW(), idempotency_hash = NULL WHERE run_id = $1`,
+      [params.runId]
+    );
+    await client.query(
+      `INSERT INTO tenant_snapshot_pointer (tenant_id, snapshot_source, active_run_id, active_snapshot_id, updated_at)
+       VALUES ($1,$2,$3,$4,NOW())
+       ON CONFLICT (tenant_id, snapshot_source) DO UPDATE
+       SET active_run_id      = EXCLUDED.active_run_id,
            active_snapshot_id = EXCLUDED.active_snapshot_id,
-           updated_at = EXCLUDED.updated_at`,
-      [params.tenantId, params.runId, params.snapshotId]
+           updated_at         = EXCLUDED.updated_at`,
+      [params.tenantId, source, params.runId, params.snapshotId]
     );
     await client.query('COMMIT');
   } catch (error) {
@@ -446,7 +463,43 @@ export async function publishRunAtomic(params: { runId: string; snapshotId: stri
   }
 }
 
-export async function getLatestPublishedRun(tenantId: string): Promise<PipelineRunRecord | null> {
+export async function getLatestPublishedRun(
+  tenantId: string,
+  snapshotSource?: 'splunk_live' | 'csv_analytics'
+): Promise<PipelineRunRecord | null> {
+  // If a specific source is requested, use it directly.
+  // Default priority: csv_analytics (scored data) → splunk_live (live telemetry fallback).
+  const sources = snapshotSource
+    ? [snapshotSource]
+    : ['csv_analytics', 'splunk_live'];
+
+  for (const source of sources) {
+    const pointer = await query<any>(
+      `SELECT p.active_run_id FROM tenant_snapshot_pointer p
+       WHERE p.tenant_id = $1 AND p.snapshot_source = $2`,
+      [tenantId, source]
+    );
+    if (pointer.rows.length === 0) continue;
+    const run = await query<any>(
+      `SELECT run_id as "runId", snapshot_id as "snapshotId", tenant_id as "tenantId", status, published,
+              started_at as "startedAt", published_at as "publishedAt", superseded_by_run_id as "supersededByRunId",
+              pipeline_version as "pipelineVersion", model_version as "modelVersion", prompt_version as "promptVersion",
+              splunk_query_version as "splunkQueryVersion", error_message as "errorMessage",
+              source_hash as "sourceHash", snapshot_hash as "snapshotHash",
+              decision_hash as "decisionHash", execution_hash as "executionHash",
+              request_id as "requestId", model_name as "modelName",
+              latency_ms as "latencyMs", tokens_in as "tokensIn",
+              tokens_out as "tokensOut", batch_count as "batchCount"
+       FROM pipeline_runs WHERE run_id = $1`,
+      [pointer.rows[0].active_run_id]
+    );
+    if (run.rows[0]) return run.rows[0];
+  }
+  return null;
+}
+
+// Kept for backward compatibility — reads csv_analytics first, then splunk_live
+async function _getLatestPublishedRunLegacy(tenantId: string): Promise<PipelineRunRecord | null> {
   const pointer = await query<any>(`SELECT p.active_run_id FROM tenant_snapshot_pointer p WHERE p.tenant_id = $1`, [tenantId]);
   if (pointer.rows.length === 0) return null;
   const run = await query<any>(
