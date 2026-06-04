@@ -162,56 +162,99 @@ function tierToClassification(tier) {
 
 // ── Snapshot certification (runs inside the open transaction) ─────────────────
 async function certifySnapshot(client, snapshotId, tenantId) {
-  const failures = [];
-  let ruleCount = 0, passCount = 0;
+  // Each rule is an object: { name, description, query, args, pass(result) → {ok, detail} }
+  // This structure writes one per-rule row to snapshot_certification_rules,
+  // enabling post-hoc diagnosis of any failure without re-running ingestion.
+  const RULES = [
+    {
+      name: 'R1', description: 'At least one sourcetype scored',
+      sql: 'SELECT COUNT(DISTINCT sourcetype)::int AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2',
+      check: (row) => {
+        const n = row.n ?? 0;
+        return n > 0 ? { ok: true, detail: null } : { ok: false, detail: `count=${n}` };
+      },
+    },
+    {
+      name: 'R2', description: 'All tier values are valid (Critical|Important|Nice-to-Have|Wasteful)',
+      sql: "SELECT COUNT(*)::int AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND tier NOT IN ('Critical','Important','Nice-to-Have','Wasteful')",
+      check: (row) => row.n === 0 ? { ok: true, detail: null } : { ok: false, detail: `${row.n} invalid tier values` },
+    },
+    {
+      name: 'R3', description: 'Action matches tier (Critical/Important→KEEP, Nice-to-Have→OPTIMIZE, Wasteful→ELIMINATE)',
+      sql: "SELECT COUNT(*)::int AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND ((tier IN ('Critical','Important') AND action!='KEEP') OR (tier='Nice-to-Have' AND action!='OPTIMIZE') OR (tier='Wasteful' AND action!='ELIMINATE'))",
+      check: (row) => row.n === 0 ? { ok: true, detail: null } : { ok: false, detail: `${row.n} action/tier mismatches` },
+    },
+    {
+      name: 'R4', description: 'Savings formula: Wasteful=95%, Nice-to-Have=50%, Critical/Important=0',
+      sql: "SELECT COUNT(*)::int AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND NOT ((tier='Wasteful' AND ABS(estimated_savings-annual_license_cost*0.95)<1) OR (tier='Nice-to-Have' AND ABS(estimated_savings-annual_license_cost*0.50)<1) OR (tier IN ('Critical','Important') AND estimated_savings=0))",
+      check: (row) => row.n === 0 ? { ok: true, detail: null } : { ok: false, detail: `${row.n} savings formula violations` },
+    },
+    {
+      name: 'R5', description: 'Critical and Important sourcetypes have estimated_savings = 0 (protect valuable data)',
+      sql: "SELECT COUNT(*)::int AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND tier IN ('Critical','Important') AND estimated_savings>0.01",
+      check: (row) => row.n === 0 ? { ok: true, detail: null } : { ok: false, detail: `${row.n} high-tier rows have savings > 0` },
+    },
+    {
+      name: 'R6', description: 'Quick-win flag: (Nice-to-Have|Wasteful) AND cost>$500 → true, otherwise → false',
+      sql: "SELECT COUNT(*)::int AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND ((is_quick_win=true AND tier NOT IN ('Nice-to-Have','Wasteful')) OR (is_quick_win=true AND tier IN ('Nice-to-Have','Wasteful') AND annual_license_cost<=500) OR (is_quick_win=false AND tier IN ('Nice-to-Have','Wasteful') AND annual_license_cost>500))",
+      check: (row) => row.n === 0 ? { ok: true, detail: null } : { ok: false, detail: `${row.n} quick-win flag violations` },
+    },
+    {
+      name: 'R7', description: 'All composite scores are in range [0, 100]',
+      sql: 'SELECT COUNT(*)::int AS n, MIN(composite_score::float) AS mn, MAX(composite_score::float) AS mx FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND (composite_score<0 OR composite_score>100)',
+      check: (row) => row.n === 0 ? { ok: true, detail: null } : { ok: false, detail: `${row.n} scores out of range (min=${row.mn}, max=${row.mx})` },
+    },
+    {
+      name: 'R8', description: 'Governance audit event count equals decision count (lineage completeness)',
+      sql: 'SELECT (SELECT COUNT(*)::int FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2) AS d, (SELECT COUNT(*)::int FROM governance_audit_events WHERE tenant_id=$1 AND snapshot_id=$2) AS a',
+      check: (row) => row.d === row.a ? { ok: true, detail: null } : { ok: false, detail: `decisions=${row.d} audit_events=${row.a} — gap=${row.d - row.a}` },
+    },
+  ];
 
-  // R1: > 0 sourcetypes
-  ruleCount++;
-  const c1 = await client.query('SELECT COUNT(DISTINCT sourcetype)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2', [tenantId, snapshotId]);
-  parseInt(c1.rows[0].n, 10) > 0 ? passCount++ : failures.push('R1: No sourcetypes');
+  // Run all rules, collect results
+  const ruleResults = [];
+  for (const rule of RULES) {
+    const res = await client.query(rule.sql, [tenantId, snapshotId]);
+    const { ok, detail } = rule.check(res.rows[0] || {});
+    ruleResults.push({ ...rule, ok, detail });
+  }
 
-  // R2: Valid tiers only
-  ruleCount++;
-  const c2 = await client.query("SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND tier NOT IN ('Critical','Important','Nice-to-Have','Wasteful')", [tenantId, snapshotId]);
-  parseInt(c2.rows[0].n, 10) === 0 ? passCount++ : failures.push('R2: Invalid tier values');
-
-  // R3: Action matches tier
-  ruleCount++;
-  const c3 = await client.query("SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND ((tier IN ('Critical','Important') AND action!='KEEP') OR (tier='Nice-to-Have' AND action!='OPTIMIZE') OR (tier='Wasteful' AND action!='ELIMINATE'))", [tenantId, snapshotId]);
-  parseInt(c3.rows[0].n, 10) === 0 ? passCount++ : failures.push(`R3: ${c3.rows[0].n} action/tier mismatches`);
-
-  // R4: Savings formula correct
-  ruleCount++;
-  const c4 = await client.query("SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND NOT ((tier='Wasteful' AND ABS(estimated_savings-annual_license_cost*0.95)<1) OR (tier='Nice-to-Have' AND ABS(estimated_savings-annual_license_cost*0.50)<1) OR (tier IN ('Critical','Important') AND estimated_savings=0))", [tenantId, snapshotId]);
-  parseInt(c4.rows[0].n, 10) === 0 ? passCount++ : failures.push(`R4: ${c4.rows[0].n} savings formula violations`);
-
-  // R5: Critical/Important → savings = 0
-  ruleCount++;
-  const c5 = await client.query("SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND tier IN ('Critical','Important') AND estimated_savings>0.01", [tenantId, snapshotId]);
-  parseInt(c5.rows[0].n, 10) === 0 ? passCount++ : failures.push(`R5: ${c5.rows[0].n} critical/important rows with savings>0`);
-
-  // R6: Quick-win flag consistency
-  ruleCount++;
-  const c6 = await client.query("SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND ((is_quick_win=true AND tier NOT IN ('Nice-to-Have','Wasteful')) OR (is_quick_win=true AND tier IN ('Nice-to-Have','Wasteful') AND annual_license_cost<=500) OR (is_quick_win=false AND tier IN ('Nice-to-Have','Wasteful') AND annual_license_cost>500))", [tenantId, snapshotId]);
-  parseInt(c6.rows[0].n, 10) === 0 ? passCount++ : failures.push(`R6: ${c6.rows[0].n} quick-win flag violations`);
-
-  // R7: Composite in [0,100]
-  ruleCount++;
-  const c7 = await client.query('SELECT COUNT(*)::text AS n FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2 AND (composite_score<0 OR composite_score>100)', [tenantId, snapshotId]);
-  parseInt(c7.rows[0].n, 10) === 0 ? passCount++ : failures.push(`R7: Composite scores out of range`);
-
-  // R8: Audit count = decision count
-  ruleCount++;
-  const c8 = await client.query('SELECT (SELECT COUNT(*) FROM agent_decisions WHERE tenant_id=$1 AND snapshot_id=$2) AS d, (SELECT COUNT(*) FROM governance_audit_events WHERE tenant_id=$1 AND snapshot_id=$2) AS a', [tenantId, snapshotId]);
-  const d = parseInt(c8.rows[0].d, 10), a = parseInt(c8.rows[0].a, 10);
-  d === a ? passCount++ : failures.push(`R8: Decisions(${d}) ≠ AuditEvents(${a})`);
-
+  const failures = ruleResults.filter(r => !r.ok);
+  const passCount = ruleResults.filter(r =>  r.ok).length;
   const certified = failures.length === 0;
-  await client.query(
-    `INSERT INTO snapshot_certifications (tenant_id,snapshot_id,snapshot_source,validated_by,rule_count,passed_checks,failed_checks,certified,failure_reasons) VALUES ($1,$2,'csv_analytics','system',$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
-    [tenantId, snapshotId, ruleCount, passCount, failures.length, certified, failures.length ? JSON.stringify(failures) : null]
+
+  // Write summary row
+  const certRes = await client.query(
+    `INSERT INTO snapshot_certifications
+       (tenant_id, snapshot_id, snapshot_source, validated_by,
+        rule_count, passed_checks, failed_checks, certified, failure_reasons)
+     VALUES ($1,$2,'csv_analytics','system',$3,$4,$5,$6,$7)
+     ON CONFLICT DO NOTHING
+     RETURNING certification_id`,
+    [tenantId, snapshotId, RULES.length, passCount, failures.length, certified,
+     failures.length ? JSON.stringify(failures.map(r => `${r.name}: ${r.detail}`)) : null]
   );
-  return { certified, passed_checks: passCount, rule_count: ruleCount, failure_reasons: failures };
+
+  // Write one per-rule row (enables post-hoc diagnosis)
+  if (certRes.rows.length > 0) {
+    const certId = certRes.rows[0].certification_id;
+    for (const r of ruleResults) {
+      await client.query(
+        `INSERT INTO snapshot_certification_rules
+           (certification_id, tenant_id, snapshot_id, rule_name, rule_description, passed, details)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [certId, tenantId, snapshotId, r.name, r.description, r.ok, r.detail]
+      );
+    }
+  }
+
+  return {
+    certified,
+    passed_checks:   passCount,
+    rule_count:      RULES.length,
+    failure_reasons: failures.map(r => `${r.name}: ${r.detail}`),
+    rules:           ruleResults.map(r => ({ name: r.name, passed: r.ok, detail: r.detail })),
+  };
 }
 
 // ── Main ingestion ────────────────────────────────────────────────────────────
