@@ -196,7 +196,7 @@ describe('Pipeline ledger isolation on governance failure', () => {
         `INSERT INTO active_model_pointer
          (tenant_id, model_id, prompt_id, current_promotion_id, decision_contract_version, config_version, updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,NOW())
-         ON CONFLICT (tenant_id) DO UPDATE SET
+         ON CONFLICT (tenant_id, snapshot_source) DO UPDATE SET
            model_id = EXCLUDED.model_id,
            prompt_id = EXCLUDED.prompt_id,
            current_promotion_id = EXCLUDED.current_promotion_id,
@@ -329,9 +329,9 @@ async function publishRunAtomic(input: { runId: string; snapshotId: string; tena
       input.runId,
     ]);
     await client.query(
-      `INSERT INTO tenant_snapshot_pointer (tenant_id, active_run_id, active_snapshot_id, updated_at)
-       VALUES ($1,$2,$3,NOW())
-       ON CONFLICT (tenant_id) DO UPDATE SET
+      `INSERT INTO tenant_snapshot_pointer (tenant_id, snapshot_source, active_run_id, active_snapshot_id, updated_at)
+       VALUES ($1,'splunk_live',$2,$3,NOW())
+       ON CONFLICT (tenant_id, snapshot_source) DO UPDATE SET
          active_run_id = EXCLUDED.active_run_id,
          active_snapshot_id = EXCLUDED.active_snapshot_id,
          updated_at = EXCLUDED.updated_at`,

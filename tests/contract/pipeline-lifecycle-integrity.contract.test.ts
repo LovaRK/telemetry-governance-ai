@@ -87,9 +87,9 @@ describe('Contract: pipeline lifecycle integrity', () => {
     );
 
     await query(
-      `INSERT INTO tenant_snapshot_pointer (tenant_id, active_run_id, active_snapshot_id, updated_at)
-       VALUES ($1,$2,$3,NOW())
-       ON CONFLICT (tenant_id) DO UPDATE
+      `INSERT INTO tenant_snapshot_pointer (tenant_id, snapshot_source, active_run_id, active_snapshot_id, updated_at)
+       VALUES ($1,'splunk_live',$2,$3,NOW())
+       ON CONFLICT (tenant_id, snapshot_source) DO UPDATE
        SET active_run_id = EXCLUDED.active_run_id,
            active_snapshot_id = EXCLUDED.active_snapshot_id,
            updated_at = EXCLUDED.updated_at`,
