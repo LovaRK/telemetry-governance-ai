@@ -769,7 +769,7 @@ function UnderUtilized({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; 
 function RetentionOverview({ snapshots }: { snapshots: SnapshotRow[] }) {
   const fmt$ = (v: number) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}k` : v >= 1 ? `$${v.toFixed(0)}` : v > 0 ? `$${v.toFixed(2)}` : '$0';
 
-  type RetItem = { indexName: string; tier: string; retentionDays: number; utilizationScore: number; costPerYear: number; recommendation: string };
+  type RetItem = { indexName: string; sourcetype: string; tier: string; retentionDays: number; utilizationScore: number; costPerYear: number; recommendation: string };
   const items: RetItem[] = snapshots
     .map((s) => {
       let rec = '';
@@ -782,7 +782,7 @@ function RetentionOverview({ snapshots }: { snapshots: SnapshotRow[] }) {
       } else {
         rec = 'Retention looks appropriate';
       }
-      return { indexName: s.indexName, tier: s.tier, retentionDays: s.retentionDays, utilizationScore: s.utilizationScore, costPerYear: s.costPerYear, recommendation: rec };
+      return { indexName: s.indexName, sourcetype: s.sourcetype || '', tier: s.tier, retentionDays: s.retentionDays, utilizationScore: s.utilizationScore, costPerYear: s.costPerYear, recommendation: rec };
     })
     .sort((a, b) => b.retentionDays - a.retentionDays);
 

@@ -90,8 +90,9 @@ export default function LiveCacheCoherenceMonitor() {
     );
   }
 
-  const avgScore = summary?.avgCoherenceScore || 0;
-  const tier = classifyCoherenceTier(avgScore);
+  const hasData = (summary?.totalRecords ?? 0) > 0;
+  const avgScore = hasData ? (summary?.avgCoherenceScore ?? 0) : 1;
+  const tier = hasData ? classifyCoherenceTier(avgScore) : 'NOMINAL';
   const color = tierColor(tier);
 
   // Top 10 indexes by staleness (most problematic)

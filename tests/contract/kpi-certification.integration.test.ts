@@ -20,7 +20,7 @@ function asTier(s: string | null | undefined): TierLabel {
 import { loginAndGetToken, authGet } from './_helpers';
 import './setup';
 
-const SEEDED_TENANT_ID = process.env.TEST_TENANT_ID || '6a917e40-329c-4702-ac27-c3af8978365a';
+const SEEDED_TENANT_ID = process.env.TEST_TENANT_ID || 'a11d19eb-6be3-4f9a-9a78-7c8c5182810e';
 
 interface DecisionRow {
   index_name: string;

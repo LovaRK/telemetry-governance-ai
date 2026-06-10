@@ -33,8 +33,10 @@ export const GET = createRoute(async () => {
 
 export const POST = createRoute(async (request: NextRequest) => {
   const body = await request.json();
-  const modeInput = typeof body?.llmMode === 'string' ? body.llmMode.trim() : 'local_only';
   const providerInput = typeof body?.llmProvider === 'string' ? body.llmProvider.trim() : 'local';
+  // If llmMode not sent but llmProvider says 'anthropic', infer anthropic_only
+  const rawMode = typeof body?.llmMode === 'string' ? body.llmMode.trim() : null;
+  const modeInput = rawMode ?? (providerInput === 'anthropic' ? 'anthropic_only' : 'local_only');
   const apiKeyInput = typeof body?.anthropicApiKey === 'string' ? body.anthropicApiKey.trim() : '';
   const modelInput = typeof body?.anthropicModel === 'string' ? body.anthropicModel.trim() : '';
 

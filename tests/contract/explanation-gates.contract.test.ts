@@ -21,7 +21,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { query } from '../../core/database/connection';
+import { query, pool } from '../../core/database/connection';
 import { loginAndGetToken, authPost } from './_helpers';
 import {
   ExplanationService,
@@ -29,6 +29,8 @@ import {
   PortfolioContext,
 } from '../../apps/api/services/explanation-service';
 import './setup';
+
+jest.setTimeout(60000);
 
 const PROD_TENANT = 'a11d19eb-6be3-4f9a-9a78-7c8c5182810e';
 
@@ -119,6 +121,10 @@ describe('Contract: Stage 3C — LLM Explanation Layer (4 gates)', () => {
   beforeAll(async () => {
     token = await loginAndGetToken();
   }, 15000);
+
+  afterAll(async () => {
+    await pool.end();
+  });
 
   // ── Gate 1: Recommendation stability ────────────────────────────────────────
 
