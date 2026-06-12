@@ -173,6 +173,17 @@ async function processJob(job: any): Promise<void> {
     }
   }
 
+  // Deterministic scores from the fast path are authoritative: the LLM only
+  // contributes narrative (recommendation/reasoning/evidence/action/savings).
+  // Any score the model emits is overridden before persistence.
+  const precomputedMap = new Map<string, NonNullable<RawTelemetryInput['precomputedScores']>>();
+  for (const inp of effectiveInputs) {
+    if (inp.precomputedScores) {
+      const key = inp.sourcetype ? `${inp.index}:${inp.sourcetype}` : inp.index;
+      precomputedMap.set(key, inp.precomputedScores);
+    }
+  }
+
   console.log(`[Worker] Processing job ${job.jobId}: ${effectiveInputs.length} inputs, resuming from checkpoint ${checkpoint}`);
 
   // Split into batches of 1 (memory-safe for local Ollama)
@@ -247,6 +258,15 @@ async function processJob(job: any): Promise<void> {
         for (const decision of decisions) {
           const reasonKey = decision.sourcetype ? `${decision.index}:${decision.sourcetype}` : decision.index;
           const candidateReason = reasonsMap.get(reasonKey) || [];
+          const pre = precomputedMap.get(reasonKey);
+          if (pre) {
+            decision.utilizationScore = pre.utilizationScore;
+            decision.detectionScore   = pre.detectionScore;
+            decision.qualityScore     = pre.qualityScore;
+            decision.compositeScore   = pre.compositeScore;
+            decision.tier             = pre.tier;
+            decision.detectionGap     = pre.detectionGap;
+          }
           await writeDecisionToDb(client, decision, snapshotId, today, tenantId, runId, requestId, candidateReason, runtime);
         }
       });
