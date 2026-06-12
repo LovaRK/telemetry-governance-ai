@@ -3,7 +3,7 @@ import { SplunkClient } from './splunk-client';
 import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/llm-decision-agent';
 import { loadUserConfig } from './config-service';
 import { RequestContext } from '@packages/auth/request-context';
-import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics, querySavedSearchInventory, queryParsingErrors, buildUtilizationInputs, buildDetectionInputs, buildQualityInputs } from './splunk-queries-service';
+import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics, querySavedSearchInventory, queryParsingErrors, queryAdhocUsage, buildUtilizationInputs, buildDetectionInputs, buildQualityInputs } from './splunk-queries-service';
 import {
   computeUtilizationScores,
   computeDetectionScores,
@@ -166,6 +166,17 @@ export async function computeDeterministicScoresForInputs(
       adHocSearchCount: 0, distinctUserCount: 0,
     }));
   });
+
+  // B3: ad-hoc search + distinct-user signals from _audit (adhoc×1 + users×2
+  // in the utilization formula). Merged into the index-level KO records.
+  const adhocUsage = await queryAdhocUsage(splunk, indexNames, 7);
+  for (const ko of koInventory) {
+    const usage = adhocUsage.get(ko.index.toLowerCase());
+    if (usage) {
+      ko.adHocSearchCount = usage.adHocSearchCount;
+      ko.distinctUserCount = usage.distinctUserCount;
+    }
+  }
 
   const rawMeta = allInputs.map(i => ({
     index: i.index, sourcetype: i.sourcetype || null,

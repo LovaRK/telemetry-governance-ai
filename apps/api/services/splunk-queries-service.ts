@@ -259,6 +259,82 @@ export async function queryParsingErrors(
   return result;
 }
 
+// ─── Ad-hoc Usage Signals (_audit) ───────────────────────────────────────────
+
+export interface AdhocUsage {
+  adHocSearchCount: number;
+  distinctUserCount: number;
+}
+
+/**
+ * Query _audit for completed ad-hoc searches (last `lookbackDays`).
+ *
+ * Utilization formula includes adhoc×1 + users×2 — without these signals our
+ * scores diverge from Data Sensei, which reads the same audit trail.
+ *
+ * - savedsearch_name="" filters to ad-hoc only (scheduled runs carry a name)
+ * - searches starting with '|' (tstats/metadata/eventcount — including this
+ *   agent's own refresh queries) are excluded as non-human noise
+ * - index refs extracted with the same literal-index regex + 1/N attribution
+ *   used for knowledge objects
+ *
+ * Returns Map<indexName, AdhocUsage>; empty Map when _audit is inaccessible.
+ */
+export async function queryAdhocUsage(
+  splunk: SplunkClient,
+  indexNames: string[],
+  lookbackDays: number = 7,
+): Promise<Map<string, AdhocUsage>> {
+  const result = new Map<string, AdhocUsage>();
+  const indexNamesSet = new Set(indexNames.map(n => n.toLowerCase()));
+
+  const spl = `search index=_audit action=search info=completed savedsearch_name=""
+    earliest=-${lookbackDays}d latest=now
+  | where isnotnull(search) AND search!=""
+  | table user, search
+  | head 5000`;
+
+  try {
+    const rows: Array<{ user: string; search: string }> =
+      await splunk.runSearch(spl, { earliestTime: `-${lookbackDays}d`, latestTime: 'now' });
+
+    const usersByIndex = new Map<string, Set<string>>();
+
+    for (const row of rows) {
+      const raw = (row.search || '').trim().replace(/^'/, '');
+      if (!raw || raw.startsWith('|')) continue; // generating commands = machine noise
+
+      const refs = [...new Set(
+        (raw.match(/index\s*=\s*"?([\w-]+)"?/gi) || [])
+          .map(m => m.replace(/index\s*=\s*"?/i, '').replace(/"$/, '').toLowerCase())
+      )].filter(idx => indexNamesSet.has(idx));
+      if (refs.length === 0) continue;
+
+      const w = 1 / refs.length;
+      const user = (row.user || 'unknown').trim();
+      for (const idx of refs) {
+        const cur = result.get(idx) || { adHocSearchCount: 0, distinctUserCount: 0 };
+        cur.adHocSearchCount += w;
+        result.set(idx, cur);
+        if (!usersByIndex.has(idx)) usersByIndex.set(idx, new Set());
+        usersByIndex.get(idx)!.add(user);
+      }
+    }
+
+    for (const [idx, users] of usersByIndex) {
+      result.get(idx)!.distinctUserCount = users.size;
+    }
+
+    if (result.size > 0) {
+      console.log(`[AdhocUsage] ${result.size} indexes with ad-hoc activity (lookback=${lookbackDays}d)`);
+    }
+  } catch (e) {
+    console.warn('[AdhocUsage] _audit query failed, adhoc/user counts default to 0:', (e as Error).message);
+  }
+
+  return result;
+}
+
 function buildFallback(indexNames: string[]): KnowledgeObjectCounts[] {
   return indexNames.map(idx => ({
     key: `${idx}::_`,
