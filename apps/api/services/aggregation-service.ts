@@ -68,6 +68,121 @@ const DEFAULT_CONFIG: AggregationConfig = {
 const SOURCETYPE_DRILLDOWN_GB = 0.1;
 const MAX_SOURCETYPE_INDEXES = 20;
 
+export interface DeterministicScoringResult {
+  scoredMap: Map<string, ScoredSourcetype>;
+  weights: ReturnType<typeof extractWeightsFromConfig>;
+  /** Raw scoring inputs per key — consumed by the score-audit artifact. */
+  rawInputs: Map<string, {
+    alertCount: number; scheduledSearchCount: number; dashboardPanelCount: number;
+    adHocSearchCount: number; distinctUserCount: number;
+    mitreTechniqueCount: number; lanternUsecaseCount: number; activeAlertCount: number;
+    weightedIssues: number; dailyGb: number;
+  }>;
+  portfolio: {
+    roiScore: number; gainScopePct: number; lowValueSpendUsd: number;
+    securityGapCount: number; operationalGapCount: number;
+  };
+}
+
+/**
+ * Deterministic Scoring (calc-guide formulas) for a set of pipeline inputs.
+ *
+ * Single source of truth for BOTH aggregation paths: pulls KO inventory and
+ * parsing errors from live Splunk, computes U/D/Q/composite/tier per
+ * index::sourcetype, and returns portfolio KPIs. The LLM never produces these
+ * numbers — it only reasons over them.
+ */
+export async function computeDeterministicScoresForInputs(
+  splunk: SplunkClient,
+  allInputs: RawTelemetryInput[],
+  userConfig: Awaited<ReturnType<typeof loadUserConfig>>,
+  costPerGbPerDay: number
+): Promise<DeterministicScoringResult> {
+  const weights = extractWeightsFromConfig(userConfig.decisionWeights || {});
+
+  const indexNames = Array.from(new Set(allInputs.map(i => i.index)));
+  const koInventory = await querySavedSearchInventory(splunk, indexNames).catch(e => {
+    console.warn('[Scoring] KO inventory unavailable, using zeros:', e.message);
+    return indexNames.map(idx => ({
+      key: `${idx}::_`, index: idx, sourcetype: null,
+      alertCount: 0, scheduledSearchCount: 0, dashboardPanelCount: 0,
+      adHocSearchCount: 0, distinctUserCount: 0,
+    }));
+  });
+
+  const rawMeta = allInputs.map(i => ({
+    index: i.index, sourcetype: i.sourcetype || null,
+    dailyAvgGb: i.dailyAvgGb, totalEvents: i.totalEvents, retentionDays: i.retentionDays,
+  }));
+
+  const parsingErrors = await queryParsingErrors(splunk, 7).catch(e => {
+    console.warn('[Scoring] Parsing error query failed, defaulting quality=100:', (e as Error).message);
+    return new Map<string, number>();
+  });
+
+  const utilInputs = buildUtilizationInputs(rawMeta, koInventory);
+  const detInputs  = buildDetectionInputs(rawMeta, koInventory);
+  const qualInputs = buildQualityInputs(rawMeta, parsingErrors);
+
+  const utilScores = computeUtilizationScores(utilInputs);
+  const detResults = computeDetectionScores(detInputs);
+
+  const scoredMap = new Map<string, ScoredSourcetype>();
+  const rawInputs: DeterministicScoringResult['rawInputs'] = new Map();
+
+  for (const inp of allInputs) {
+    const key       = `${inp.index}::${inp.sourcetype || '_'}`;
+    const utilScore = utilScores.get(key) ?? 0;
+    const detResult = detResults.get(key) ?? { score: 0, detectionGap: false, operationalGap: false };
+    const qualInp   = qualInputs.find(q => q.index === inp.index && (q.sourcetype || null) === (inp.sourcetype || null));
+    const qualScore = qualInp ? computeQualityScore(qualInp) : 100;
+    const composite = computeCompositeScore(utilScore, detResult.score, qualScore, weights);
+    const tier      = assignTier(composite);
+
+    scoredMap.set(key, {
+      index: inp.index, sourcetype: inp.sourcetype || null,
+      utilizationScore: utilScore,
+      detectionScore: detResult.score,
+      qualityScore: qualScore,
+      compositeScore: composite,
+      tier,
+      dailyGb: inp.dailyAvgGb,
+      annualCostUsd: inp.dailyAvgGb * 365 * costPerGbPerDay,
+      detectionGap: detResult.detectionGap,
+      operationalGap: detResult.operationalGap,
+    });
+
+    const u = utilInputs.find(x => x.index === inp.index && (x.sourcetype || null) === (inp.sourcetype || null));
+    const d = detInputs.find(x => x.index === inp.index && (x.sourcetype || null) === (inp.sourcetype || null));
+    rawInputs.set(key, {
+      alertCount: u?.alertCount ?? 0,
+      scheduledSearchCount: u?.scheduledSearchCount ?? 0,
+      dashboardPanelCount: u?.dashboardPanelCount ?? 0,
+      adHocSearchCount: u?.adHocSearchCount ?? 0,
+      distinctUserCount: u?.distinctUserCount ?? 0,
+      mitreTechniqueCount: d?.mitreTechniqueCount ?? 0,
+      lanternUsecaseCount: d?.lanternUsecaseCount ?? 0,
+      activeAlertCount: d?.activeAlertCount ?? 0,
+      weightedIssues: qualInp?.weightedIssues ?? 0,
+      dailyGb: inp.dailyAvgGb,
+    });
+  }
+
+  const allScored = Array.from(scoredMap.values());
+  return {
+    scoredMap,
+    weights,
+    rawInputs,
+    portfolio: {
+      roiScore: computeROIScore(allScored),
+      gainScopePct: computeGainScope(allScored),
+      lowValueSpendUsd: computeLowValueSpend(allScored),
+      securityGapCount: allScored.filter(s => s.detectionGap).length,
+      operationalGapCount: allScored.filter(s => s.operationalGap).length,
+    },
+  };
+}
+
 export async function runAggregation(
   splunk: SplunkClient,
   ctx: RequestContext,
@@ -182,64 +297,9 @@ export async function runAggregation(
   // verified numbers rather than estimating from raw metadata.
   console.log(`[Aggregation] Running deterministic scoring engine...`);
 
-  const weights = extractWeightsFromConfig(userConfig.decisionWeights || {});
+  const scoring = await computeDeterministicScoresForInputs(splunk, allInputs, userConfig, costPerGbPerDay);
+  const { scoredMap, weights } = scoring;
   console.log(`[Aggregation] Score weights: util=${weights.utilization}, det=${weights.detection}, qual=${weights.quality}`);
-
-  // Fetch knowledge object inventory (alerts, scheduled searches, dashboards, users)
-  const indexNames = Array.from(new Set(allInputs.map(i => i.index)));
-  const koInventory = await querySavedSearchInventory(splunk, indexNames).catch(e => {
-    console.warn('[Aggregation] KO inventory unavailable, using zeros:', e.message);
-    return indexNames.map(idx => ({
-      key: `${idx}::_`, index: idx, sourcetype: null,
-      alertCount: 0, scheduledSearchCount: 0, dashboardPanelCount: 0,
-      adHocSearchCount: 0, distinctUserCount: 0,
-    }));
-  });
-
-  const rawMeta = allInputs.map(i => ({
-    index: i.index, sourcetype: i.sourcetype || null,
-    dailyAvgGb: i.dailyAvgGb, totalEvents: i.totalEvents, retentionDays: i.retentionDays,
-  }));
-
-  // Fetch real parsing error signals from Splunk _internal for quality scoring.
-  // Falls back to empty Map (quality=100) if _internal is inaccessible.
-  const parsingErrors = await queryParsingErrors(splunk, 7).catch(e => {
-    console.warn('[Aggregation] Parsing error query failed, defaulting quality=100:', (e as Error).message);
-    return new Map<string, number>();
-  });
-
-  const utilInputs  = buildUtilizationInputs(rawMeta, koInventory);
-  const detInputs   = buildDetectionInputs(rawMeta, koInventory);
-  const qualInputs  = buildQualityInputs(rawMeta, parsingErrors);
-
-  const utilScores  = computeUtilizationScores(utilInputs);
-  const detResults  = computeDetectionScores(detInputs);
-
-  // Build scored map for all inputs
-  const scoredMap = new Map<string, ScoredSourcetype>();
-  for (const inp of allInputs) {
-    const key       = `${inp.index}::${inp.sourcetype || '_'}`;
-    const utilScore = utilScores.get(key) ?? 0;
-    const detResult = detResults.get(key) ?? { score: 0, detectionGap: false, operationalGap: false };
-    const qualInp   = qualInputs.find(q => q.index === inp.index && (q.sourcetype || null) === (inp.sourcetype || null));
-    const qualScore = qualInp ? computeQualityScore(qualInp) : 100;
-    const composite = computeCompositeScore(utilScore, detResult.score, qualScore, weights);
-    const tier      = assignTier(composite);
-    const annualCost = inp.dailyAvgGb * 365 * costPerGbPerDay;
-
-    scoredMap.set(key, {
-      index: inp.index, sourcetype: inp.sourcetype || null,
-      utilizationScore: utilScore,
-      detectionScore: detResult.score,
-      qualityScore: qualScore,
-      compositeScore: composite,
-      tier,
-      dailyGb: inp.dailyAvgGb,
-      annualCostUsd: annualCost,
-      detectionGap: detResult.detectionGap,
-      operationalGap: detResult.operationalGap,
-    });
-  }
 
   // Inject pre-computed scores into inputs for LLM prompt context
   const allInputsWithScores: RawTelemetryInput[] = allInputs.map(inp => {
@@ -1280,6 +1340,29 @@ export async function runFastAggregation(
         return [];
       })
     : [];
+
+  // ── 1.5 Deterministic scoring (calc-guide formulas) ─────────────────────
+  // Computed BEFORE persistence so snapshots carry real U/D/Q/composite/tier
+  // instead of PENDING placeholders, and the LLM job payload carries
+  // precomputedScores the worker treats as authoritative.
+  const allInputsEarly: RawTelemetryInput[] = [
+    ...indexMetrics.map((m) => ({
+      index: m.index, sourcetype: undefined as string | undefined,
+      dailyAvgGb: m.dailyAvgGb, totalEvents: m.totalEvents,
+      retentionDays: m.retentionDays, firstEvent: m.firstEvent, lastEvent: m.lastEvent,
+    })),
+    ...sourcetypeMetrics.map((m) => ({
+      index: m.index, sourcetype: m.sourcetype,
+      dailyAvgGb: m.dailyAvgGb, totalEvents: m.totalEvents,
+      retentionDays: m.retentionDays, firstEvent: m.firstEvent, lastEvent: m.lastEvent,
+    })),
+  ];
+
+  const scoring = await computeDeterministicScoresForInputs(splunk, allInputsEarly, userConfig, costPerGbPerDay);
+  console.log(`[FastAgg] Deterministic scoring: ROI=${scoring.portfolio.roiScore}, GainScope=${scoring.portfolio.gainScopePct}%, ` +
+    `low-value $${scoring.portfolio.lowValueSpendUsd.toFixed(0)}/yr, ` +
+    `gaps sec=${scoring.portfolio.securityGapCount}/ops=${scoring.portfolio.operationalGapCount} ` +
+    `(weights ${scoring.weights.utilization}/${scoring.weights.detection}/${scoring.weights.quality})`);
 
   const totalDailyGb = indexMetrics.reduce((sum, item) => sum + item.dailyAvgGb, 0);
   const totalEvents = indexMetrics.reduce((sum, item) => sum + item.totalEvents, 0);
