@@ -35,6 +35,63 @@ import { enqueueJob } from './job-service';
 import { applyGuardrailsToBatch } from './llm-output-guardrails';
 import { buildSnapshotHash, buildSourceHash } from './pipeline-hash-service';
 import { v4 as uuidv4 } from 'uuid';
+import { mkdirSync, writeFileSync } from 'fs';
+import * as path from 'path';
+
+/** Methodology/release tag stamped on every snapshot row and audit artifact. */
+export const FORMULA_VERSION = process.env.FORMULA_VERSION || 'v1.0-handoff';
+
+/**
+ * B2.5 — Score Audit Artifact.
+ * One JSON file per pipeline run: raw inputs, weights, sub-scores, composite,
+ * tier for every index::sourcetype. When someone asks "why is the score 87?",
+ * this file is the proof: exact inputs → formula → output.
+ */
+function writeScoreAuditArtifact(
+  runId: string,
+  snapshotId: string,
+  scoring: DeterministicScoringResult
+): void {
+  try {
+    const dir = process.env.SCORE_AUDIT_DIR || path.join(process.cwd(), 'artifacts', 'score-audit');
+    mkdirSync(dir, { recursive: true });
+    const records = Array.from(scoring.scoredMap.entries()).map(([key, s]) => ({
+      key,
+      index: s.index,
+      sourcetype: s.sourcetype,
+      inputs: scoring.rawInputs.get(key) || null,
+      weights: scoring.weights,
+      scores: {
+        utilization: s.utilizationScore,
+        detection: s.detectionScore,
+        quality: s.qualityScore,
+        composite: s.compositeScore,
+      },
+      tier: s.tier,
+      detectionGap: s.detectionGap,
+      operationalGap: s.operationalGap,
+      dailyGb: s.dailyGb,
+      annualCostUsd: Math.round(s.annualCostUsd * 100) / 100,
+    }));
+    const artifact = {
+      runId,
+      snapshotId,
+      generatedAt: new Date().toISOString(),
+      scoringVersion: SCORING_VERSION,
+      formulaVersion: FORMULA_VERSION,
+      weights: scoring.weights,
+      portfolio: scoring.portfolio,
+      recordCount: records.length,
+      records,
+    };
+    const file = path.join(dir, `${runId}.json`);
+    writeFileSync(file, JSON.stringify(artifact, null, 2));
+    console.log(`[ScoreAudit] Wrote ${records.length} records → ${file}`);
+  } catch (e) {
+    // Audit artifact is evidence, not a pipeline dependency — never fail the run.
+    console.warn('[ScoreAudit] Failed to write artifact:', e instanceof Error ? e.message : e);
+  }
+}
 
 export interface FastAggregationResult {
   snapshotId: string;
@@ -1364,6 +1421,9 @@ export async function runFastAggregation(
     `gaps sec=${scoring.portfolio.securityGapCount}/ops=${scoring.portfolio.operationalGapCount} ` +
     `(weights ${scoring.weights.utilization}/${scoring.weights.detection}/${scoring.weights.quality})`);
 
+  // B2.5 score-audit artifact: exact inputs → formula → output, per run
+  writeScoreAuditArtifact(options?.runId || snapshotId, snapshotId, scoring);
+
   const totalDailyGb = indexMetrics.reduce((sum, item) => sum + item.dailyAvgGb, 0);
   const totalEvents = indexMetrics.reduce((sum, item) => sum + item.totalEvents, 0);
   const sourceFingerprint = {
@@ -1401,8 +1461,9 @@ export async function runFastAggregation(
           snapshot_id, snapshot_date, granularity, index_name, sourcetype,
           total_events, daily_avg_gb, retention_days,
           utilization_pct, cost_per_year, risk_score,
-          classification, confidence, recommendation, evidence, raw_metadata
-        ) VALUES ($1,$2,$3,'index',$4,NULL,$5,$6,$7,$8,$9,$10,$11,0.5,'Pending AI analysis','[]',$12)
+          classification, confidence, recommendation, evidence, raw_metadata,
+          scoring_version, formula_version
+        ) VALUES ($1,$2,$3,'index',$4,NULL,$5,$6,$7,$8,$9,$10,$11,0.5,'Pending AI analysis','[]',$12,$13,$14)
         ON CONFLICT (tenant_id, snapshot_id, granularity, index_name, sourcetype) DO NOTHING
       `, [
         tenantId, snapshotId, today, m.index, m.totalEvents, m.dailyAvgGb, m.retentionDays,
@@ -1422,6 +1483,8 @@ export async function runFastAggregation(
             weights: scoring.weights,
           },
         } : {}),
+        SCORING_VERSION,
+        FORMULA_VERSION,
       ]);
       inserted++;
     }

@@ -7,3 +7,4 @@ apps/web/.next/
 tools/mock-splunk-mcp.js
 LLM_ARCHITECTURE_PLAN.md
 PROJECT.md
+artifacts/
