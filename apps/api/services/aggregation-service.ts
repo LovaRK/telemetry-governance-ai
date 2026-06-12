@@ -1383,11 +1383,18 @@ export async function runFastAggregation(
   const sourceHash = buildSourceHash(sourceFingerprint);
   let snapshotHash = sourceHash;
 
-  // ── 2. Write raw snapshots with tier=PENDING ────────────────────────────
+  // ── 2. Write snapshots carrying deterministic scores ────────────────────
+  // The engine owns tier + scores; the LLM only adds narrative later. Until
+  // the worker writes its narrative, recommendation stays a pending marker
+  // but the numbers shown are already final.
+  const tierDefaultAction: Record<string, string> = {
+    'Critical': 'KEEP', 'Important': 'KEEP', 'Nice-to-Have': 'OPTIMIZE', 'Low-Value': 'ELIMINATE',
+  };
   let inserted = 0;
   await transaction(async (client) => {
     for (const m of indexMetrics) {
       const annualCost = m.dailyAvgGb * costPerGbPerDay * 365;
+      const scored = scoring.scoredMap.get(`${m.index}::_`);
       await client.query(`
         INSERT INTO telemetry_snapshots (
           tenant_id,
@@ -1395,9 +1402,27 @@ export async function runFastAggregation(
           total_events, daily_avg_gb, retention_days,
           utilization_pct, cost_per_year, risk_score,
           classification, confidence, recommendation, evidence, raw_metadata
-        ) VALUES ($1,$2,$3,'index',$4,NULL,$5,$6,$7,0,$8,0,'INVESTIGATE',0.5,'Pending AI analysis','[]','{}')
+        ) VALUES ($1,$2,$3,'index',$4,NULL,$5,$6,$7,$8,$9,$10,$11,0.5,'Pending AI analysis','[]',$12)
         ON CONFLICT (tenant_id, snapshot_id, granularity, index_name, sourcetype) DO NOTHING
-      `, [tenantId, snapshotId, today, m.index, m.totalEvents, m.dailyAvgGb, m.retentionDays, annualCost]);
+      `, [
+        tenantId, snapshotId, today, m.index, m.totalEvents, m.dailyAvgGb, m.retentionDays,
+        scored?.utilizationScore ?? 0,
+        annualCost,
+        scored?.compositeScore ?? 0,
+        scored ? (tierDefaultAction[scored.tier] || 'INVESTIGATE') : 'INVESTIGATE',
+        JSON.stringify(scored ? {
+          deterministic: {
+            utilizationScore: scored.utilizationScore,
+            detectionScore: scored.detectionScore,
+            qualityScore: scored.qualityScore,
+            compositeScore: scored.compositeScore,
+            tier: scored.tier,
+            detectionGap: scored.detectionGap,
+            operationalGap: scored.operationalGap,
+            weights: scoring.weights,
+          },
+        } : {}),
+      ]);
       inserted++;
     }
 
@@ -1463,27 +1488,24 @@ export async function runFastAggregation(
   }, ctx);
 
   // ── 3. Build candidate list for LLM (heuristic filter) ─────────────────
+  // Inputs carry precomputedScores: the worker persists these as the
+  // authoritative numbers; the LLM contributes narrative only.
   const MAX_INDEXES = parseInt(process.env.MAX_INDEXES_PER_RUN || '100', 10);
-  const allInputs: RawTelemetryInput[] = [
-    ...indexMetrics.map((m) => ({
-      index: m.index,
-      sourcetype: undefined,
-      dailyAvgGb: m.dailyAvgGb,
-      totalEvents: m.totalEvents,
-      retentionDays: m.retentionDays,
-      firstEvent: m.firstEvent,
-      lastEvent: m.lastEvent,
-    })),
-    ...sourcetypeMetrics.map((m) => ({
-      index: m.index,
-      sourcetype: m.sourcetype,
-      dailyAvgGb: m.dailyAvgGb,
-      totalEvents: m.totalEvents,
-      retentionDays: m.retentionDays,
-      firstEvent: m.firstEvent,
-      lastEvent: m.lastEvent,
-    })),
-  ];
+  const allInputs: RawTelemetryInput[] = allInputsEarly.map((inp) => {
+    const scored = scoring.scoredMap.get(`${inp.index}::${inp.sourcetype || '_'}`);
+    return scored ? {
+      ...inp,
+      precomputedScores: {
+        utilizationScore: scored.utilizationScore,
+        detectionScore: scored.detectionScore,
+        qualityScore: scored.qualityScore,
+        compositeScore: scored.compositeScore,
+        tier: scored.tier,
+        detectionGap: scored.detectionGap,
+        operationalGap: scored.operationalGap,
+      },
+    } : inp;
+  });
 
   // Smart candidate filter: only send materially expensive/stale items to LLM.
   // Small lab/demo Splunk environments should still publish server-derived KPIs
