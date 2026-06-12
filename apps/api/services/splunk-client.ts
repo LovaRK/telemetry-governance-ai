@@ -363,6 +363,43 @@ export class SplunkClient {
     }, 'getSavedSearches');
   }
 
+  /**
+   * Public REST GET against the Splunk management port.
+   * `pathWithQuery` is appended to the base URL (e.g. "/servicesNS/-/-/saved/searches?output_mode=json").
+   * Returns the parsed JSON body; throws on non-2xx or invalid JSON.
+   */
+  async restGet(pathWithQuery: string): Promise<any> {
+    const path = pathWithQuery.startsWith('/') ? pathWithQuery : `/${pathWithQuery}`;
+    return this.withRetry(async () => {
+      const res = await this.requestText(
+        `${this.getRestBaseUrl()}${path}`,
+        'GET',
+        { 'Authorization': this.getBearerHeader() }
+      );
+      if (!res.ok) {
+        if (res.status === 401) throw new Error(`Splunk auth failed (401) on ${path}`);
+        if (res.status === 403) throw new Error(`Splunk access denied (403) on ${path}`);
+        throw new Error(`Splunk REST GET ${path} failed: HTTP ${res.status}`);
+      }
+      return this.parseJsonOrThrow(res.text, path);
+    }, `restGet(${path})`);
+  }
+
+  /**
+   * Public oneshot SPL search. Optional earliest/latest are injected as
+   * search-job time bounds when the SPL does not carry its own.
+   */
+  async runSearch(spl: string, opts?: { earliestTime?: string; latestTime?: string }): Promise<any[]> {
+    let query = spl.trim();
+    if (opts?.earliestTime && !/earliest\s*=/.test(query)) {
+      query = `${query} earliest=${opts.earliestTime}`;
+    }
+    if (opts?.latestTime && !/latest\s*=/.test(query)) {
+      query = `${query} latest=${opts.latestTime}`;
+    }
+    return this.withRetry(() => this.runSearchJob(query), 'runSearch');
+  }
+
   private async runSearchJob(spl: string): Promise<any[]> {
     const body = new URLSearchParams({
       search: spl.trim(),

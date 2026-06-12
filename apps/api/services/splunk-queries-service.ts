@@ -62,7 +62,7 @@ export async function querySavedSearchInventory(
   indexNames: string[]
 ): Promise<KnowledgeObjectCounts[]> {
   try {
-    const raw = await (splunk as any).restGet(
+    const raw = await splunk.restGet(
       '/services/saved/searches?count=0&output_mode=json&search=disabled%3Dfalse'
     );
     if (!raw?.entry) return buildFallback(indexNames);
@@ -113,7 +113,7 @@ export async function querySavedSearchInventory(
     // Each dashboard view XML is scanned for `index=<name>` references.
     // Attribution weighting (1/N) applied the same way as saved searches.
     try {
-      const dashRaw = await (splunk as any).restGet(
+      const dashRaw = await splunk.restGet(
         '/services/data/ui/views?count=0&output_mode=json&digest=1'
       );
       if (dashRaw?.entry) {
@@ -222,7 +222,7 @@ export async function queryParsingErrors(
   const tryQuery = async (spl: string, label: string): Promise<boolean> => {
     try {
       const rows: Array<{ idx: string; st: string; weighted_issues: string }> =
-        await (splunk as any).runSearch(spl, { earliestTime: `-${lookbackDays}d`, latestTime: 'now' });
+        await splunk.runSearch(spl, { earliestTime: `-${lookbackDays}d`, latestTime: 'now' });
 
       if (Array.isArray(rows) && rows.length > 0) {
         for (const row of rows) {
