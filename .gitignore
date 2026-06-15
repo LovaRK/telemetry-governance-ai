@@ -8,3 +8,5 @@ tools/mock-splunk-mcp.js
 LLM_ARCHITECTURE_PLAN.md
 PROJECT.md
 artifacts/
+.env
+.claude/settings.local.json
