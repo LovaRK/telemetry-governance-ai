@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import TopAppBar from '../components/layout/TopAppBar';
 import ExecutiveOverview from '../components/dashboard/ExecutiveOverview';
+import FilterBar from '../components/FilterBar';
 import AgentIntelligencePanel from '../components/dashboard/AgentIntelligencePanel';
 import SourceIntelligenceGrid from '../components/dashboard/SourceIntelligenceGrid';
 import ConnectionGatedUI from '../components/shared/ConnectionGatedUI';
@@ -1256,6 +1257,7 @@ function Home() {
 
             {activeTab === 'overview' && (
               <>
+                <FilterBar />
                 <AgentIntelligencePanel snapshots={summary.snapshots} kpis={summary.kpis} hasAgentDecisions={hasAgentDecisions} />
               <ExecutiveOverview summary={summary} hasAgentDecisions={hasAgentDecisions} explainabilityEnabled={showExplainabilityPanel} />
                 {hasAgentDecisions && summary.decisions && summary.decisions.length > 0 && (
