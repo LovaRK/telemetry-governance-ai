@@ -1,5 +1,5 @@
 import { PoolClient } from 'pg';
-import { SplunkClient } from './splunk-client';
+import { SplunkClient, SplunkDataSource } from './splunk-client';
 import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/llm-decision-agent';
 import { loadUserConfig } from './config-service';
 import { RequestContext } from '@packages/auth/request-context';
@@ -150,7 +150,7 @@ export interface DeterministicScoringResult {
  * numbers — it only reasons over them.
  */
 export async function computeDeterministicScoresForInputs(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   allInputs: RawTelemetryInput[],
   userConfig: Awaited<ReturnType<typeof loadUserConfig>>,
   costPerGbPerDay: number
@@ -252,7 +252,7 @@ export async function computeDeterministicScoresForInputs(
 }
 
 export async function runAggregation(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   ctx: RequestContext,
   config: AggregationConfig = DEFAULT_CONFIG
 ): Promise<AggregationResult> {
@@ -1372,7 +1372,7 @@ async function updateCacheMetadata(client: PoolClient, key: string, count: numbe
  * CRITICAL: tenantId is mandatory from RequestContext, never inferred.
  */
 export async function runFastAggregation(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   ctx: RequestContext,
   config: AggregationConfig = DEFAULT_CONFIG,
   options?: {

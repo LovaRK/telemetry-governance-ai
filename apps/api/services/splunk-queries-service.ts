@@ -11,7 +11,7 @@
  * Results are normalized into the shapes consumed by deterministic-scoring-engine.ts.
  */
 
-import { SplunkClient } from './splunk-client';
+import { SplunkDataSource } from './splunk-client';
 import type { UtilizationInputs, DetectionInputs, QualityInputs } from './deterministic-scoring-engine';
 import { auditSplQuery } from './parser-confidence-service';
 
@@ -58,7 +58,7 @@ export interface KnowledgeObjectCounts {
  * Falls back gracefully to empty array if Splunk doesn't support query.
  */
 export async function querySavedSearchInventory(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   indexNames: string[]
 ): Promise<KnowledgeObjectCounts[]> {
   try {
@@ -172,7 +172,7 @@ export async function querySavedSearchInventory(
  * Falls back to an empty Map if _internal is not accessible.
  */
 export async function queryParsingErrors(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   lookbackDays: number = 7,
   tenantId?: string,
 ): Promise<Map<string, number>> {
@@ -281,7 +281,7 @@ export interface AdhocUsage {
  * Returns Map<indexName, AdhocUsage>; empty Map when _audit is inaccessible.
  */
 export async function queryAdhocUsage(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   indexNames: string[],
   lookbackDays: number = 7,
 ): Promise<Map<string, AdhocUsage>> {
@@ -546,7 +546,7 @@ export function buildQualityInputs(
 // ─── Legacy stubs (preserved for backward compatibility) ─────────────────────
 
 export async function queryFieldUsage(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   lookbackDays: number = 30
 ): Promise<FieldUsageResult[]> {
   console.warn('[FieldUsage] Not yet implemented — requires TA CSV');
@@ -554,7 +554,7 @@ export async function queryFieldUsage(
 }
 
 export async function querySecurityCoverage(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   lookbackDays: number = 30
 ): Promise<SecurityCoverageResult[]> {
   console.warn('[SecurityCoverage] Using MITRE baseline lookup table');
@@ -562,7 +562,7 @@ export async function querySecurityCoverage(
 }
 
 export async function queryDataQualityMetrics(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   lookbackDays: number = 30
 ): Promise<QualityHotspotResult[]> {
   console.warn('[QualityHotspots] Not yet implemented — requires TA CSV');

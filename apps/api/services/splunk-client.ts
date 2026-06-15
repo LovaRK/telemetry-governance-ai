@@ -26,7 +26,25 @@ interface HttpTextResponse {
 
 const RETRY_DELAYS_MS = [1000, 3000]; // 2 attempts: immediate + 1 retry after 3s
 
-export class SplunkClient {
+/**
+ * The Splunk surface the aggregation pipeline depends on. SplunkClient (REST)
+ * and SplunkMcpAdapter (MCP-with-REST-fallback) both implement it, so the
+ * pipeline is agnostic to which transport a tenant is configured for.
+ */
+export interface SplunkDataSource {
+  healthCheckFast(): Promise<{ success: boolean; latencyMs: number; error?: string }>;
+  getIndexMetrics(): Promise<SplunkQueryResult[]>;
+  getSourcetypeMetrics(index: string): Promise<SplunkQueryResult[]>;
+  getBatchSourcetypeMetrics(indexes: string[]): Promise<SplunkQueryResult[]>;
+  getSavedSearches(): Promise<Array<{
+    name: string; app: string; isScheduled: boolean; isAlert: boolean;
+    schedule: string; lastRun: string | null; disabled: boolean;
+  }>>;
+  restGet(pathWithQuery: string): Promise<any>;
+  runSearch(spl: string, opts?: { earliestTime?: string; latestTime?: string }): Promise<any[]>;
+}
+
+export class SplunkClient implements SplunkDataSource {
   private config: SplunkMCPConfig;
 
   constructor(config: SplunkMCPConfig) {

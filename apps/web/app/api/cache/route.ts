@@ -3,7 +3,8 @@ import { createRoute } from '@/lib/api-route-factory';
 import { getCacheStatus, listCacheStatuses, setCacheRefreshing, setCacheFresh, setCacheError, isRefreshing } from '@api/services/cache-service';
 import { runFastAggregation } from '@api/services/aggregation-service';
 import { triggerDashboardTruthAgent } from '@api/services/dashboard-truth-agent-service';
-import { SplunkClient } from '@api/services/splunk-client';
+import { SplunkClient, SplunkDataSource } from '@api/services/splunk-client';
+import { SplunkMcpAdapter } from '@api/services/splunk-mcp-adapter';
 import { SplunkConfigService } from '@api/services/splunk-config-service';
 import { pool } from '@core/database/connection';
 import { getRuntimeConfig } from '@/lib/runtime-config';
@@ -314,11 +315,19 @@ export const POST = createRoute(async (request: NextRequest) => {
     await setCacheError(cacheKey, 'Missing Splunk API URL');
     throw new Error('Missing Splunk API URL');
   }
-  const splunk = new SplunkClient({
+  const restClient = new SplunkClient({
     mcpUrl: splunkBase,
     token: restAuthHeader,
     allowInsecureTls: tenantSplunkConfig.ssl_verify === false ? true : !!disableSslVerify,
   });
+
+  // MCP feature flag (experimental): if this tenant has splunk_mcp_url
+  // configured, route the pipeline through the MCP adapter, which falls back
+  // to this same REST client on any MCP failure. Otherwise use REST directly.
+  const splunk: SplunkDataSource = tenantSplunkConfig.mcpUrl
+    ? (console.log(`[MCP] tenant has splunk_mcp_url — using MCP adapter with REST fallback (${tenantSplunkConfig.mcpUrl})`),
+       new SplunkMcpAdapter(tenantSplunkConfig.mcpUrl, restAuthHeader, restClient))
+    : restClient;
 
   const health = await splunk.healthCheckFast();
   if (!health.success) {
