@@ -1,9 +1,0 @@
-sourcetype,daily_gb,annual_cost_usd,search_count,alerts,quality,domain
-WinEventLog,14.2,52000,1200,35,90,security
-docker:container,8.5,31000,40,2,45,infra
-debug_logs,22.0,80000,5,0,10,waste
-wazuh-alerts,6.2,23000,900,42,92,security
-fortigate_traffic,18.0,65000,300,12,60,network
-vmware:perf:cpu,4.1,15000,150,1,70,infra
-o365:management:activity,3.1,11000,1400,28,95,compliance
-tutorial_index,1.2,4000,0,0,15,waste

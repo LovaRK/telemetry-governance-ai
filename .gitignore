@@ -1,14 +1,45 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Environment files (contain secrets)
+.env
 .env.local
-.DS_Store
-apps/web/.next/
+.env.*.local
+
+# Build output
 .next/
+apps/web/.next/
+dist/
+*.tsbuildinfo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Agent config (local only)
+.openclaude/
+.claude/settings.local.json
+
+# Test output & reports
+test-results/
+test-screenshots/
+playwright-report/
+screenshots/
+coverage/
+*.log
+
+# Artifacts & backups (generated, not source)
+artifacts/
+demo_pack/
+backups/
+
+# Debug / temp files
 *.bak
-tools/mock-splunk-mcp.js
+*.patch
+*.sql
+*.exp
+
+# Old generated docs (use docs/ for curated documentation only)
+AGENT_HANDOFF_SESSION_*.md
 LLM_ARCHITECTURE_PLAN.md
 PROJECT.md
-artifacts/
-.env
-.claude/settings.local.json
-.openclaude/
-AGENT_HANDOFF_SESSION_*.md

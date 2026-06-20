@@ -1,6 +1,0 @@
-Use this SPL query in Splunk to remove demo events (if your role permits delete):
-
-index=demo_agentic source=telemetry_demo
-| delete
-
-If delete is disabled, use index retention policy for demo index or drop/recreate demo index.
