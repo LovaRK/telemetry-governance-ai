@@ -87,8 +87,9 @@ export default function ExecutiveOverview({
     snapshots = [],
   } = summary;
 
-  const avgConfidencePct =
-    kpis.avgConfidence <= 1 ? kpis.avgConfidence * 100 : kpis.avgConfidence;
+  const avgConfidencePct = kpis.avgConfidence !== null
+    ? (kpis.avgConfidence <= 1 ? kpis.avgConfidence * 100 : kpis.avgConfidence)
+    : null;
 
   // ── Drawer state (single source of truth for the whole panel) ──
   const [drawer, setDrawer] = useState<DrawerState>({
@@ -218,8 +219,8 @@ export default function ExecutiveOverview({
       <ExecutiveSummaryHeader
         totalDailyGb={kpis.totalDailyGb}
         totalSourcetypes={kpis.totalSourcetypes}
-        totalLicenseSpend={kpis.totalLicenseSpend}
-        storageSavingsPotential={kpis.storageSavingsPotential}
+        totalLicenseSpend={kpis.totalLicenseSpend ?? 0}
+        storageSavingsPotential={kpis.storageSavingsPotential ?? 0}
         securityGaps={kpis.securityGaps}
         operationalGaps={kpis.operationalGaps}
       />
@@ -307,7 +308,7 @@ export default function ExecutiveOverview({
           avgDetectionClassification={kpis.avgDetectionClassification}
           avgQuality={avgQuality}
           avgQualityClassification={kpis.avgQualityClassification}
-          avgConfidencePct={avgConfidencePct}
+          avgConfidencePct={avgConfidencePct ?? 0}
           agentReasoning={agentReasoning}
           onOpenDrawer={explainabilityEnabled ? openDrawer : undefined}
         />
@@ -359,10 +360,10 @@ export default function ExecutiveOverview({
                           evidence: [
                             `Inputs: executive_kpis snapshots (${trendDays} days)`,
                             `Source origin: executive_kpis`,
-                            `Confidence: ${avgConfidencePct.toFixed(0)}%`,
+                            `Confidence: ${(avgConfidencePct ?? 0).toFixed(0)}%`,
                             `Variance: Not computed`,
                           ],
-                          confidence: avgConfidencePct,
+                          confidence: avgConfidencePct ?? undefined,
                         })}
                         style={{ border: '1px solid #334155', background: '#0b1220', color: '#cbd5e1', borderRadius: 6, padding: '0.2rem 0.45rem', cursor: 'pointer', fontSize: '0.72rem' }}
                       >ⓘ</button>
@@ -393,10 +394,10 @@ export default function ExecutiveOverview({
                           evidence: [
                             `Inputs: executive_kpis snapshots (${trendDays} days)`,
                             `Source origin: executive_kpis`,
-                            `Confidence: ${avgConfidencePct.toFixed(0)}%`,
+                            `Confidence: ${(avgConfidencePct ?? 0).toFixed(0)}%`,
                             `Variance: Not computed`,
                           ],
-                          confidence: avgConfidencePct,
+                          confidence: avgConfidencePct ?? undefined,
                         })}
                         style={{ border: '1px solid #334155', background: '#0b1220', color: '#cbd5e1', borderRadius: 6, padding: '0.2rem 0.45rem', cursor: 'pointer', fontSize: '0.72rem' }}
                       >ⓘ</button>
@@ -433,10 +434,10 @@ export default function ExecutiveOverview({
           tierBars={tierBars}
           tierTotal={tierTotal}
           snapshots={snapshots}
-          avgUtilization={avgUtilization}
-          avgDetection={avgDetection}
-          avgQuality={avgQuality}
-          avgConfidencePct={avgConfidencePct}
+          avgUtilization={avgUtilization ?? 0}
+          avgDetection={avgDetection ?? 0}
+          avgQuality={avgQuality ?? 0}
+          avgConfidencePct={avgConfidencePct ?? 0}
           snapshotDate={snapshotDate}
           agentReasoning={agentReasoning}
           onTierClick={explainabilityEnabled ? (tierKey, tierLabel, count) => {
@@ -457,7 +458,7 @@ export default function ExecutiveOverview({
                 `Average utilization: ${tierSnaps.length > 0 ? (tierSnaps.reduce((s, v) => s + v.utilizationScore, 0) / tierSnaps.length).toFixed(0) : 0}%`,
                 `Average detection: ${tierSnaps.length > 0 ? (tierSnaps.reduce((s, v) => s + v.detectionScore, 0) / tierSnaps.length).toFixed(0) : 0}%`,
               ],
-              confidence: avgConfidencePct,
+              confidence: avgConfidencePct ?? undefined,
               tier: tierLabel,
               rawData: { tier: tierLabel, indexCount: count, totalSpend: tierSpend },
             });
@@ -639,7 +640,7 @@ export default function ExecutiveOverview({
                           `Estimated savings: ${fmt$(step.savings)}`,
                           `Recommendation: Prioritize by confidence and impact`,
                         ],
-                        confidence: avgConfidencePct,
+                        confidence: avgConfidencePct ?? undefined,
                         action: step.action,
                         rawData: { action: step.action, savings: step.savings, cumulative: step.cumulative, count },
                       });
@@ -689,7 +690,7 @@ export default function ExecutiveOverview({
         {/* Quick Wins — callbacks fully lifted, no fetch inside */}
         <QuickWinsList
           wins={quickWinItems}
-          avgConfidencePct={avgConfidencePct}
+          avgConfidencePct={avgConfidencePct ?? undefined}
           onApprove={handleApproveWin}
           onOpenDrawer={explainabilityEnabled ? qw => openDrawer({
             isOpen: true,
@@ -699,7 +700,7 @@ export default function ExecutiveOverview({
             howCalculated: `Action: ${qw.action}\nTier: ${qw.tier}\nEstimated Savings: ${fmt$(qw.savings)}\n\nFlagged as quick win by LLM: high savings, low risk.`,
             llmReasoning: qw.reasoning ?? 'No detailed reasoning provided',
             evidence: [`Index: ${qw.indexName}`, `Action: ${qw.action}`, `Tier: ${qw.tier}`, `Savings: ${fmt$(qw.savings)}`],
-            confidence: avgConfidencePct,
+            confidence: avgConfidencePct ?? undefined,
             action: qw.action,
             tier: qw.tier,
             rawData: { indexName: qw.indexName, action: qw.action, tier: qw.tier, savings: qw.savings },
@@ -710,7 +711,7 @@ export default function ExecutiveOverview({
       {/* Row 5–6 — Scatter + Volume Bars + Archive Table */}
       <SpendRiskMatrix
         snapshots={snapshots}
-        avgConfidencePct={avgConfidencePct}
+        avgConfidencePct={avgConfidencePct ?? 0}
         agentReasoning={agentReasoning}
         onOpenDrawer={explainabilityEnabled ? openDrawer : undefined}
       />

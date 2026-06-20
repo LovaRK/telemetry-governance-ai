@@ -37,6 +37,8 @@ export const ACTION_COLORS: Record<string, string> = {
   INVESTIGATE: '#8b5cf6',
 };
 
+export const formatUsd = fmt$;
+
 export const tierColor = (tier: string): string =>
   /critical/i.test(tier) ? '#ef4444' :
   /important/i.test(tier) ? '#f59e0b' :

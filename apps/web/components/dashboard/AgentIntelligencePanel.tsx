@@ -3,7 +3,8 @@
 import React from 'react';
 import { SnapshotRow, ExecutiveKPIs } from '../../lib/types';
 
-function fmt$(v: number): string {
+function fmt$(v: number | null): string {
+  if (v === null || v === undefined) return '$0';
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
   if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}k`;
   if (v >= 1) return `$${v.toFixed(0)}`;

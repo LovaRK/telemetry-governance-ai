@@ -10,3 +10,5 @@ PROJECT.md
 artifacts/
 .env
 .claude/settings.local.json
+.openclaude/
+AGENT_HANDOFF_SESSION_*.md

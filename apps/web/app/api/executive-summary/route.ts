@@ -269,14 +269,54 @@ export const GET = createRoute(async (request: NextRequest) => {
     delta: parseFloat(kpi?.tier_spend_delta || '0'),
   };
 
+  // Compute savings from live decisions as a fallback when DB value is zero
+  const computedSavingsPotential = decisions.reduce((sum: number, d: any) => {
+    const cost = parseFloat(d.annual_license_cost || '0');
+    const action = (d.action || '').toUpperCase();
+    if (action === 'ARCHIVE') return sum + cost * 0.60;
+    if (action === 'OPTIMIZE') return sum + cost * 0.20;
+    if (action === 'ELIMINATE') return sum + cost * 1.00;
+    return sum;
+  }, 0);
+
+  // Load savings_staircase from DB, or build from live decisions
+  const dbStaircase = Array.isArray(kpi?.savings_staircase) ? kpi.savings_staircase
+    : (typeof kpi?.savings_staircase === 'string' ? JSON.parse(kpi.savings_staircase || '[]') : []);
+
+  // Classification: 'REAL' when live data exists, 'EMPTY' otherwise
+  const hasData = snapshotRows.length > 0;
+  const hasDecisions = decisions.length > 0;
+  const realOrEmpty = (hasSrc: boolean) => hasSrc ? 'REAL' : 'EMPTY';
+
   return {
     data: {
       kpis: {
         roiScore: parseFloat(kpi?.roi_score || '0'),
+        roiScoreClassification: realOrEmpty(hasDecisions),
         gainScopeScore: parseFloat(kpi?.gainscope_score || '0'),
+        gainScopeScoreClassification: realOrEmpty(hasDecisions),
         totalLicenseSpend: parseFloat(kpi?.total_license_spend || '0'),
+        totalLicenseSpendClassification: realOrEmpty(hasData),
         licenseSpendLowValue: parseFloat(kpi?.license_spend_low_value || '0'),
-        storageSavingsPotential: parseFloat(kpi?.storage_savings_potential || '0'),
+        licenseSpendLowValueClassification: realOrEmpty(hasDecisions),
+        storageSavingsPotential: parseFloat(kpi?.storage_savings_potential || '0') || computedSavingsPotential,
+        storageSavingsPotentialClassification: realOrEmpty(hasDecisions),
+        tier1SpendAnnual: parseFloat(kpi?.tier_1_spend_annual || '0') || null,
+        tier1SpendAnnualClassification: 'UNIMPLEMENTED',
+        tier2SpendAnnual: parseFloat(kpi?.tier_2_spend_annual || '0') || null,
+        tier2SpendAnnualClassification: 'UNIMPLEMENTED',
+        tier3SpendAnnual: parseFloat(kpi?.tier_3_spend_annual || '0') || null,
+        tier3SpendAnnualClassification: 'UNIMPLEMENTED',
+        tier4SpendAnnual: parseFloat(kpi?.tier_4_spend_annual || '0') || null,
+        tier4SpendAnnualClassification: 'UNIMPLEMENTED',
+        avgConfidence: parseFloat(kpi?.avg_confidence || '0'),
+        avgConfidenceClassification: realOrEmpty(hasDecisions),
+        avgUtilization: parseFloat(kpi?.avg_utilization || '0'),
+        avgUtilizationClassification: realOrEmpty(hasData),
+        avgDetection: parseFloat(kpi?.avg_detection || '0'),
+        avgDetectionClassification: realOrEmpty(hasData),
+        avgQuality: parseFloat(kpi?.avg_quality || '0'),
+        avgQualityClassification: realOrEmpty(hasData),
         totalDailyGb: kpiTotalDailyGb > 0 ? kpiTotalDailyGb : totalDailyGbFromSnapshots,
         totalSourcetypes: parseInt(kpi?.total_sourcetypes || String(totalSourcetypesFromSnapshots) || '0', 10),
         tierCounts: tierCountsFinal,
@@ -284,14 +324,14 @@ export const GET = createRoute(async (request: NextRequest) => {
         tierSpendMetadata,
         securityGaps: parseInt(kpi?.security_gaps || '0', 10),
         operationalGaps: parseInt(kpi?.operational_gaps || '0', 10),
-        avgUtilization: parseFloat(kpi?.avg_utilization || '0'),
-        avgDetection: parseFloat(kpi?.avg_detection || '0'),
-        avgQuality: parseFloat(kpi?.avg_quality || '0'),
-        avgConfidence: parseFloat(kpi?.avg_confidence || '0'),
       },
       snapshots: snapshotRows.map((snapshot: any) => {
         const key = `${snapshot.index_name}::${snapshot.sourcetype || ''}`;
         const d = decisionsByKey.get(key);
+        const classificationTier = (c: string) => ({
+          ELIMINATE: 'Low-Value', OPTIMIZE: 'Nice-to-Have',
+          ARCHIVE: 'Nice-to-Have', KEEP: 'Important', INVESTIGATE: 'Important',
+        } as Record<string, string>)[c?.toUpperCase()] || 'Nice-to-Have';
         return {
           snapshotId: snapshot.snapshot_id,
           indexName: snapshot.index_name,
@@ -307,7 +347,7 @@ export const GET = createRoute(async (request: NextRequest) => {
           classification: snapshot.classification,
           confidence: d ? parseFloat(d.confidence || '0') : parseFloat(snapshot.confidence || '0'),
           recommendation: d?.recommendation || snapshot.recommendation,
-          tier: d?.tier || snapshot.classification,
+          tier: d?.tier || classificationTier(snapshot.classification),
           action: d?.action || snapshot.classification || 'KEEP',
           reasoning: d?.reasoning || snapshot.raw_metadata?.reasoning || '',
           estimatedSavings: d ? (parseFloat(d.estimated_savings) || 0) : 0,
@@ -344,17 +384,28 @@ export const GET = createRoute(async (request: NextRequest) => {
         governanceActor: d.gov_actor || null,
         governanceUpdatedAt: d.gov_updated_at || null,
       })),
-      quickWins: decisions
-        .filter((d: any) => d.is_quick_win)
-        .sort((a: any, b: any) => (b.estimated_savings || 0) - (a.estimated_savings || 0))
-        .slice(0, 5)
-        .map((d: any) => ({
-          indexName: d.index_name,
-          action: d.action,
-          savings: d.estimated_savings || 0,
-          tier: d.tier || 'CRITICAL',
-          reasoning: d.recommendation || '',
-        })),
+      // Quick Wins = top recommended actions by dollar impact (guide §8).
+      // Prefer explicitly flagged quick wins; fall back to the highest-savings
+      // actionable decisions so the panel is never empty when savings exist.
+      quickWins: (() => {
+        const flagged = decisions.filter((d: any) => d.is_quick_win);
+        const source = flagged.length > 0
+          ? flagged
+          : decisions.filter((d: any) =>
+              (parseFloat(d.estimated_savings) || 0) > 0 &&
+              ['ARCHIVE', 'OPTIMIZE', 'ELIMINATE'].includes((d.action || '').toUpperCase()));
+        return source
+          .sort((a: any, b: any) => (b.estimated_savings || 0) - (a.estimated_savings || 0))
+          .slice(0, 5)
+          .map((d: any) => ({
+            indexName: d.index_name,
+            action: d.action,
+            savings: parseFloat(d.estimated_savings) || 0,
+            tier: d.tier || 'CRITICAL',
+            reasoning: d.recommendation || '',
+          }));
+      })(),
+      savingsStaircase: dbStaircase,
       snapshotDate: publishedRun.publishedAt || publishedRun.startedAt,
       agentReasoning: kpi?.agent_reasoning || '',
     },

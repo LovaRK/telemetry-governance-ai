@@ -287,7 +287,6 @@ export const GET = createRoute(async (request: NextRequest) => {
       requestId,
       pipelineRunId: activeState.runId,
       activeJobId: activeState.runId,
-      runId: activeState.runId,
       modelName: activeState.modelName,
       latencyMs: activeState.latencyMs,
       tokensIn: activeState.tokensIn,

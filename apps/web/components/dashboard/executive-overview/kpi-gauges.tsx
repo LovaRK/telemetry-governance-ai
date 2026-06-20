@@ -7,6 +7,7 @@
  */
 
 import React from 'react';
+import { fmt$ } from './utils';
 
 // ─────────────────────────────────────────────
 // Gauge (semicircular KPI dial)
@@ -31,7 +32,7 @@ export function Gauge({ value, max = 100, label, color, onClick }: GaugeProps) {
   };
 
   const end = polarToXY(angle);
-  const largeArc = angle > 90 ? 1 : 0;
+  const largeArc = 0; // always short arc — semicircle gauge never exceeds 180°
 
   return (
     <div
@@ -89,7 +90,7 @@ export function MiniGauge({ value, max, label, color }: MiniGaugeProps) {
   };
 
   const end = polarToXY(angle);
-  const largeArc = angle > 90 ? 1 : 0;
+  const largeArc = 0; // always short arc — semicircle gauge never exceeds 180°
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -140,16 +141,9 @@ export function SpendGauge({ amount, total, label, color }: SpendGaugeProps) {
   };
 
   const end = polarToXY(angle);
-  const largeArc = angle > 90 ? 1 : 0;
+  const largeArc = 0; // always short arc — semicircle gauge never exceeds 180°
   const pctLabel = total > 0 ? `${(pct * 100).toFixed(0)}% of total` : 'no data';
 
-  // Inline fmt$ to keep this component self-contained
-  const fmt = (v: number) => {
-    if (!isFinite(v)) return '$0';
-    if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-    if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}k`;
-    return `$${v.toFixed(0)}`;
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -165,7 +159,7 @@ export function SpendGauge({ amount, total, label, color }: SpendGaugeProps) {
           />
         )}
         <text x={cx} y={cy - 6} textAnchor="middle" fill="#f8fafc" fontSize={17} fontWeight={700}>
-          {fmt(amount)}
+          {fmt$(amount)}
         </text>
         <text x={cx} y={cy + 12} textAnchor="middle" fill="#64748b" fontSize={9}>{pctLabel}</text>
       </svg>

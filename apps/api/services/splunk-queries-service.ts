@@ -447,8 +447,78 @@ const LANTERN_BASELINE: Record<string, number> = {
   'splunk_web_access':        0,
 };
 
-function lookupMitre(index: string, sourcetype: string | null): number {
+/** Per-sourcetype technique/usecase counts pulled live from the customer's Splunk. */
+export interface DetectionMappings {
+  mitre: Map<string, number>;
+  lantern: Map<string, number>;
+}
+
+const EMPTY_MAPPINGS: DetectionMappings = { mitre: new Map(), lantern: new Map() };
+
+/**
+ * Pull MITRE ATT&CK and Lantern use-case mappings from the customer's Splunk
+ * lookups (shipped by the TA-bitsIO-datasensAI add-on):
+ *   - sourcetype_attack_mapping.csv  → MITRE technique counts per sourcetype
+ *   - sourcetype_lantern_mapping.csv → Lantern use-case counts per sourcetype
+ *
+ * Schema-tolerant: if a row carries an explicit count column it is used; otherwise
+ * each row is treated as one technique/usecase and rows are counted per sourcetype.
+ *
+ * Returns empty maps on any failure — callers fall back to the built-in baseline,
+ * so behaviour is unchanged when the TA / lookups are absent (zero regression).
+ */
+export async function queryDetectionMappings(splunk: SplunkDataSource): Promise<DetectionMappings> {
+  const COUNT_COLS = ['technique_count', 'mitre_count', 'lantern_usecase_count', 'usecase_count', 'count', 'cnt'];
+  const ST_COLS = ['sourcetype', 'orig_sourcetype', 'st'];
+
+  const readLookup = async (lookupName: string): Promise<Map<string, number>> => {
+    const out = new Map<string, number>();
+    try {
+      const rows = await splunk.runSearch(`| inputlookup ${lookupName}`);
+      if (!Array.isArray(rows) || rows.length === 0) return out;
+      const rowCounts = new Map<string, number>();
+      for (const row of rows) {
+        const stKey = ST_COLS.map(c => row[c]).find(v => typeof v === 'string' && v.trim());
+        if (!stKey) continue;
+        const key = String(stKey).toLowerCase().trim();
+        const explicit = COUNT_COLS.map(c => row[c]).find(v => v !== undefined && v !== null && v !== '');
+        if (explicit !== undefined) {
+          out.set(key, Math.max(out.get(key) ?? 0, Number(explicit) || 0));
+        } else {
+          rowCounts.set(key, (rowCounts.get(key) ?? 0) + 1);
+        }
+      }
+      // Merge row-counted sourcetypes that had no explicit count column
+      for (const [k, v] of rowCounts) if (!out.has(k)) out.set(k, v);
+      return out;
+    } catch (e) {
+      console.warn(`[DetectionMappings] inputlookup ${lookupName} failed, using baseline:`, (e as Error).message);
+      return out;
+    }
+  };
+
+  const [mitre, lantern] = await Promise.all([
+    readLookup('sourcetype_attack_mapping.csv'),
+    readLookup('sourcetype_lantern_mapping.csv'),
+  ]);
+  return { mitre, lantern };
+}
+
+function matchFromMap(map: Map<string, number>, key: string): number | undefined {
+  if (map.has(key)) return map.get(key);
+  for (const [pattern, count] of map) {
+    if (key.startsWith(pattern) || pattern.startsWith(key)) return count;
+  }
+  return undefined;
+}
+
+function lookupMitre(index: string, sourcetype: string | null, live?: Map<string, number>): number {
   const key = (sourcetype || index).toLowerCase().trim();
+  // Live Splunk lookup wins when present
+  if (live && live.size > 0) {
+    const m = matchFromMap(live, key);
+    if (m !== undefined) return m;
+  }
   // Exact match first
   if (MITRE_BASELINE[key] !== undefined) return MITRE_BASELINE[key];
   // Prefix match
@@ -458,8 +528,12 @@ function lookupMitre(index: string, sourcetype: string | null): number {
   return 0;
 }
 
-function lookupLantern(index: string, sourcetype: string | null): number {
+function lookupLantern(index: string, sourcetype: string | null, live?: Map<string, number>): number {
   const key = (sourcetype || index).toLowerCase().trim();
+  if (live && live.size > 0) {
+    const l = matchFromMap(live, key);
+    if (l !== undefined) return l;
+  }
   if (LANTERN_BASELINE[key] !== undefined) return LANTERN_BASELINE[key];
   for (const [pattern, count] of Object.entries(LANTERN_BASELINE)) {
     if (key.startsWith(pattern) || pattern.startsWith(key)) return count;
@@ -508,15 +582,16 @@ export function buildUtilizationInputs(
  */
 export function buildDetectionInputs(
   indexMeta: RawIndexMeta[],
-  koInventory: KnowledgeObjectCounts[]
+  koInventory: KnowledgeObjectCounts[],
+  mappings: DetectionMappings = EMPTY_MAPPINGS
 ): DetectionInputs[] {
   const koMap = new Map(koInventory.map(k => [k.index, k]));
 
   return indexMeta.map(meta => ({
     index:              meta.index,
     sourcetype:         meta.sourcetype,
-    mitreTechniqueCount: lookupMitre(meta.index, meta.sourcetype),
-    lanternUsecaseCount: lookupLantern(meta.index, meta.sourcetype),
+    mitreTechniqueCount: lookupMitre(meta.index, meta.sourcetype, mappings.mitre),
+    lanternUsecaseCount: lookupLantern(meta.index, meta.sourcetype, mappings.lantern),
     activeAlertCount:   koMap.get(meta.index)?.alertCount ?? 0,
   }));
 }

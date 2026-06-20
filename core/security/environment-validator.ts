@@ -24,7 +24,8 @@ export const ENVIRONMENT_CONFIGS: Record<AppEnvironment, EnvironmentConfig> = {
     appEnv: 'sandbox',
     // ALLOWLIST: Only these hosts permitted in sandbox
     allowedHosts: [
-      '144.202.48.85',      // Sandbox Splunk (ONLY approved destination)
+      '144.202.48.85',      // Sandbox Splunk (legacy)
+      'splunk-mock',        // Docker mock Splunk (no license restrictions)
       'localhost',          // Local testing
       '127.0.0.1',          // Loopback
       'host.docker.internal', // Docker host access

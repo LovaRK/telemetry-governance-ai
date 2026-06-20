@@ -102,7 +102,11 @@ export default function DetailPage() {
         ) : (
           <>
             {/* E1: KPI Row */}
-            {kpis && <KpiRow kpis={kpis} />}
+            {kpis && <KpiRow kpis={kpis} resolutionConfidence={
+              data?.audit?.length > 0
+                ? Math.round(data.audit.reduce((sum: number, r: any) => sum + (Number(r.confidence_score) || 0), 0) / data.audit.length * 100)
+                : null
+            } />}
 
             {/* Decision Pipeline Timeline */}
             {hasAgentDecisions && <DecisionTimeline />}
@@ -182,16 +186,20 @@ export default function DetailPage() {
                   }
                 </Section>
 
-                {/* E6: Field Usage — requires Splunk tstats field query — hidden until implemented */}
-                {data.fields.length > 0 && (
-                  <Section title="Field Usage Analysis">
+                {/* E6: Field Usage — shows estimation from worker; real data requires TA lookup */}
+                <Section title="Field Usage Analysis">
+                  {data.fields.length > 0 ? (
                     <Table
                       columns={['Sourcetype', 'Fields Indexed', 'Fields Used', 'Optimization %']}
                       rows={data.fields.slice(0, 20)}
                       rowKeys={['sourcetype', 'fields_indexed', 'fields_used', 'optimization_pct']}
                     />
-                  </Section>
-                )}
+                  ) : (
+                    <div style={{ color: '#475569', fontSize: '0.85rem', padding: '1rem 0' }}>
+                      No field usage data yet. Requires <code style={{ color: '#94a3b8' }}>sourcetype_fields_summary.csv</code> TA lookup or a pipeline refresh.
+                    </div>
+                  )}
+                </Section>
 
                 {/* E7: MITRE Security Coverage — requires Splunk mapping — hidden until implemented */}
                 {data.security.length > 0 && (
@@ -266,11 +274,18 @@ export default function DetailPage() {
 }
 
 // E1: KPI summary row with gauges
-function KpiRow({ kpis }: { kpis: ExecutiveKPIs }) {
+function KpiRow({ kpis, resolutionConfidence }: { kpis: ExecutiveKPIs; resolutionConfidence?: number | null }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
       <GaugeCard label="ROI Score" value={kpis.roiScore} max={100} color="#22c55e" unit="/100" />
       <GaugeCard label="Avg Confidence" value={Math.round(kpis.avgConfidence ?? 0)} max={100} color="#3b82f6" unit="%" />
+      <GaugeCard
+        label="Resolution Confidence"
+        value={resolutionConfidence ?? 0}
+        max={100}
+        color={resolutionConfidence != null && resolutionConfidence >= 70 ? '#22c55e' : resolutionConfidence != null && resolutionConfidence >= 50 ? '#f59e0b' : '#ef4444'}
+        unit="%"
+      />
       <StatCard
         label="Security Gaps"
         value={kpis.securityGaps}

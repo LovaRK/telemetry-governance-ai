@@ -120,7 +120,7 @@ export async function middleware(request: NextRequest) {
 
     // Fallback to token in cookie (needed for EventSource/SSE which doesn't send Authorization headers)
     if (!token) {
-      token = request.cookies.get('accessToken')?.value;
+      token = request.cookies.get('accessToken')?.value ?? null;
     }
 
     if (!token) {

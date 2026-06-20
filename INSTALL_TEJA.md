@@ -21,7 +21,7 @@ your own Splunk. Full background lives in `README.md` and
 ```bash
 git clone <repo-url> datasensai
 cd datasensai
-git checkout v1.0-handoff          # the certified handoff tag
+git checkout dev/dashboard-improvements   # the latest development branch
 
 cp .env.example .env
 ```
@@ -66,14 +66,14 @@ local stays primary until you opt in.
 ## 3. Start
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d
+docker compose --env-file .env -f docker/docker-compose.yml up -d
 ```
 
 On first boot the web container runs migrations and creates your admin user.
 Watch it come up:
 
 ```bash
-docker compose -f docker/docker-compose.yml logs -f web | grep -E "Migration|Admin Init|ready"
+docker compose --env-file .env -f docker/docker-compose.yml logs -f web | grep -E "Migration|Admin Init|ready"
 ```
 
 Open **http://localhost:3002** and log in with the admin credentials from `.env`.

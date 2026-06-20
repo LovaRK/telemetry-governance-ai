@@ -8,16 +8,7 @@ import FormulaBreakdownModal from '../shared/FormulaBreakdownModal';
 import ProvenanceBadge from '../shared/ProvenanceBadge';
 import BaselineBadge from '../shared/BaselineBadge';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ResponsiveContainer } from 'recharts';
-
-function fmt$(v: number | string | null | undefined): string {
-  const n = Number(v);
-  if (!isFinite(n)) return '$0';
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}k`;
-  if (n >= 1) return `$${n.toFixed(0)}`;
-  if (n > 0) return `$${n.toFixed(2)}`;
-  return '$0';
-}
+import { fmt$ } from './executive-overview/utils';
 
 function getActorEmail(): string {
   if (typeof window === 'undefined') return 'system';
@@ -52,7 +43,7 @@ function Gauge({ value, max = 100, label, color, onClick }: { value: number; max
     return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
   };
   const end = polarToXY(angle);
-  const largeArc = angle > 90 ? 1 : 0;
+  const largeArc = 0; // always short arc — semicircle gauge never exceeds 180°
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: onClick ? 'pointer' : 'default' }} onClick={onClick}>
       <svg width={160} height={95} viewBox="0 0 160 95" style={{ opacity: onClick ? 1 : 1, transition: 'opacity 0.2s' }}>
@@ -88,7 +79,7 @@ function MiniGauge({ value, max, label, color }: { value: number; max: number; l
     return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
   };
   const end = polarToXY(angle);
-  const largeArc = angle > 90 ? 1 : 0;
+  const largeArc = 0; // always short arc — semicircle gauge never exceeds 180°
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       <svg width={72} height={52} viewBox="0 0 72 52" style={{ overflow: 'hidden' }}>
@@ -110,7 +101,7 @@ function SpendGauge({ amount, total, label, color }: { amount: number; total: nu
     return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
   };
   const end = polarToXY(angle);
-  const largeArc = angle > 90 ? 1 : 0;
+  const largeArc = 0; // always short arc — semicircle gauge never exceeds 180°
   const pctLabel = total > 0 ? `${(pct * 100).toFixed(0)}% of total` : 'no data';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -188,7 +179,17 @@ interface DrawerState {
 
 export default function ExecutiveOverview({ summary, hasAgentDecisions = false, explainabilityEnabled = false }: Props) {
   const { kpis, quickWins = [], savingsStaircase = [], agentReasoning = '', snapshotDate, snapshots = [] } = summary;
-  const avgConfidencePct = kpis.avgConfidence <= 1 ? (kpis.avgConfidence * 100) : kpis.avgConfidence;
+  const avgConfidencePct = kpis.avgConfidence !== null
+    ? (kpis.avgConfidence <= 1 ? kpis.avgConfidence * 100 : kpis.avgConfidence)
+    : null;
+  const roiScore = kpis.roiScore ?? 0;
+  const gainScopeScore = kpis.gainScopeScore ?? 0;
+  const totalLicenseSpend = kpis.totalLicenseSpend ?? 0;
+  const storageSavingsPotential = kpis.storageSavingsPotential ?? 0;
+  const licenseSpendLowValue = kpis.licenseSpendLowValue ?? 0;
+  const avgUtilization = kpis.avgUtilization ?? 0;
+  const avgDetection = kpis.avgDetection ?? 0;
+  const avgQuality = kpis.avgQuality ?? 0;
   const [drawer, setDrawer] = useState<DrawerState>({ isOpen: false, metric: '', value: '', title: '', howCalculated: '' });
   const openDrawer = (next: DrawerState): void => {
     if (!explainabilityEnabled) return;
@@ -209,19 +210,11 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
   const actionCounts: Record<string, number> = {};
   snapshots.forEach((s) => { actionCounts[s.classification] = (actionCounts[s.classification] || 0) + 1; });
 
-  const staircase = savingsStaircase && savingsStaircase.length > 0 ? savingsStaircase : (() => {
-    const byAction: Record<string, { savings: number; count: number }> = {};
-    snapshots.forEach((s) => {
-      if (!byAction[s.classification]) byAction[s.classification] = { savings: 0, count: 0 };
-      byAction[s.classification].savings += s.estimatedSavings || 0;
-      byAction[s.classification].count += 1;
-    });
-    let cumulative = 0;
-    return Object.entries(byAction).filter(([, v]) => v.savings > 0).sort((a, b) => b[1].savings - a[1].savings)
-      .map(([action, v]) => { cumulative += v.savings; return { label: action, savings: v.savings, cumulative, action, count: v.count }; });
-  })();
-  const maxStairSavings = staircase.reduce((m, s) => Math.max(m, s.cumulative), 0) || 1;
-  const staircaseHasDelta = staircase.some((s) => s.savings > 0);
+  const staircase: Array<{ label: string; action: string; savings: number; cumulative: number; spend: number }> =
+    savingsStaircase && savingsStaircase.length > 0
+      ? savingsStaircase
+      : [];
+  const staircaseHasDelta = staircase.length > 1 && staircase[0]?.spend > staircase[staircase.length - 1]?.spend;
 
   // D7: Score profile by tier
   const tierGroups = [
@@ -300,11 +293,11 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '1.5rem' }}>
           <div style={{ textAlign: 'center', padding: '0.5rem 0.75rem', background: '#1e1b4b20', border: '1px solid #4f46e520', borderRadius: 6 }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#a78bfa', textTransform: 'uppercase' }}>Not Calculated</div>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: kpis.securityGaps > 0 ? '#ef4444' : '#a78bfa' }}>{kpis.securityGaps}</div>
             <div style={{ fontSize: '0.6rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '0.25rem' }}>Sec. Gaps</div>
           </div>
           <div style={{ textAlign: 'center', padding: '0.5rem 0.75rem', background: '#1e1b4b20', border: '1px solid #4f46e520', borderRadius: 6 }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#a78bfa', textTransform: 'uppercase' }}>Not Calculated</div>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: kpis.operationalGaps > 0 ? '#f59e0b' : '#a78bfa' }}>{kpis.operationalGaps}</div>
             <div style={{ fontSize: '0.6rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '0.25rem' }}>Ops Gaps</div>
           </div>
         </div>
@@ -373,23 +366,23 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
             </button>
           </div>
           <Gauge
-            value={kpis.roiScore}
+            value={roiScore}
             label=""
             color="#22c55e"
             onClick={() => openDrawer({
               isOpen: true,
               metric: 'roi_score',
-              value: kpis.roiScore,
-              title: `ROI Score: ${kpis.roiScore.toFixed(0)}`,
-              howCalculated: `ROI Score = (Total Savings Potential / Annual Spend) × 100\n\nCritical: ${kpis.tierCounts.critical}\nImportant: ${kpis.tierCounts.important}\nNice-to-Have: ${kpis.tierCounts.niceToHave}\nLow Value: ${kpis.tierCounts.lowValue}\n\nThe score combines tier distribution with potential cost savings.`,
+              value: roiScore,
+              title: `ROI Score: ${roiScore.toFixed(0)}`,
+              howCalculated: `ROI Score = avg(composite_score) across all sourcetypes\n\nComposite = (0.35 × utilization) + (0.40 × detection) + (0.25 × quality)\n\nTier distribution:\n  Critical: ${kpis.tierCounts.critical}\n  Important: ${kpis.tierCounts.important}\n  Nice-to-Have: ${kpis.tierCounts.niceToHave}\n  Low Value: ${kpis.tierCounts.lowValue}`,
               llmReasoning: agentReasoning,
               evidence: [
-                `Savings potential: ${fmt$(kpis.storageSavingsPotential)}`,
-                `Current annual spend: ${fmt$(kpis.totalLicenseSpend)}`,
+                `Savings potential: ${fmt$(storageSavingsPotential)}`,
+                `Current annual spend: ${fmt$(totalLicenseSpend)}`,
                 `${kpis.tierCounts.lowValue} low-value indexes identified`,
                 `${kpis.tierCounts.critical + kpis.tierCounts.important} high-value indexes protected`,
               ],
-              confidence: avgConfidencePct,
+              confidence: avgConfidencePct ?? undefined,
               rawData: {
                 tierCounts: kpis.tierCounts,
                 roiScore: kpis.roiScore,
@@ -409,12 +402,12 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
             metricName="ROI Score"
             formula="avg(composite_score) across all sourcetypes"
             components={[
-              { label: 'Savings Potential', value: fmt$(kpis.storageSavingsPotential) },
-              { label: 'Annual Spend', value: fmt$(kpis.totalLicenseSpend) },
+              { label: 'Savings Potential', value: fmt$(storageSavingsPotential) },
+              { label: 'Annual Spend', value: fmt$(totalLicenseSpend) },
               { label: 'Critical Indexes', value: kpis.tierCounts.critical, weight: '35%' },
               { label: 'Important Indexes', value: kpis.tierCounts.important, weight: '40%' },
             ]}
-            result={kpis.roiScore.toFixed(1)}
+            result={roiScore.toFixed(1)}
             unit="%"
             onClose={() => setOpenFormulaModal(null)}
           />
@@ -439,23 +432,23 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
             </button>
           </div>
           <Gauge
-            value={kpis.gainScopeScore}
+            value={gainScopeScore}
             label=""
             color="#3b82f6"
             onClick={() => openDrawer({
               isOpen: true,
               metric: 'gainscope_score',
-              value: kpis.gainScopeScore,
-              title: `GainScope Score: ${kpis.gainScopeScore.toFixed(0)}`,
-              howCalculated: `GainScope Score = (Utilization + Detection + Quality) / 3\n\nUtilization: ${kpis.avgUtilization.toFixed(0)}%\nDetection Coverage: ${kpis.avgDetection.toFixed(0)}%\nData Quality: ${kpis.avgQuality.toFixed(0)}%\n\nMeasures overall data health and business impact.`,
+              value: gainScopeScore,
+              title: `GainScope Score: ${gainScopeScore.toFixed(0)}`,
+              howCalculated: `GainScope Score = (Tier 1+2 total GB / Total daily GB) × 100\n\nTier 1 (Critical) + Tier 2 (Important) GB contributes to the numerator.\nAll ingested data (GB/day) is the denominator.\n\nScore: ${gainScopeScore.toFixed(1)}% of daily volume is high-value data.\nTotal daily ingest: ${fmtGB(kpis.totalDailyGb)}`,
               llmReasoning: agentReasoning,
               evidence: [
-                `Average utilization score: ${kpis.avgUtilization.toFixed(0)}%`,
-                `Average detection coverage: ${kpis.avgDetection.toFixed(0)}%`,
-                `Average data quality: ${kpis.avgQuality.toFixed(0)}%`,
+                `Average utilization score: ${avgUtilization.toFixed(0)}%`,
+                `Average detection coverage: ${avgDetection.toFixed(0)}%`,
+                `Average data quality: ${avgQuality.toFixed(0)}%`,
                 `${kpis.totalSourcetypes} indexes analyzed`,
               ],
-              confidence: avgConfidencePct,
+              confidence: avgConfidencePct ?? undefined,
               rawData: {
                 gainScopeScore: kpis.gainScopeScore,
                 avgUtilization: kpis.avgUtilization,
@@ -473,13 +466,12 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           <FormulaBreakdownModal
             isOpen={openFormulaModal === 'gainscope'}
             metricName="GainScope %"
-            formula="(avg(utilization) + avg(detection) + avg(quality)) / 3"
+            formula="(Tier 1+2 total GB/day / Total daily GB) × 100"
             components={[
-              { label: 'Avg Utilization', value: kpis.avgUtilization.toFixed(1), weight: '33.3%' },
-              { label: 'Avg Detection', value: kpis.avgDetection.toFixed(1), weight: '33.3%' },
-              { label: 'Avg Quality', value: kpis.avgQuality.toFixed(1), weight: '33.3%' },
+              { label: 'Tier 1+2 (Critical + Important) GB/day', value: fmtGB(snapshots.filter(s => /critical|important/i.test(s.tier)).reduce((sum, s) => sum + s.dailyAvgGb, 0)) },
+              { label: 'Total Daily Ingest', value: fmtGB(kpis.totalDailyGb) },
             ]}
-            result={kpis.gainScopeScore.toFixed(1)}
+            result={gainScopeScore.toFixed(1)}
             unit="%"
             onClose={() => setOpenFormulaModal(null)}
           />
@@ -506,24 +498,24 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
             isOpen: true,
             metric: 'license_spend_low_value',
-            value: kpis.licenseSpendLowValue,
-            title: `Low-Value Spend: ${fmt$(kpis.licenseSpendLowValue)}`,
-            howCalculated: `Low-Value Spend = Annual cost of indexes classified as Low Value tier\n\nLow-Value indexes: ${kpis.tierCounts.lowValue}\nTotal annual spend: ${fmt$(kpis.totalLicenseSpend)}\nPercentage: ${kpis.totalLicenseSpend > 0 ? ((kpis.licenseSpendLowValue / kpis.totalLicenseSpend) * 100).toFixed(1) : 0}%`,
+            value: licenseSpendLowValue,
+            title: `Low-Value Spend: ${fmt$(licenseSpendLowValue)}`,
+            howCalculated: `Low-Value Spend = Annual cost of Tier 3 (Nice-to-Have) + Tier 4 (Low-Value) indexes\n\nNice-to-Have indexes: ${kpis.tierCounts.niceToHave}\nLow-Value indexes: ${kpis.tierCounts.lowValue}\nCombined Tier 3+4 annual cost: ${fmt$(licenseSpendLowValue)}\nTotal annual spend: ${fmt$(totalLicenseSpend)}\nPercentage: ${totalLicenseSpend > 0 ? ((licenseSpendLowValue / totalLicenseSpend) * 100).toFixed(1) : 0}%`,
             llmReasoning: agentReasoning,
             evidence: [
-              `${kpis.tierCounts.lowValue} indexes classified as low-value`,
-              `Annual cost: ${fmt$(kpis.licenseSpendLowValue)}`,
-              `Potential savings: ${fmt$(kpis.storageSavingsPotential)}`,
+              `${kpis.tierCounts.niceToHave} Nice-to-Have + ${kpis.tierCounts.lowValue} Low-Value indexes (Tier 3+4)`,
+              `Annual cost: ${fmt$(licenseSpendLowValue)}`,
+              `Potential savings: ${fmt$(storageSavingsPotential)}`,
               `Recommended action: Archive or eliminate low-utilization indexes`,
             ],
-            confidence: avgConfidencePct,
+            confidence: avgConfidencePct ?? undefined,
             rawData: {
               licenseSpendLowValue: kpis.licenseSpendLowValue,
               lowValueCount: kpis.tierCounts.lowValue,
               totalLicenseSpend: kpis.totalLicenseSpend,
             },
           })}>
-            <SpendGauge amount={kpis.licenseSpendLowValue} total={kpis.totalLicenseSpend} label="" color="#ef4444" />
+            <SpendGauge amount={licenseSpendLowValue} total={totalLicenseSpend} label="" color="#ef4444" />
           </div>
           <ProvenanceBadge
             source="executive_kpis"
@@ -534,12 +526,13 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           <FormulaBreakdownModal
             isOpen={openFormulaModal === 'low_value_spend'}
             metricName="Low-Value Annual Spend"
-            formula="SUM(annual_license_cost) WHERE tier = 'Low-Value'"
+            formula="SUM(cost_per_year) WHERE tier IN ('Nice-to-Have', 'Low-Value')"
             components={[
-              { label: 'Low-Value Count', value: kpis.tierCounts.lowValue },
-              { label: 'Total Annual Spend', value: fmt$(kpis.totalLicenseSpend) },
+              { label: 'Nice-to-Have (Tier 3)', value: kpis.tierCounts.niceToHave },
+              { label: 'Low-Value (Tier 4)', value: kpis.tierCounts.lowValue },
+              { label: 'Total Annual Spend', value: fmt$(totalLicenseSpend) },
             ]}
-            result={fmt$(kpis.licenseSpendLowValue)}
+            result={fmt$(licenseSpendLowValue)}
             unit=""
             onClose={() => setOpenFormulaModal(null)}
           />
@@ -566,24 +559,24 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           <div style={{ cursor: 'pointer' }} onClick={() => openDrawer({
             isOpen: true,
             metric: 'storage_savings_potential',
-            value: kpis.storageSavingsPotential,
-            title: `Savings Potential: ${fmt$(kpis.storageSavingsPotential)}`,
-            howCalculated: `Savings Potential = Sum of cost reduction from optimization and elimination actions\n\nARCHIVE savings: Reduce retention on cold data\nELIMINATE savings: Remove unused indexes\nOPTIMIZE savings: Reduce daily ingest through deduplication`,
+            value: storageSavingsPotential,
+            title: `Savings Potential: ${fmt$(storageSavingsPotential)}`,
+            howCalculated: `Storage Savings Potential (guide §8):\n= Σ per index (retention_excess_gb + compression_opportunity_gb) × storage_cost × months\n\nRetention excess: data stored beyond recommended max retention (365 days)\nCompression: low-utilization data eligible for compression (30% factor)\nField savings: requires TA lookup (not yet wired)\n\nTotal: ${fmt$(storageSavingsPotential)}\n(${totalLicenseSpend > 0 ? ((storageSavingsPotential / totalLicenseSpend) * 100).toFixed(1) : 0}% of ${fmt$(totalLicenseSpend)} annual spend)`,
             llmReasoning: agentReasoning,
             evidence: [
-              `Estimated annual savings: ${fmt$(kpis.storageSavingsPotential)}`,
-              `Percentage of current spend: ${kpis.totalLicenseSpend > 0 ? ((kpis.storageSavingsPotential / kpis.totalLicenseSpend) * 100).toFixed(1) : 0}%`,
-              `Low-value spend to reduce: ${fmt$(kpis.licenseSpendLowValue)}`,
+              `Estimated annual savings: ${fmt$(storageSavingsPotential)}`,
+              `Percentage of current spend: ${totalLicenseSpend > 0 ? ((storageSavingsPotential / totalLicenseSpend) * 100).toFixed(1) : 0}%`,
+              `Low-value spend to reduce: ${fmt$(licenseSpendLowValue)}`,
               `${kpis.tierCounts.critical + kpis.tierCounts.important} high-value indexes remain protected`,
             ],
-            confidence: avgConfidencePct,
+            confidence: avgConfidencePct ?? undefined,
             rawData: {
               storageSavingsPotential: kpis.storageSavingsPotential,
               totalLicenseSpend: kpis.totalLicenseSpend,
               licenseSpendLowValue: kpis.licenseSpendLowValue,
             },
           })}>
-            <SpendGauge amount={kpis.storageSavingsPotential} total={kpis.totalLicenseSpend} label="" color="#22c55e" />
+            <SpendGauge amount={storageSavingsPotential} total={totalLicenseSpend} label="" color="#22c55e" />
           </div>
           <ProvenanceBadge
             source="executive_kpis"
@@ -594,13 +587,13 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           <FormulaBreakdownModal
             isOpen={openFormulaModal === 'savings_potential'}
             metricName="Storage Savings Potential"
-            formula="SUM(estimated_savings) from all ARCHIVE, ELIMINATE, OPTIMIZE actions"
+            formula="Σ(retention_excess + compression_opportunity) × storage_cost × months per index"
             components={[
               { label: 'Low-Value Spend', value: fmt$(kpis.licenseSpendLowValue) },
               { label: 'Total Annual Spend', value: fmt$(kpis.totalLicenseSpend) },
-              { label: 'Potential Savings %', value: kpis.totalLicenseSpend > 0 ? ((kpis.storageSavingsPotential / kpis.totalLicenseSpend) * 100).toFixed(1) : '0', weight: '100%' },
+              { label: 'Potential Savings %', value: totalLicenseSpend > 0 ? ((storageSavingsPotential / totalLicenseSpend) * 100).toFixed(1) : '0', weight: '100%' },
             ]}
-            result={fmt$(kpis.storageSavingsPotential)}
+            result={fmt$(storageSavingsPotential)}
             unit=""
             onClose={() => setOpenFormulaModal(null)}
           />
@@ -665,10 +658,10 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                           evidence: [
                             `Inputs: executive_kpis snapshots (${trendDays} days)`,
                             `Source origin: executive_kpis`,
-                            `Confidence: ${(avgConfidencePct).toFixed(0)}%`,
+                            `Confidence: ${(avgConfidencePct ?? 0).toFixed(0)}%`,
                             `Variance: Not computed`,
                           ],
-                          confidence: avgConfidencePct,
+                          confidence: avgConfidencePct ?? undefined,
                         })}
                         style={{ border: '1px solid #334155', background: '#0b1220', color: '#cbd5e1', borderRadius: 6, padding: '0.2rem 0.45rem', cursor: 'pointer', fontSize: '0.72rem' }}
                       >
@@ -703,10 +696,10 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                           evidence: [
                             `Inputs: executive_kpis snapshots (${trendDays} days)`,
                             `Source origin: executive_kpis`,
-                            `Confidence: ${(avgConfidencePct).toFixed(0)}%`,
+                            `Confidence: ${(avgConfidencePct ?? 0).toFixed(0)}%`,
                             `Variance: Not computed`,
                           ],
-                          confidence: avgConfidencePct,
+                          confidence: avgConfidencePct ?? undefined,
                         })}
                         style={{ border: '1px solid #334155', background: '#0b1220', color: '#cbd5e1', borderRadius: 6, padding: '0.2rem 0.45rem', cursor: 'pointer', fontSize: '0.72rem' }}
                       >
@@ -759,7 +752,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                   `Average detection: ${tierSnaps.length > 0 ? (tierSnaps.reduce((s, v) => s + v.detectionScore, 0) / tierSnaps.length).toFixed(0) : 0}%`,
                   `Recommendation: ${t.label === 'Critical' ? 'Maintain strict retention and uptime' : t.label === 'Important' ? 'Optimize retention and monitor usage' : t.label === 'Nice-to-Have' ? 'Evaluate utility; archive if unused' : 'Eliminate or archive'}`,
                 ],
-                confidence: avgConfidencePct,
+                confidence: avgConfidencePct ?? undefined,
                 tier: t.label,
                 rawData: {
                   tier: t.label,
@@ -781,10 +774,10 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
         <div style={{ ...card(), position: 'relative' }}>
           <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
           <div style={cardTitle}>Score Averages</div>
-          <ScoreBar label="Utilization" value={kpis.avgUtilization} color="#3b82f6" />
-          <ScoreBar label="Detection Coverage" value={kpis.avgDetection} color="#8b5cf6" />
-          <ScoreBar label="Data Quality" value={kpis.avgQuality} color="#22c55e" />
-          <ScoreBar label="Confidence" value={avgConfidencePct} color="#f59e0b" />
+          <ScoreBar label="Utilization" value={avgUtilization} color="#3b82f6" />
+          <ScoreBar label="Detection Coverage" value={avgDetection} color="#8b5cf6" />
+          <ScoreBar label="Data Quality" value={avgQuality} color="#22c55e" />
+          <ScoreBar label="Confidence" value={avgConfidencePct ?? 0} color="#f59e0b" />
           <div style={{ marginTop: '0.75rem', fontSize: '0.7rem', color: '#475569', textAlign: 'right' }}>
             Snapshot: {snapshotDate ? new Date(snapshotDate).toLocaleDateString() : '—'}
           </div>
@@ -951,10 +944,10 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
       {/* Row 4 — Savings Staircase + Quick Wins */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
         <div style={{ ...card(), position: 'relative' }}>
-          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#8E44AD', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>🤖 AI</div>
+          <div style={{ position: 'absolute', top: '1rem', right: '1rem', fontSize: '0.65rem', backgroundColor: '#27AE60', color: 'white', padding: '2px 8px', borderRadius: '12px', fontWeight: 500 }}>✓ FACT</div>
           <div style={cardTitle}>Savings Staircase</div>
           {staircase.length === 0
-            ? <div style={{ color: '#475569', fontSize: '0.875rem' }}>No savings data yet</div>
+            ? <div style={{ color: '#475569', fontSize: '0.875rem' }}>No savings data yet — run the pipeline first</div>
             : !staircaseHasDelta
             ? (
               <div>
@@ -962,17 +955,21 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                   {staircase.map((step, i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '0.375rem 0.5rem', background: '#1e293b', borderRadius: 4 }}>
                       <span style={{ color: '#94a3b8' }}>{step.label}</span>
-                      <span style={{ color: '#f8fafc', fontWeight: 600 }}>{fmt$(step.cumulative)}</span>
+                      <span style={{ color: '#f8fafc', fontWeight: 600 }}>{fmt$(step.spend ?? step.cumulative)}</span>
                     </div>
                   ))}
                 </div>
-                <div style={{ fontSize: '0.7rem', color: '#475569', fontStyle: 'italic' }}>No cost reduction projected — all tiers at current spend level</div>
+                <div style={{ fontSize: '0.7rem', color: '#475569', fontStyle: 'italic' }}>No cost reduction projected — retention and utilization within guidelines</div>
               </div>
             )
             : (() => {
+                const STAGE_COLORS: Record<string, string> = {
+                  BASELINE: '#ef4444', COMPRESS: '#f59e0b', RETAIN: '#3b82f6', S3: '#8b5cf6', TARGET: '#22c55e',
+                };
                 const chartData = staircase.map((step, i) => ({
                   label: step.label,
                   action: step.action,
+                  spend: step.spend ?? 0,
                   savings: step.savings,
                   cumulative: step.cumulative,
                   index: i,
@@ -987,58 +984,53 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                           if (!d || !d.activePayload) return;
                           const step = d.activePayload[0]?.payload;
                           if (!step) return;
-                          const actionCount = snapshots.filter(s => s.action === step.action).length;
                           openDrawer({
                             isOpen: true,
                             metric: `${step.action.toLowerCase()}_savings`,
-                            value: step.savings,
-                            title: `${step.label} Savings: ${fmt$(step.savings)}`,
-                            howCalculated: `${step.label} Savings = Sum of cost reduction from ${step.action.toLowerCase()} actions\n\nAction count: ${actionCount} indexes\nPer-action avg savings: ${fmt$(step.savings / Math.max(actionCount, 1))}\nCumulative total: ${fmt$(step.cumulative)}`,
+                            value: step.spend,
+                            title: `${step.label}: ${fmt$(step.spend)}`,
+                            howCalculated: `${step.label}\n\nRemaining spend: ${fmt$(step.spend)}\nPhase savings: ${fmt$(step.savings)}\nCumulative savings: ${fmt$(step.cumulative)}`,
                             llmReasoning: agentReasoning,
                             evidence: [
-                              `${actionCount} indexes classified for ${step.action.toLowerCase()}`,
-                              `Estimated savings: ${fmt$(step.savings)}`,
-                              `${step.action} indexes in this tier: ${actionCount}`,
-                              `Recommendation: Prioritize by confidence and impact`,
+                              `Remaining spend at this stage: ${fmt$(step.spend)}`,
+                              `Phase savings: ${fmt$(step.savings)}`,
+                              `Cumulative savings: ${fmt$(step.cumulative)}`,
                             ],
-                            confidence: avgConfidencePct,
+                            confidence: avgConfidencePct ?? undefined,
                             action: step.action,
-                            rawData: { action: step.action, savings: step.savings, cumulative: step.cumulative, count: actionCount },
+                            rawData: step,
                           });
                         }}
                         style={{ cursor: 'pointer' }}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 10 }} stroke="#334155" />
-                        <YAxis tickFormatter={(v: number) => v >= 1000 ? `$${(v/1000).toFixed(0)}k` : `$${v}`} tick={{ fill: '#64748b', fontSize: 10 }} stroke="#334155" />
+                        <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 9 }} stroke="#334155" interval={0} />
+                        <YAxis tickFormatter={(v: number) => fmt$(v)} tick={{ fill: '#64748b', fontSize: 10 }} stroke="#334155" />
                         <Tooltip
                           contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 4, fontSize: '0.75rem' }}
                           labelStyle={{ color: '#cbd5e1' }}
-                          formatter={(value: number, name: string) => [
-                            name === 'cumulative' ? `Cumulative: ${fmt$(value)}` : `Savings: ${fmt$(value)}`,
-                            name === 'cumulative' ? 'Cumulative' : 'Phase Savings',
-                          ]}
+                          formatter={(value: number) => [fmt$(value), 'Remaining Spend']}
                         />
-                        <Bar dataKey="savings" isAnimationActive={false} radius={[3, 3, 0, 0]}>
+                        <Bar dataKey="spend" isAnimationActive={false} radius={[3, 3, 0, 0]}>
                           {chartData.map((entry, i) => (
-                            <Cell key={i} fill={ACTION_COLORS[entry.action] || '#3b82f6'} fillOpacity={0.85} />
-                          ))}
-                        </Bar>
-                        <Bar dataKey="cumulative" isAnimationActive={false} radius={[3, 3, 0, 0]} fillOpacity={0.25}>
-                          {chartData.map((entry, i) => (
-                            <Cell key={i} fill={ACTION_COLORS[entry.action] || '#3b82f6'} />
+                            <Cell key={i} fill={STAGE_COLORS[entry.action] || '#3b82f6'} fillOpacity={0.85} />
                           ))}
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                     <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
-                      {chartData.map((step, i) => (
+                      {chartData.filter(s => s.savings > 0).map((step, i) => (
                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.68rem' }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 2, background: ACTION_COLORS[step.action] || '#3b82f6' }} />
+                          <div style={{ width: 8, height: 8, borderRadius: 2, background: STAGE_COLORS[step.action] || '#3b82f6' }} />
                           <span style={{ color: '#64748b' }}>{step.label}</span>
-                          <span style={{ color: '#22c55e', fontWeight: 600 }}>{fmt$(step.savings)}</span>
+                          <span style={{ color: '#22c55e', fontWeight: 600 }}>−{fmt$(step.savings)}</span>
                         </div>
                       ))}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.68rem' }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 2, background: '#22c55e' }} />
+                        <span style={{ color: '#64748b' }}>Total saved</span>
+                        <span style={{ color: '#22c55e', fontWeight: 600 }}>{fmt$(staircase[staircase.length - 1]?.cumulative ?? 0)}</span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1051,9 +1043,25 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
           const [approvedWins, setApprovedWins] = React.useState<Set<string>>(new Set());
           const [approvingWin, setApprovingWin] = React.useState<string | null>(null);
 
-          const wins = quickWins.length > 0
-            ? quickWins.slice(0, 5).map(qw => ({ indexName: qw.indexName, action: qw.action, savings: qw.savings, tier: qw.tier, reasoning: qw.reasoning }))
-            : snapshots.filter(s => s.isQuickWin).slice(0, 5).map(s => ({ indexName: s.indexName, action: s.action, savings: s.estimatedSavings, tier: s.tier, reasoning: s.reasoning }));
+          // Quick Wins = top recommended actions by dollar impact (guide §8).
+          // Priority: explicit quickWins → snapshots flagged isQuickWin →
+          // deterministic fallback (top savings among actionable, lower-risk tiers).
+          const flaggedWins = snapshots.filter(s => s.isQuickWin);
+          const fallbackWins = [...snapshots]
+            .filter(s =>
+              (s.estimatedSavings ?? 0) > 0 &&
+              ['ARCHIVE', 'OPTIMIZE', 'ELIMINATE'].includes((s.action || '').toUpperCase()))
+            .sort((a, b) => (b.estimatedSavings ?? 0) - (a.estimatedSavings ?? 0));
+          const winsSource = quickWins.length > 0
+            ? quickWins.slice(0, 5)
+            : (flaggedWins.length > 0 ? flaggedWins : fallbackWins).slice(0, 5).map(s => ({
+                indexName: s.indexName, action: s.action,
+                savings: s.estimatedSavings ?? 0, tier: s.tier, reasoning: s.reasoning,
+              }));
+          const wins = winsSource.map(qw => ({
+            indexName: qw.indexName, action: qw.action,
+            savings: qw.savings, tier: qw.tier, reasoning: qw.reasoning,
+          }));
 
           const approveWin = async (qw: typeof wins[0]) => {
             const key = `${qw.indexName}::${qw.action}`;
@@ -1113,7 +1121,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                               howCalculated: `Action: ${qw.action}\nTier: ${qw.tier}\nEstimated Savings: ${fmt$(qw.savings)}\n\nFlagged as quick win by LLM: high savings, low risk.`,
                               llmReasoning: qw.reasoning || 'No detailed reasoning provided',
                               evidence: [`Index: ${qw.indexName}`, `Action: ${qw.action}`, `Tier: ${qw.tier}`, `Savings: ${fmt$(qw.savings)}`],
-                              confidence: avgConfidencePct,
+                              confidence: avgConfidencePct ?? undefined,
                               action: qw.action,
                               tier: qw.tier,
                               rawData: { indexName: qw.indexName, action: qw.action, tier: qw.tier, savings: qw.savings },
@@ -1223,7 +1231,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                             `Quality Score: ${s.qualityScore.toFixed(0)}%`,
                             `Recommended Action: ${s.action}`,
                           ],
-                          confidence: avgConfidencePct,
+                          confidence: avgConfidencePct ?? undefined,
                           tier: s.tier,
                           action: s.action,
                           rawData: {

@@ -261,6 +261,10 @@ export class SplunkConfigService {
         if (existing.rows.length > 0) encryptedSecret = existing.rows[0].splunk_rest_auth_secret;
       }
 
+      // Encrypt password at rest; normalize authType to uppercase for consistent comparisons
+      const encryptedPassword = config.password ? encryptSecret(config.password) : null;
+      const normalizedAuthType = config.restAuthType ? config.restAuthType.toUpperCase() : null;
+
       const hasSecret = typeof encryptedSecret === 'string' && encryptedSecret.length > 0;
       const result = await pool.query(
         `UPDATE tenants SET
@@ -279,9 +283,9 @@ export class SplunkConfigService {
           config.mcpUrl || null,
           config.hec_token,
           config.username || null,
-          config.password || null,
+          encryptedPassword,
           config.ssl_verify,
-          config.restAuthType || null,
+          normalizedAuthType,
           hasSecret ? encryptedSecret : null,
           hasSecret,
           tenant_id,

@@ -163,7 +163,7 @@ export function ROIPanel({
             onClick={() => open({
               isOpen: true,
               metric: 'roi_score',
-              value: roiScore,
+              value: roiScore ?? 0,
               title: `ROI Score: ${roiScore?.toFixed(0) || '--'}`,
               howCalculated: `ROI Score = (Total Savings Potential / Annual Spend) × 100\n\nCritical: ${tierCounts.critical}\nImportant: ${tierCounts.important}\nNice-to-Have: ${tierCounts.niceToHave}\nLow Value: ${tierCounts.lowValue}\n\nThe score combines tier distribution with potential cost savings.`,
               llmReasoning: agentReasoning,
@@ -173,7 +173,7 @@ export function ROIPanel({
                 `${tierCounts.lowValue} low-value indexes identified`,
                 `${tierCounts.critical + tierCounts.important} high-value indexes protected`,
               ],
-              confidence: avgConfidencePct,
+              confidence: avgConfidencePct ?? undefined,
               rawData: { tierCounts, roiScore, storageSavingsPotential, totalLicenseSpend },
             })}
           />
@@ -201,7 +201,7 @@ export function ROIPanel({
             onClick={() => open({
               isOpen: true,
               metric: 'gainscope_score',
-              value: gainScopeScore,
+              value: gainScopeScore ?? 0,
               title: `GainScope Score: ${gainScopeScore?.toFixed(0) || '--'}`,
               howCalculated: `GainScope Score = (Utilization + Detection + Quality) / 3\n\nUtilization: ${(avgUtilization || 0).toFixed(0)}%\nDetection Coverage: ${(avgDetection || 0).toFixed(0)}%\nData Quality: ${(avgQuality || 0).toFixed(0)}%\n\nMeasures overall data health and business impact.`,
               llmReasoning: agentReasoning,
@@ -211,7 +211,7 @@ export function ROIPanel({
                 `Average data quality: ${(avgQuality || 0).toFixed(0)}%`,
                 `${totalSourcetypes} indexes analyzed`,
               ],
-              confidence: avgConfidencePct,
+              confidence: avgConfidencePct ?? undefined,
               rawData: { gainScopeScore, avgUtilization, avgDetection, avgQuality },
             })}
           />
@@ -235,7 +235,7 @@ export function ROIPanel({
           <div style={{ cursor: 'pointer' }} onClick={() => open({
             isOpen: true,
             metric: 'license_spend_low_value',
-            value: licenseSpendLowValue,
+            value: licenseSpendLowValue ?? 0,
             title: `Low-Value Spend: ${fmt$(licenseSpendLowValue || 0)}`,
             howCalculated: `Low-Value Spend = Annual cost of indexes classified as Low Value tier\n\nLow-Value indexes: ${tierCounts.lowValue}\nTotal annual spend: ${fmt$(totalLicenseSpend || 0)}\nPercentage: ${(totalLicenseSpend || 0) > 0 ? (((licenseSpendLowValue || 0) / (totalLicenseSpend || 0)) * 100).toFixed(1) : 0}%`,
             llmReasoning: agentReasoning,
@@ -245,7 +245,7 @@ export function ROIPanel({
               `Potential savings: ${fmt$(storageSavingsPotential || 0)}`,
               `Recommended action: Archive or eliminate low-utilization indexes`,
             ],
-            confidence: avgConfidencePct,
+            confidence: avgConfidencePct ?? undefined,
             rawData: { licenseSpendLowValue, lowValueCount: tierCounts.lowValue, totalLicenseSpend },
           })}>
             <SpendGauge amount={licenseSpendLowValue || 0} total={totalLicenseSpend || 0} label="" color="#ef4444" />
@@ -270,7 +270,7 @@ export function ROIPanel({
           <div style={{ cursor: 'pointer' }} onClick={() => open({
             isOpen: true,
             metric: 'storage_savings_potential',
-            value: storageSavingsPotential,
+            value: storageSavingsPotential ?? 0,
             title: `Savings Potential: ${fmt$(storageSavingsPotential || 0)}`,
             howCalculated: `Savings Potential = Sum of cost reduction from optimization and elimination actions\n\nARCHIVE savings: Reduce retention on cold data\nELIMINATE savings: Remove unused indexes\nOPTIMIZE savings: Reduce daily ingest through deduplication`,
             llmReasoning: agentReasoning,
@@ -280,7 +280,7 @@ export function ROIPanel({
               `Low-value spend to reduce: ${fmt$(licenseSpendLowValue || 0)}`,
               `${tierCounts.critical + tierCounts.important} high-value indexes remain protected`,
             ],
-            confidence: avgConfidencePct,
+            confidence: avgConfidencePct ?? undefined,
             rawData: { storageSavingsPotential, totalLicenseSpend, licenseSpendLowValue },
           })}>
             <SpendGauge amount={storageSavingsPotential || 0} total={totalLicenseSpend || 0} label="" color="#22c55e" />
@@ -324,7 +324,7 @@ export function ROIPanel({
               `Avg detection score: ${Math.round(avgDetection ?? 0)}%`,
               `See Detail Analysis → Security Detection Gaps for per-sourcetype breakdown`,
             ],
-            confidence: avgConfidencePct,
+            confidence: avgConfidencePct ?? undefined,
             rawData: { securityGaps, avgDetection, totalSourcetypes },
           })}>
             {avgDetection === 0 ? (

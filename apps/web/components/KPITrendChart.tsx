@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useLayoutEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { apiFetch } from '../lib/api-client';
+import { fmt$ } from './dashboard/executive-overview/utils';
 
 interface KPIHistoryPoint {
   date: string;
@@ -91,7 +92,7 @@ export default function KPITrendChart({
     switch (metric) {
       case 'roi':        return { key: 'roiScore',                name: 'ROI Score',                  color: '#10b981', yAxisDomain: [0, 100] as [number,number] };
       case 'gainscope':  return { key: 'gainScopeScore',          name: 'GainScope Score',            color: '#3b82f6', yAxisDomain: [0, 100] as [number,number] };
-      case 'savings':    return { key: 'storageSavingsPotential', name: 'Storage Savings ($)',        color: '#8b5cf6', yAxisDomain: 'auto' as const, formatter: (v: number) => `$${(v/1000).toFixed(0)}k` };
+      case 'savings':    return { key: 'storageSavingsPotential', name: 'Storage Savings ($)',        color: '#8b5cf6', yAxisDomain: 'auto' as const, formatter: (v: number) => fmt$(v) };
       case 'ingest':     return { key: 'totalDailyGb',            name: 'Daily Ingest (GB)',          color: '#f59e0b', yAxisDomain: 'auto' as const, formatter: (v: number) => `${v.toFixed(1)}GB` };
       case 'utilization':return { key: 'avgUtilization',          name: 'Avg Utilization',            color: '#06b6d4', yAxisDomain: [0, 100] as [number,number], formatter: (v: number) => `${v.toFixed(0)}%` };
       case 'quality':    return { key: 'avgQuality',              name: 'Avg Quality Score',          color: '#ec4899', yAxisDomain: [0, 100] as [number,number], formatter: (v: number) => `${v.toFixed(0)}%` };

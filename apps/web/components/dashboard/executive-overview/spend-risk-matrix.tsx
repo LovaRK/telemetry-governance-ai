@@ -14,6 +14,7 @@ import { fmt$, fmtGB, ACTION_COLORS, tierColor } from './utils';
 
 interface Snapshot {
   indexName: string;
+  sourcetype?: string | null;
   tier: string;
   action: string;
   dailyAvgGb: number;

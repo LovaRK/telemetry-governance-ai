@@ -192,9 +192,9 @@ function Home() {
         const nextKpis = summaryData.kpis;
         if (prevKpis && nextKpis) {
           const diffs: Array<{ label: string; before: number; after: number }> = [];
-          const collect = (label: string, before: number, after: number) => {
+          const collect = (label: string, before: number | null, after: number | null) => {
             if (Number.isFinite(before) && Number.isFinite(after) && before !== after) {
-              diffs.push({ label, before, after });
+              diffs.push({ label, before: before!, after: after! });
             }
           };
           collect('ROI', prevKpis.roiScore, nextKpis.roiScore);
@@ -267,7 +267,7 @@ function Home() {
       return;
     }
 
-    if (state.executiveSummary?.snapshots?.length > 0 || (state.executiveSummary as any)?.empty === true) {
+    if ((state.executiveSummary?.snapshots?.length ?? 0) > 0 || (state.executiveSummary as any)?.empty === true) {
       setSummary(state.executiveSummary as ExecutiveSummary);
       setKpiExplain(state.explainability.records || []);
       setExplainabilityCoverage(state.explainability.coverage || null);
@@ -544,7 +544,7 @@ function Home() {
 
   // While snapshot is ready but AI is still running, keep syncing lifecycle from backend.
   // Use smart polling: 3s while RUNNING, 60s while READY, pause when hidden
-  const shouldPollDashboard = cacheStatus && lifecycleSnapshotStatus === 'READY' && lifecycleLlmStatus === 'RUNNING';
+  const shouldPollDashboard = !!(cacheStatus && lifecycleSnapshotStatus === 'READY' && lifecycleLlmStatus === 'RUNNING');
   const dashboardPollCallback = useCallback(() => loadDashboardState(), []);
   useSmartPolling(
     dashboardPollCallback,
@@ -565,9 +565,9 @@ function Home() {
   }, [activeJobId, pipelineEvents, pipelineRun]);
 
   // Check if form has required fields filled for initial connection
-  const hasFormValidation = formData.mcp_url && (
+  const hasFormValidation = !!(formData.mcp_url && (
     formData.auth_type === 'token' ? formData.token : (formData.username && formData.password)
-  );
+  ));
 
   const canRefresh = splunkConfigLoaded && (splunkConfigured || cacheStatus?.pipelineStatus === 'READY' || hasFormValidation);
 
@@ -1209,6 +1209,9 @@ function Home() {
                 ))}
                 <a href="/detail" style={{ padding: '0.5rem 1.25rem', background: 'transparent', color: '#334155', border: '1px solid #1e293b', borderRadius: 8, fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                   Enhanced Viz ↗
+                </a>
+                <a href="/storage-cost" style={{ padding: '0.5rem 1.25rem', background: 'transparent', color: '#334155', border: '1px solid #1e293b', borderRadius: 8, fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  Storage Cost ↗
                 </a>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

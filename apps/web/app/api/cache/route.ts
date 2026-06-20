@@ -447,13 +447,12 @@ export const POST = createRoute(async (request: NextRequest) => {
 
   return {
     data: {
-      success: finalStatus === 'SUCCEEDED',
+      success: (finalStatus as string) === 'SUCCEEDED',
       phase: finalPhase,
       requestId,
       runId,
-        snapshotId: result.snapshotId,
-        runId,
-        jobId: result.jobId,
+      snapshotId: result.snapshotId,
+      jobId: result.jobId,
         inserted: result.inserted,
         durationMs: Date.now() - started,
         status: finalStatus,

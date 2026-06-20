@@ -71,11 +71,14 @@ export function normalizeLifecycle(input: {
   previousFailureRunId?: string | null;
 }): { llmStatus: LLMStatus; pipelineStatus: PipelineStatus; failureCode: PipelineLifecycleState['failureCode']; failureReason: string | null } {
   // 1) Resurrection guard: same run_id stays failed until a new run starts.
+  // Skip if LLM is READY — a transient TIMEOUT stage event followed by AI_DECISIONS SUCCESS
+  // means the worker recovered; the run is not truly failed.
   if (
     input.runId &&
     input.previousFailureRunId &&
     input.runId === input.previousFailureRunId &&
-    (input.previousFailureCode === 'TIMEOUT' || input.previousFailureCode === 'MISSING_DECISIONS')
+    (input.previousFailureCode === 'TIMEOUT' || input.previousFailureCode === 'MISSING_DECISIONS') &&
+    input.llmStatus !== 'READY'
   ) {
     return {
       llmStatus: input.previousFailureCode === 'TIMEOUT' ? 'FAILED_TIMEOUT' : 'FAILED',

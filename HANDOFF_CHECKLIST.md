@@ -4,13 +4,13 @@ Do these in order. Each links to the doc with detail.
 
 ## Get it running
 
-1. [ ] Clone, `git checkout v1.0-handoff`, `cp .env.example .env`
+1. [ ] Clone, `git checkout dev/dashboard-improvements`, `cp .env.example .env`
 2. [ ] Fill `.env`: `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and two
        `openssl rand -hex 32` secrets (`SPLUNK_SECRET_ENCRYPTION_KEY`,
        `GOVERNANCE_BOOTSTRAP_KEY`) — see `INSTALL_TEJA.md`
 3. [ ] LLM Path A: install Ollama + `ollama pull gemma2:9b`
        (or Path B: set `ANTHROPIC_API_KEY`, opt in via Settings)
-4. [ ] `docker compose -f docker/docker-compose.yml up -d`
+4. [ ] `docker compose --env-file .env -f docker/docker-compose.yml up -d`
 5. [ ] Log in at http://localhost:3002 with your admin creds
 
 ## Point at Splunk & run

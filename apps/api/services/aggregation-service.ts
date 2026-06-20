@@ -3,7 +3,7 @@ import { SplunkClient, SplunkDataSource } from './splunk-client';
 import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/llm-decision-agent';
 import { loadUserConfig } from './config-service';
 import { RequestContext } from '@packages/auth/request-context';
-import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics, querySavedSearchInventory, queryParsingErrors, queryAdhocUsage, buildUtilizationInputs, buildDetectionInputs, buildQualityInputs } from './splunk-queries-service';
+import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics, querySavedSearchInventory, queryParsingErrors, queryAdhocUsage, queryDetectionMappings, buildUtilizationInputs, buildDetectionInputs, buildQualityInputs } from './splunk-queries-service';
 import {
   computeUtilizationScores,
   computeDetectionScores,
@@ -188,8 +188,18 @@ export async function computeDeterministicScoresForInputs(
     return new Map<string, number>();
   });
 
+  // Pull MITRE/Lantern mappings live from the customer's Splunk lookups (TA add-on).
+  // Empty on failure → buildDetectionInputs falls back to the built-in baseline.
+  const detectionMappings = await queryDetectionMappings(splunk).catch(e => {
+    console.warn('[Scoring] Detection mappings unavailable, using baseline:', (e as Error).message);
+    return { mitre: new Map<string, number>(), lantern: new Map<string, number>() };
+  });
+  if (detectionMappings.mitre.size > 0 || detectionMappings.lantern.size > 0) {
+    console.log(`[Scoring] Detection mappings from Splunk: ${detectionMappings.mitre.size} MITRE, ${detectionMappings.lantern.size} Lantern sourcetypes`);
+  }
+
   const utilInputs = buildUtilizationInputs(rawMeta, koInventory);
-  const detInputs  = buildDetectionInputs(rawMeta, koInventory);
+  const detInputs  = buildDetectionInputs(rawMeta, koInventory, detectionMappings);
   const qualInputs = buildQualityInputs(rawMeta, parsingErrors);
 
   const utilScores = computeUtilizationScores(utilInputs);

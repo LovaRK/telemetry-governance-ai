@@ -15,6 +15,7 @@ import {
   type ScoredSourcetype,
   type TierLabel,
 } from '@api/services/deterministic-scoring-engine';
+import { computeDeterministicSavings, type RetentionInput, type CompressionSavingsInput, type SavingsConfig } from '@packages/core/engine/savings/storage';
 
 /**
  * POST /api/kpi/recompute
@@ -54,6 +55,9 @@ export const POST = createRoute(async (request: NextRequest) => {
   const costPerGbYear = Number.isFinite(Number(body?.costPerGbYear))
     ? Number(body.costPerGbYear)
     : null;
+  const storageCostPerGbMonth = Number.isFinite(Number(body?.storageCostPerGbMonth))
+    ? Number(body.storageCostPerGbMonth)
+    : null;
 
   const publishedRun = await getLatestPublishedRun(tenantId);
   if (!publishedRun) {
@@ -74,10 +78,11 @@ export const POST = createRoute(async (request: NextRequest) => {
         ad.detection_score,
         ad.quality_score,
         ad.detection_gap,
-        COALESCE(ts.daily_avg_gb, 0) AS daily_avg_gb
+        COALESCE(ts.daily_avg_gb, 0) AS daily_avg_gb,
+        COALESCE(ts.retention_days, 90) AS retention_days
      FROM agent_decisions ad
      LEFT JOIN LATERAL (
-       SELECT daily_avg_gb FROM telemetry_snapshots t
+       SELECT daily_avg_gb, retention_days FROM telemetry_snapshots t
        WHERE t.tenant_id = ad.tenant_id
          AND t.snapshot_id = ad.snapshot_id
          AND t.index_name = ad.index_name
@@ -135,15 +140,33 @@ export const POST = createRoute(async (request: NextRequest) => {
   const totalDailyGb = scored.reduce((sum, s) => sum + s.dailyGb, 0);
   const totalLicenseSpend = scored.reduce((sum, s) => sum + s.annualCostUsd, 0);
 
+  // Deterministic storage savings (guide §8) — recomputed live with the filter bar's storage rate
+  const savingsCfg: Partial<SavingsConfig> = {};
+  if (storageCostPerGbMonth !== null) {
+    savingsCfg.costPerGbPerDay = storageCostPerGbMonth / 30;
+  }
+  let storageSavingsPotential = 0;
+  for (const r of (rowsResult.rows || []) as any[]) {
+    const dagb = parseFloat(r.daily_avg_gb) || 0;
+    if (dagb <= 0) continue;
+    const retIn: RetentionInput = { dailyAvgGb: dagb, retentionDays: parseInt(r.retention_days) || 90 };
+    const compIn: CompressionSavingsInput = { dailyAvgGb: dagb, utilizationPct: parseFloat(r.utilization_score) || 0 };
+    const s = computeDeterministicSavings(retIn, null, compIn, savingsCfg);
+    storageSavingsPotential += s.totalSavings;
+  }
+  storageSavingsPotential = Math.round(storageSavingsPotential * 100) / 100;
+
   return {
     data: {
       empty: false,
       weights,
       costPerGbYear,
+      storageCostPerGbMonth,
       kpis: {
         roiScore: computeROIScore(scored),
         gainScopeScore: computeGainScope(scored),
         licenseSpendLowValue: computeLowValueSpend(scored),
+        storageSavingsPotential,
         totalLicenseSpend: Math.round(totalLicenseSpend * 100) / 100,
         totalDailyGb: Math.round(totalDailyGb * 1000) / 1000,
         totalSourcetypes: scored.length,

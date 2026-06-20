@@ -172,10 +172,41 @@ export interface CacheStatus {
   hasEverRefreshed: boolean;
   hasData: boolean;
   hasAgentDecisions: boolean;
+  hasKpis?: boolean;
   lastRefreshAt: string | null;
   nextRefreshAt: string | null;
   recordCount: number;
   message?: string;
+  runId?: string | null;
+  snapshotId?: string | null;
+  publishedAt?: string | null;
+  decisionCount?: number;
+  dailyAvgGb?: number;
+  snapshotStatus?: SnapshotStatus;
+  llmStatus?: LLMStatus;
+  pipelineStatus?: PipelineStatus;
+  failureCode?: string | null;
+  failureReason?: string | null;
+  lastRunId?: string | null;
+  lastRunAt?: string | null;
+  lastDecisionAt?: string | null;
+  requestId?: string | null;
+  pipelineRunId?: string | null;
+  activeJobId?: string | null;
+  modelName?: string | null;
+  latencyMs?: number | null;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
+  batchCount?: number | null;
+  activeState?: Record<string, any>;
+  publishedState?: Record<string, any>;
+  lastCompletedRun?: {
+    runId: string;
+    status: string;
+    startedAt: string | null;
+    completedAt: string | null;
+    requestId: string | null;
+  } | null;
 }
 
 export interface FormData {
@@ -266,7 +297,6 @@ export interface PipelineLifecycleState {
     | 'FAILED_MODEL_CRASH'
     | null;
   failureReason?: string | null;
-  runId?: string;
   updatedAt?: string;
   lastRunAt?: string | null;
   lastDecisionAt?: string | null;

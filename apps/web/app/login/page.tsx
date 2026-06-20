@@ -56,7 +56,7 @@ function LoginForm() {
       };
       localStorage.setItem('auth_context', JSON.stringify(authContext));
 
-      const next = searchParams.get('next') || '/';
+      const next = searchParams?.get('next') || '/';
       router.push(next);
     } catch {
       setError('Network error. Check server is running.');

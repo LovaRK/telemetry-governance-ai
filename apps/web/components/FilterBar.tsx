@@ -2,26 +2,23 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { apiFetch } from '../lib/api-client';
+import { fmt$ } from './dashboard/executive-overview/utils';
 
 /**
  * FilterBar — live "what-if" recomputation (modeled on the Splunk v3/v4
  * reference dashboards).
  *
- * Changing Cost/GB/year or the three scoring weights POSTs to
- * /api/kpi/recompute, which recomputes composite/tier/KPIs from the
- * already-persisted U/D/Q sub-scores — no pipeline run, no Splunk, no LLM.
- *
- * Default values (cost 3650, weights 0.35/0.40/0.25) mirror the persisted
- * config. "Apply as default" persists via PATCH /api/config so the next
- * pipeline run bakes them in. onRecompute lets a parent override its KPI
- * state; the bar also renders its own live KPI strip so it is useful
- * standalone.
+ * Changing Cost/GB/year, Storage $/GB/month, or the three scoring weights
+ * POSTs to /api/kpi/recompute, which recomputes composite/tier/KPIs and
+ * deterministic storage savings from the already-persisted raw sub-scores —
+ * no pipeline run, no Splunk, no LLM.
  */
 
 export interface RecomputeKpis {
   roiScore: number;
   gainScopeScore: number;
   licenseSpendLowValue: number;
+  storageSavingsPotential: number;
   totalLicenseSpend: number;
   totalDailyGb: number;
   totalSourcetypes: number;
@@ -32,23 +29,19 @@ export interface RecomputeKpis {
 
 interface Props {
   defaultCostPerGbYear?: number;
+  defaultStorageCostPerGbMonth?: number;
   defaultWeights?: { utilization: number; detection: number; quality: number };
-  onRecompute?: (kpis: RecomputeKpis, ctx: { weights: any; costPerGbYear: number }) => void;
-}
-
-function fmt$(v: number): string {
-  if (!isFinite(v)) return '$0';
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
-  if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}k`;
-  return `$${v.toFixed(0)}`;
+  onRecompute?: (kpis: RecomputeKpis, ctx: { weights: any; costPerGbYear: number; storageCostPerGbMonth: number }) => void;
 }
 
 export default function FilterBar({
   defaultCostPerGbYear = 3650,
+  defaultStorageCostPerGbMonth = 15,
   defaultWeights = { utilization: 0.35, detection: 0.40, quality: 0.25 },
   onRecompute,
 }: Props) {
   const [cost, setCost] = useState(defaultCostPerGbYear);
+  const [storageCost, setStorageCost] = useState(defaultStorageCostPerGbMonth);
   const [util, setUtil] = useState(defaultWeights.utilization);
   const [det, setDet] = useState(defaultWeights.detection);
   const [qual, setQual] = useState(defaultWeights.quality);
@@ -71,6 +64,7 @@ export default function FilterBar({
         body: JSON.stringify({
           weights: { utilization: util, detection: det, quality: qual },
           costPerGbYear: cost,
+          storageCostPerGbMonth: storageCost,
         }),
       });
       const json = await res.json();
@@ -83,12 +77,12 @@ export default function FilterBar({
       }
       setKpis(data.kpis);
       setStatus('ok');
-      onRecompute?.(data.kpis, { weights: data.weights, costPerGbYear: cost });
+      onRecompute?.(data.kpis, { weights: data.weights, costPerGbYear: cost, storageCostPerGbMonth: storageCost });
     } catch (e) {
       setStatus('error');
       setError((e as Error).message);
     }
-  }, [util, det, qual, cost, weightsValid, onRecompute]);
+  }, [util, det, qual, cost, storageCost, weightsValid, onRecompute]);
 
   // Debounced recompute on any input change
   useEffect(() => {
@@ -141,6 +135,7 @@ export default function FilterBar({
           ⚙ Live Filters
         </div>
         {field('Cost $/GB/yr', cost, num(setCost), '1', 0, 1_000_000)}
+        {field('Storage $/GB/mo', storageCost, num(setStorageCost), '1', 0, 10_000)}
         {field('Utilization', util, num(setUtil), '0.05', 0, 1)}
         {field('Detection', det, num(setDet), '0.05', 0, 1)}
         {field('Quality', qual, num(setQual), '0.05', 0, 1)}
@@ -172,6 +167,7 @@ export default function FilterBar({
           {[
             { label: 'ROI Score', value: kpis.roiScore.toFixed(1), color: '#3b82f6' },
             { label: 'GainScope %', value: `${kpis.gainScopeScore.toFixed(1)}%`, color: '#22c55e' },
+            { label: 'Savings Potential', value: fmt$(kpis.storageSavingsPotential), color: '#22c55e' },
             { label: 'Low-Value Spend', value: fmt$(kpis.licenseSpendLowValue), color: '#ef4444' },
             { label: 'Total Spend', value: fmt$(kpis.totalLicenseSpend), color: '#f59e0b' },
             { label: 'Critical', value: String(kpis.tierCounts.critical), color: '#22c55e' },

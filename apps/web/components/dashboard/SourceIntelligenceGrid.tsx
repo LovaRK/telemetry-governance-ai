@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { SnapshotRow } from '../../lib/types';
+import { fmt$ } from './executive-overview/utils';
 
 interface Props { snapshots: SnapshotRow[]; hasAgentDecisions?: boolean; }
 
@@ -14,14 +15,6 @@ const TIER_COLORS: Record<string, string> = {
 const ACTION_COLORS: Record<string, string> = {
   KEEP: '#22c55e', OPTIMIZE: '#f59e0b', ARCHIVE: '#3b82f6', ELIMINATE: '#ef4444', INVESTIGATE: '#8b5cf6',
 };
-
-function fmt$(v: number): string {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}k`;
-  if (v >= 1) return `$${v.toFixed(0)}`;
-  if (v > 0) return `$${v.toFixed(2)}`;
-  return '$0';
-}
 
 function ScorePip({ value }: { value: number }) {
   const color = value >= 70 ? '#22c55e' : value >= 40 ? '#f59e0b' : '#ef4444';
