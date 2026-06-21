@@ -111,8 +111,9 @@ function ConfidenceRing({ value }: { value: number }) {
         <circle cx={30} cy={30} r={r} fill="none" stroke={color} strokeWidth={5}
           strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" />
       </svg>
-      <div style={{ marginTop: -44, fontSize: '0.9rem', fontWeight: 800, color, textAlign: 'center', lineHeight: 1 }}>
-        {pct.toFixed(0)}
+      <div style={{ marginTop: -44, textAlign: 'center', lineHeight: 1 }}>
+        <span style={{ fontSize: '0.9rem', fontWeight: 800, color }}>{pct.toFixed(0)}</span>
+        <span style={{ fontSize: '0.5rem', color: '#64748b' }}>/100</span>
       </div>
       <div style={{ fontSize: '0.6rem', color, fontWeight: 700, letterSpacing: '0.05em', marginTop: 22 }}>
         {label}

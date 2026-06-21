@@ -21,7 +21,12 @@ interface Props {
 export default function AgentIntelligencePanel({ snapshots, kpis, hasAgentDecisions = false }: Props) {
   const s3Candidates = snapshots.filter((s) => s.isS3Candidate);
   const detectionGaps = snapshots.filter((s) => s.detectionGap);
-  const quickWins = snapshots.filter((s) => s.isQuickWin);
+  const flaggedQuickWins = snapshots.filter((s) => s.isQuickWin);
+  const fallbackQuickWins = [...snapshots]
+    .filter(s => (s.estimatedSavings ?? 0) > 0 &&
+      ['ARCHIVE', 'OPTIMIZE', 'ELIMINATE'].includes((s.action || '').toUpperCase()))
+    .sort((a, b) => (b.estimatedSavings ?? 0) - (a.estimatedSavings ?? 0));
+  const quickWins = flaggedQuickWins.length > 0 ? flaggedQuickWins : fallbackQuickWins;
   const topByRisk = [...snapshots].sort((a, b) => Number(b.riskScore) - Number(a.riskScore)).slice(0, 5);
 
   return (

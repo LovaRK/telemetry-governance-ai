@@ -423,8 +423,8 @@ function SettingsPageContent() {
                       >
                         <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022 (Recommended)</option>
                         <option value="claude-3-5-haiku-20241022">claude-3-5-haiku-20241022 (Fast)</option>
-                        <option value="claude-opus-4-5">claude-opus-4-5 (Most capable)</option>
                         <option value="claude-sonnet-4-5">claude-sonnet-4-5</option>
+                        <option value="claude-opus-4-5">claude-opus-4-5 (Most capable)</option>
                       </select>
                     </label>
                   </div>

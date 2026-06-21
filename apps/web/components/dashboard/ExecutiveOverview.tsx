@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ExecutiveSummary } from '../../lib/types';
 import ReasoningDrawer from '../shared/ReasoningDrawer';
 import KPITrendChart from '../KPITrendChart';
@@ -65,6 +65,115 @@ function ScoreBar({ label, value, color }: { label: string; value: number; color
       </div>
       <div style={{ height: 6, background: '#1e293b', borderRadius: 3, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${Math.min(value, 100)}%`, background: color, borderRadius: 3 }} />
+      </div>
+    </div>
+  );
+}
+
+function StaircaseBarChart({ chartData, stageColors, openDrawer, agentReasoning, avgConfidencePct, totalSaved }: {
+  chartData: Array<{ label: string; action: string; spend: number; savings: number; cumulative: number; index: number }>;
+  stageColors: Record<string, string>;
+  openDrawer: (d: any) => void;
+  agentReasoning: string;
+  avgConfidencePct: number | null;
+  totalSaved: number;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [chartWidth, setChartWidth] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const w = el.getBoundingClientRect().width;
+      if (w > 0) setChartWidth(Math.floor(w));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    const io = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) measure();
+    }, { threshold: 0.1 });
+    io.observe(el);
+    return () => { ro.disconnect(); io.disconnect(); };
+  }, []);
+
+  const maxSpend = Math.max(...chartData.map(d => d.spend), 1);
+  const svgH = 170;
+  const padTop = 8;
+  const padBot = 28;
+  const padLeft = 50;
+  const padRight = 8;
+  const barAreaH = svgH - padTop - padBot;
+  const barAreaW = chartWidth - padLeft - padRight;
+  const barCount = chartData.length || 1;
+  const gap = 6;
+  const barW = Math.max((barAreaW - gap * (barCount - 1)) / barCount, 4);
+
+  const handleBarClick = (step: typeof chartData[0]) => {
+    openDrawer({
+      isOpen: true,
+      metric: `${step.action.toLowerCase()}_savings`,
+      value: step.spend,
+      title: `${step.label}: ${fmt$(step.spend)}`,
+      howCalculated: `${step.label}\n\nRemaining spend: ${fmt$(step.spend)}\nPhase savings: ${fmt$(step.savings)}\nCumulative savings: ${fmt$(step.cumulative)}`,
+      llmReasoning: agentReasoning,
+      evidence: [
+        `Remaining spend at this stage: ${fmt$(step.spend)}`,
+        `Phase savings: ${fmt$(step.savings)}`,
+        `Cumulative savings: ${fmt$(step.cumulative)}`,
+      ],
+      confidence: avgConfidencePct ?? undefined,
+      action: step.action,
+      rawData: step,
+    });
+  };
+
+  const yTicks = [0, Math.round(maxSpend / 2), Math.round(maxSpend)];
+
+  return (
+    <div ref={containerRef} style={{ overflow: 'hidden', width: '100%' }}>
+      {chartWidth > 0 && (
+        <svg width={chartWidth} height={svgH} style={{ cursor: 'pointer', display: 'block', maxWidth: '100%' }}>
+          {yTicks.map((t) => {
+            const y = padTop + barAreaH - (t / maxSpend) * barAreaH;
+            return (
+              <g key={t}>
+                <line x1={padLeft} y1={y} x2={chartWidth - padRight} y2={y} stroke="#1e293b" strokeDasharray="3 3" />
+                <text x={padLeft - 4} y={y + 3} textAnchor="end" fill="#64748b" fontSize={10}>{fmt$(t)}</text>
+              </g>
+            );
+          })}
+          {chartData.map((entry, i) => {
+            const h = (entry.spend / maxSpend) * barAreaH;
+            const x = padLeft + i * (barW + gap);
+            const y = padTop + barAreaH - h;
+            const fill = stageColors[entry.action] || '#3b82f6';
+            return (
+              <g key={i} onClick={() => handleBarClick(entry)}>
+                <rect x={x} y={y} width={barW} height={h} rx={3} ry={3} fill={fill} fillOpacity={0.85} />
+                <title>{`${entry.label}: ${fmt$(entry.spend)}`}</title>
+                <text x={x + barW / 2} y={svgH - padBot + 14} textAnchor="middle" fill="#64748b" fontSize={9}>
+                  {entry.label.length > 10 ? entry.label.slice(0, 10) + '…' : entry.label}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      )}
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
+        {chartData.filter(s => s.savings > 0).map((step, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.68rem' }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: stageColors[step.action] || '#3b82f6' }} />
+            <span style={{ color: '#64748b' }}>{step.label}</span>
+            <span style={{ color: '#22c55e', fontWeight: 600 }}>−{fmt$(step.savings)}</span>
+          </div>
+        ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.68rem' }}>
+          <div style={{ width: 8, height: 8, borderRadius: 2, background: '#22c55e' }} />
+          <span style={{ color: '#64748b' }}>Total saved</span>
+          <span style={{ color: '#22c55e', fontWeight: 600 }}>{fmt$(totalSaved)}</span>
+        </div>
       </div>
     </div>
   );
@@ -216,7 +325,11 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
       : [];
   const staircaseHasDelta = staircase.length > 1 && staircase[0]?.spend > staircase[staircase.length - 1]?.spend;
 
-  // D7: Score profile by tier
+  // D7: Score profile by tier — use kpis.tierCounts for counts (authoritative), snapshots for averages
+  const tierCountsMap: Record<string, number> = {
+    Critical: kpis.tierCounts.critical, Important: kpis.tierCounts.important,
+    'Nice-to-Have': kpis.tierCounts.niceToHave, 'Low Value': kpis.tierCounts.lowValue,
+  };
   const tierGroups = [
     { label: 'Critical', match: /critical/i },
     { label: 'Important', match: /important/i },
@@ -226,7 +339,7 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
     const inTier = snapshots.filter(s => match.test(s.tier));
     const avg = (vals: number[]) => vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
     return {
-      label, count: inTier.length, color: tierColor(label),
+      label, count: tierCountsMap[label] ?? inTier.length, color: tierColor(label),
       util: avg(inTier.map(s => s.utilizationScore)),
       detect: avg(inTier.map(s => s.detectionScore)),
       quality: avg(inTier.map(s => s.qualityScore)),
@@ -975,64 +1088,14 @@ export default function ExecutiveOverview({ summary, hasAgentDecisions = false, 
                   index: i,
                 }));
                 return (
-                  <div>
-                    <ResponsiveContainer width="100%" height={180}>
-                      <BarChart
-                        data={chartData}
-                        margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
-                        onClick={(d) => {
-                          if (!d || !d.activePayload) return;
-                          const step = d.activePayload[0]?.payload;
-                          if (!step) return;
-                          openDrawer({
-                            isOpen: true,
-                            metric: `${step.action.toLowerCase()}_savings`,
-                            value: step.spend,
-                            title: `${step.label}: ${fmt$(step.spend)}`,
-                            howCalculated: `${step.label}\n\nRemaining spend: ${fmt$(step.spend)}\nPhase savings: ${fmt$(step.savings)}\nCumulative savings: ${fmt$(step.cumulative)}`,
-                            llmReasoning: agentReasoning,
-                            evidence: [
-                              `Remaining spend at this stage: ${fmt$(step.spend)}`,
-                              `Phase savings: ${fmt$(step.savings)}`,
-                              `Cumulative savings: ${fmt$(step.cumulative)}`,
-                            ],
-                            confidence: avgConfidencePct ?? undefined,
-                            action: step.action,
-                            rawData: step,
-                          });
-                        }}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                        <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 9 }} stroke="#334155" interval={0} />
-                        <YAxis tickFormatter={(v: number) => fmt$(v)} tick={{ fill: '#64748b', fontSize: 10 }} stroke="#334155" />
-                        <Tooltip
-                          contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 4, fontSize: '0.75rem' }}
-                          labelStyle={{ color: '#cbd5e1' }}
-                          formatter={(value: number) => [fmt$(value), 'Remaining Spend']}
-                        />
-                        <Bar dataKey="spend" isAnimationActive={false} radius={[3, 3, 0, 0]}>
-                          {chartData.map((entry, i) => (
-                            <Cell key={i} fill={STAGE_COLORS[entry.action] || '#3b82f6'} fillOpacity={0.85} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
-                      {chartData.filter(s => s.savings > 0).map((step, i) => (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.68rem' }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 2, background: STAGE_COLORS[step.action] || '#3b82f6' }} />
-                          <span style={{ color: '#64748b' }}>{step.label}</span>
-                          <span style={{ color: '#22c55e', fontWeight: 600 }}>−{fmt$(step.savings)}</span>
-                        </div>
-                      ))}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.68rem' }}>
-                        <div style={{ width: 8, height: 8, borderRadius: 2, background: '#22c55e' }} />
-                        <span style={{ color: '#64748b' }}>Total saved</span>
-                        <span style={{ color: '#22c55e', fontWeight: 600 }}>{fmt$(staircase[staircase.length - 1]?.cumulative ?? 0)}</span>
-                      </div>
-                    </div>
-                  </div>
+                  <StaircaseBarChart
+                    chartData={chartData}
+                    stageColors={STAGE_COLORS}
+                    openDrawer={openDrawer}
+                    agentReasoning={agentReasoning}
+                    avgConfidencePct={avgConfidencePct}
+                    totalSaved={staircase[staircase.length - 1]?.cumulative ?? 0}
+                  />
                 );
               })()
           }

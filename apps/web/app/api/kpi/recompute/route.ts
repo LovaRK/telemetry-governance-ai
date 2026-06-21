@@ -79,10 +79,11 @@ export const POST = createRoute(async (request: NextRequest) => {
         ad.quality_score,
         ad.detection_gap,
         COALESCE(ts.daily_avg_gb, 0) AS daily_avg_gb,
-        COALESCE(ts.retention_days, 90) AS retention_days
+        COALESCE(ts.retention_days, 90) AS retention_days,
+        COALESCE(ts.cost_per_year, 0) AS cost_per_year
      FROM agent_decisions ad
      LEFT JOIN LATERAL (
-       SELECT daily_avg_gb, retention_days FROM telemetry_snapshots t
+       SELECT daily_avg_gb, retention_days, cost_per_year FROM telemetry_snapshots t
        WHERE t.tenant_id = ad.tenant_id
          AND t.snapshot_id = ad.snapshot_id
          AND t.index_name = ad.index_name
@@ -104,7 +105,8 @@ export const POST = createRoute(async (request: NextRequest) => {
 
     const composite = computeCompositeScore(utilization, detection, quality, weights);
     const tier = assignTier(composite) as TierLabel;
-    const annualCostUsd = costPerGbYear !== null ? dailyGb * costPerGbYear : 0;
+    const persistedCost = parseFloat(r.cost_per_year) || 0;
+    const annualCostUsd = costPerGbYear !== null ? dailyGb * costPerGbYear : persistedCost;
 
     const s: ScoredSourcetype = {
       index: r.index_name,

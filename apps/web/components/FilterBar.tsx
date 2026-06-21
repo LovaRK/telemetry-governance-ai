@@ -41,6 +41,7 @@ export default function FilterBar({
   onRecompute,
 }: Props) {
   const [cost, setCost] = useState(defaultCostPerGbYear);
+  const [costChanged, setCostChanged] = useState(false);
   const [storageCost, setStorageCost] = useState(defaultStorageCostPerGbMonth);
   const [util, setUtil] = useState(defaultWeights.utilization);
   const [det, setDet] = useState(defaultWeights.detection);
@@ -63,7 +64,7 @@ export default function FilterBar({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           weights: { utilization: util, detection: det, quality: qual },
-          costPerGbYear: cost,
+          costPerGbYear: costChanged ? cost : undefined,
           storageCostPerGbMonth: storageCost,
         }),
       });
@@ -82,7 +83,7 @@ export default function FilterBar({
       setStatus('error');
       setError((e as Error).message);
     }
-  }, [util, det, qual, cost, storageCost, weightsValid, onRecompute]);
+  }, [util, det, qual, cost, costChanged, storageCost, weightsValid, onRecompute]);
 
   // Debounced recompute on any input change
   useEffect(() => {
@@ -134,7 +135,7 @@ export default function FilterBar({
         <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#f8fafc', textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: 4, paddingBottom: 6 }}>
           ⚙ Live Filters
         </div>
-        {field('Cost $/GB/yr', cost, num(setCost), '1', 0, 1_000_000)}
+        {field('Cost $/GB/yr', cost, (e: any) => { num(setCost)(e); setCostChanged(true); }, '1', 0, 1_000_000)}
         {field('Storage $/GB/mo', storageCost, num(setStorageCost), '1', 0, 10_000)}
         {field('Utilization', util, num(setUtil), '0.05', 0, 1)}
         {field('Detection', det, num(setDet), '0.05', 0, 1)}
