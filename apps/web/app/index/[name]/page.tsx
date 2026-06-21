@@ -75,7 +75,7 @@ function ScoreBar({ label, value, color }: { label: string; value: number; color
 
 export default function IndexDetailPage() {
   const params = useParams();
-  const indexName = decodeURIComponent(params.name as string);
+  const indexName = decodeURIComponent((params?.name as string) || '');
 
   const [detail, setDetail] = useState<IndexDetail | null>(null);
   const [loading, setLoading] = useState(true);

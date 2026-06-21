@@ -74,21 +74,69 @@ export interface TierCounts {
   lowValue: number;
 }
 
+export type MetricValue = {
+  value: number | null;
+  classification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+  reason?: string;
+  source?: string;
+  pipelineRunId?: string;
+  generatedAt?: string;
+};
+
 export interface ExecutiveKPIs {
-  roiScore: number;
-  gainScopeScore: number;
-  totalLicenseSpend: number;
-  licenseSpendLowValue: number;
-  storageSavingsPotential: number;
+  // Tier-A: ROI Score
+  roiScore: number | null;
+  roiScoreClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  // Tier-A: GainScope %
+  gainScopeScore: number | null;
+  gainScopeScoreClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  // Tier-A: Storage Savings Potential
+  storageSavingsPotential: number | null;
+  storageSavingsPotentialClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  // Tier-A: Total License Spend
+  totalLicenseSpend: number | null;
+  totalLicenseSpendClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  // Tier-A: License Spend Low Value
+  licenseSpendLowValue: number | null;
+  licenseSpendLowValueClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  // Tier-A: Tier Spend Annual (4 metrics)
+  tier1SpendAnnual: number | null;
+  tier1SpendAnnualClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  tier2SpendAnnual: number | null;
+  tier2SpendAnnualClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  tier3SpendAnnual: number | null;
+  tier3SpendAnnualClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  tier4SpendAnnual: number | null;
+  tier4SpendAnnualClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  // Tier-A: Average Confidence
+  avgConfidence: number | null;
+  avgConfidenceClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  // Supporting: Utilization, Detection, Quality
+  avgUtilization: number | null;
+  avgUtilizationClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  avgDetection: number | null;
+  avgDetectionClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  avgQuality: number | null;
+  avgQualityClassification: 'REAL' | 'EMPTY' | 'UNIMPLEMENTED' | 'BASELINE';
+
+  // Non-classified fields (existing)
   totalDailyGb: number;
   totalSourcetypes: number;
   tierCounts: TierCounts;
   securityGaps: number;
   operationalGaps: number;
-  avgUtilization: number;
-  avgDetection: number;
-  avgQuality: number;
-  avgConfidence: number;
 }
 
 export interface SavingsStep {
@@ -124,10 +172,41 @@ export interface CacheStatus {
   hasEverRefreshed: boolean;
   hasData: boolean;
   hasAgentDecisions: boolean;
+  hasKpis?: boolean;
   lastRefreshAt: string | null;
   nextRefreshAt: string | null;
   recordCount: number;
   message?: string;
+  runId?: string | null;
+  snapshotId?: string | null;
+  publishedAt?: string | null;
+  decisionCount?: number;
+  dailyAvgGb?: number;
+  snapshotStatus?: SnapshotStatus;
+  llmStatus?: LLMStatus;
+  pipelineStatus?: PipelineStatus;
+  failureCode?: string | null;
+  failureReason?: string | null;
+  lastRunId?: string | null;
+  lastRunAt?: string | null;
+  lastDecisionAt?: string | null;
+  requestId?: string | null;
+  pipelineRunId?: string | null;
+  activeJobId?: string | null;
+  modelName?: string | null;
+  latencyMs?: number | null;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
+  batchCount?: number | null;
+  activeState?: Record<string, any>;
+  publishedState?: Record<string, any>;
+  lastCompletedRun?: {
+    runId: string;
+    status: string;
+    startedAt: string | null;
+    completedAt: string | null;
+    requestId: string | null;
+  } | null;
 }
 
 export interface FormData {
@@ -218,7 +297,6 @@ export interface PipelineLifecycleState {
     | 'FAILED_MODEL_CRASH'
     | null;
   failureReason?: string | null;
-  runId?: string;
   updatedAt?: string;
   lastRunAt?: string | null;
   lastDecisionAt?: string | null;

@@ -3,7 +3,8 @@ import { query } from '../../core/database/connection';
 import { authGet, loginAndGetToken } from './_helpers';
 
 describe('Contract: pipeline lifecycle integrity', () => {
-  const tenantId = '550e8400-e29b-41d4-a716-446655449900';
+  const testId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const tenantId = randomUUID();
 
   beforeAll(async () => {
     await query(
@@ -86,9 +87,9 @@ describe('Contract: pipeline lifecycle integrity', () => {
     );
 
     await query(
-      `INSERT INTO tenant_snapshot_pointer (tenant_id, active_run_id, active_snapshot_id, updated_at)
-       VALUES ($1,$2,$3,NOW())
-       ON CONFLICT (tenant_id) DO UPDATE
+      `INSERT INTO tenant_snapshot_pointer (tenant_id, snapshot_source, active_run_id, active_snapshot_id, updated_at)
+       VALUES ($1,'splunk_live',$2,$3,NOW())
+       ON CONFLICT (tenant_id, snapshot_source) DO UPDATE
        SET active_run_id = EXCLUDED.active_run_id,
            active_snapshot_id = EXCLUDED.active_snapshot_id,
            updated_at = EXCLUDED.updated_at`,
@@ -240,6 +241,10 @@ describe('Contract: pipeline lifecycle integrity', () => {
     const token = await loginAndGetToken();
     const runId = randomUUID();
     const snapshotId = randomUUID();
+
+    // Ensure clean state: delete any leftover data for this tenant
+    await query(`DELETE FROM pipeline_stage_events WHERE run_id = $1`, [runId]);
+    await query(`DELETE FROM pipeline_runs WHERE run_id = $1`, [runId]);
 
     await query(
       `INSERT INTO pipeline_runs (run_id, snapshot_id, tenant_id, status, published, pipeline_version, model_version, prompt_version, splunk_query_version, started_at)

@@ -56,7 +56,7 @@ function LoginForm() {
       };
       localStorage.setItem('auth_context', JSON.stringify(authContext));
 
-      const next = searchParams.get('next') || '/';
+      const next = searchParams?.get('next') || '/';
       router.push(next);
     } catch {
       setError('Network error. Check server is running.');
@@ -96,6 +96,8 @@ function LoginForm() {
               type="email"
               defaultValue="admin@bitso.com"
               required
+              suppressHydrationWarning
+              autoComplete="email"
               style={{
                 width: '100%', padding: '0.625rem 0.75rem',
                 background: '#0f172a', border: '1px solid #334155',
@@ -116,6 +118,8 @@ function LoginForm() {
               defaultValue="Admin@12345"
               required
               placeholder="Enter password"
+              suppressHydrationWarning
+              autoComplete="current-password"
               style={{
                 width: '100%', padding: '0.625rem 0.75rem',
                 background: '#0f172a', border: '1px solid #334155',

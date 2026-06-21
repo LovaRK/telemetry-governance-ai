@@ -96,9 +96,14 @@ export function ModelHealthMonitor() {
 
   return (
     <div style={{ padding: '20px' }}>
-      <h2 style={{ marginBottom: '20px', color: '#333' }}>
-        {getHealthEmoji()} Model Health Monitor
-      </h2>
+      <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 style={{ margin: 0, color: '#333' }}>
+          {getHealthEmoji()} Pipeline & Model Health
+        </h2>
+        <div style={{ fontSize: '0.75rem', color: '#666', backgroundColor: '#f0f0f0', padding: '8px 12px', borderRadius: '6px', maxWidth: '350px', lineHeight: '1.4' }}>
+          Monitors Splunk connection, aggregation pipeline, LLM model status, and data freshness. Red = critical issue, Yellow = performance degraded, Green = healthy.
+        </div>
+      </div>
 
       {/* System Health Alert */}
       {health.alertMessage && (

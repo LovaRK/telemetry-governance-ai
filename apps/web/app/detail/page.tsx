@@ -102,7 +102,11 @@ export default function DetailPage() {
         ) : (
           <>
             {/* E1: KPI Row */}
-            {kpis && <KpiRow kpis={kpis} />}
+            {kpis && <KpiRow kpis={kpis} resolutionConfidence={
+              data?.audit?.length > 0
+                ? Math.round(data.audit.reduce((sum: number, r: any) => sum + (Number(r.confidence_score) || 0), 0) / data.audit.length * 100)
+                : null
+            } />}
 
             {/* Decision Pipeline Timeline */}
             {hasAgentDecisions && <DecisionTimeline />}
@@ -173,25 +177,29 @@ export default function DetailPage() {
                           <SelectableTable
                             columns={['Index', 'Sourcetype', 'Tier', 'Score', 'Utilization', 'Detection', 'Quality', 'Cost/Year', 'Action']}
                             rows={data.decisions.slice(0, 20)}
-                            rowKeys={['index_name', 'sourcetype', 'tier', 'composite_score', 'utilization_score', 'detection_score', 'quality_score', 'annual_license_cost', 'action']}
+                            rowKeys={['index', 'sourcetype', 'tier', 'compositeScore', 'utilizationScore', 'detectionScore', 'qualityScore', 'annualLicenseCost', 'action']}
                             selectedIndexes={selectedIndexes}
                             onSelectChange={setSelectedIndexes}
-                            indexKeyField="index_name"
+                            indexKeyField="index"
                           />
                         </>
                   }
                 </Section>
 
-                {/* E6: Field Usage — requires Splunk tstats field query — hidden until implemented */}
-                {data.fields.length > 0 && (
-                  <Section title="Field Usage Analysis">
+                {/* E6: Field Usage — shows estimation from worker; real data requires TA lookup */}
+                <Section title="Field Usage Analysis">
+                  {data.fields.length > 0 ? (
                     <Table
                       columns={['Sourcetype', 'Fields Indexed', 'Fields Used', 'Optimization %']}
                       rows={data.fields.slice(0, 20)}
                       rowKeys={['sourcetype', 'fields_indexed', 'fields_used', 'optimization_pct']}
                     />
-                  </Section>
-                )}
+                  ) : (
+                    <div style={{ color: '#475569', fontSize: '0.85rem', padding: '1rem 0' }}>
+                      No field usage data yet. Requires <code style={{ color: '#94a3b8' }}>sourcetype_fields_summary.csv</code> TA lookup or a pipeline refresh.
+                    </div>
+                  )}
+                </Section>
 
                 {/* E7: MITRE Security Coverage — requires Splunk mapping — hidden until implemented */}
                 {data.security.length > 0 && (
@@ -266,13 +274,36 @@ export default function DetailPage() {
 }
 
 // E1: KPI summary row with gauges
-function KpiRow({ kpis }: { kpis: ExecutiveKPIs }) {
+function KpiRow({ kpis, resolutionConfidence }: { kpis: ExecutiveKPIs; resolutionConfidence?: number | null }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
       <GaugeCard label="ROI Score" value={kpis.roiScore} max={100} color="#22c55e" unit="/100" />
-      <GaugeCard label="Avg Confidence" value={Math.round(kpis.avgConfidence * 100)} max={100} color="#3b82f6" unit="%" />
-      <StatCard label="Security Gaps" value={kpis.securityGaps} color={kpis.securityGaps > 0 ? '#ef4444' : '#22c55e'} subtitle="detection gaps identified" />
-      <StatCard label="Operational Gaps" value={kpis.operationalGaps} color={kpis.operationalGaps > 0 ? '#f59e0b' : '#22c55e'} subtitle="coverage gaps identified" />
+      <GaugeCard label="Avg Confidence" value={Math.round(kpis.avgConfidence ?? 0)} max={100} color="#3b82f6" unit="%" />
+      <GaugeCard
+        label="Resolution Confidence"
+        value={resolutionConfidence ?? 0}
+        max={100}
+        color={resolutionConfidence != null && resolutionConfidence >= 70 ? '#22c55e' : resolutionConfidence != null && resolutionConfidence >= 50 ? '#f59e0b' : '#ef4444'}
+        unit="%"
+      />
+      <StatCard
+        label="Security Gaps"
+        value={kpis.securityGaps}
+        color={kpis.securityGaps > 0 ? '#ef4444' : '#22c55e'}
+        subtitle={kpis.avgDetection === 0
+          ? '⚠ no MITRE mapping data'
+          : kpis.securityGaps === 0 ? 'no detection gaps found' : 'detection gaps identified'
+        }
+      />
+      <StatCard
+        label="Operational Gaps"
+        value={kpis.operationalGaps}
+        color={kpis.operationalGaps > 0 ? '#f59e0b' : '#22c55e'}
+        subtitle={kpis.avgDetection === 0
+          ? '⚠ no Lantern mapping data'
+          : kpis.operationalGaps === 0 ? 'no operational gaps found' : 'coverage gaps identified'
+        }
+      />
     </div>
   );
 }
@@ -392,15 +423,24 @@ function DuplicateCollection({ snapshots }: { snapshots: SnapshotRow[] }) {
 // E7/E8: Security Detection Gaps
 function SecurityGaps({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; onOpenDrawer?: (data: DrawerData) => void }) {
   const gaps = snapshots.filter((s) => s.detectionGap || s.detectionScore < 50);
+  const avgDetection = snapshots.length > 0
+    ? snapshots.reduce((sum, s) => sum + (s.detectionScore || 0), 0) / snapshots.length
+    : 0;
+  const hasLowDetection = avgDetection < 40;
   const TIER_COLORS: Record<string, string> = {
     Critical: '#ef4444', Important: '#f59e0b', 'Nice-to-Have': '#3b82f6', 'Low Value': '#64748b',
   };
 
   if (gaps.length === 0) {
+    // Distinguish "genuinely great coverage" (avg detection ≥ 60) from
+    // "no MITRE/Lantern mapping for these sourcetypes" (avg detection < 40)
+    const emptyMsg = hasLowDetection
+      ? { icon: '⚠', color: '#f59e0b', text: `No unfired MITRE detections found — avg detection score is ${Math.round(avgDetection)}%. This may indicate no MITRE/Lantern mappings exist for these sourcetypes rather than full coverage.` }
+      : { icon: '✓', color: '#22c55e', text: 'No security detection gaps identified — all mapped detections are active.' };
     return (
-      <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: '1px solid #1e293b' }}>
+      <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: '#0f172a', borderRadius: 12, border: `1px solid ${emptyMsg.color}30` }}>
         <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem', fontWeight: 600 }}>Security Detection Gaps</div>
-        <div style={{ color: '#22c55e', fontSize: '0.875rem' }}>✓ No security detection gaps identified</div>
+        <div style={{ color: emptyMsg.color, fontSize: '0.875rem' }}>{emptyMsg.icon} {emptyMsg.text}</div>
       </div>
     );
   }
@@ -423,7 +463,7 @@ function SecurityGaps({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; o
             {gaps.map((s) => {
               const tierColor = TIER_COLORS[s.tier] || '#64748b';
               return (
-                <tr key={s.indexName} style={{ borderBottom: '1px solid #0f172a' }}>
+                <tr key={`${s.indexName}-${s.sourcetype || ""}`} style={{ borderBottom: '1px solid #0f172a' }}>
                   <td style={{ padding: '0.5rem 0.75rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
                   <td style={{ padding: '0.5rem 0.75rem' }}>
                     <span style={{ padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', background: `${tierColor}20`, color: tierColor, fontWeight: 600 }}>{s.tier}</span>
@@ -536,7 +576,7 @@ function QualityHotspots({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]
                 const tierColor = TIER_COLORS[s.tier] || '#64748b';
                 const impact = (s.tier === 'Critical' || s.tier === 'Important') ? 'High' : s.qualityScore < 30 ? 'High' : 'Medium';
                 return (
-                  <tr key={s.indexName} style={{ borderBottom: '1px solid #0f172a' }}>
+                  <tr key={`${s.indexName}-${s.sourcetype || ""}`} style={{ borderBottom: '1px solid #0f172a' }}>
                     <td style={{ padding: '0.4rem 0.5rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
                     <td style={{ padding: '0.4rem 0.5rem' }}>
                       <span style={{ padding: '0.1rem 0.3rem', borderRadius: 3, fontSize: '0.65rem', background: `${tierColor}20`, color: tierColor, fontWeight: 600 }}>{s.tier}</span>
@@ -614,7 +654,7 @@ function OperationalCoverage({ snapshots, onOpenDrawer }: { snapshots: SnapshotR
                 : s.classification === 'ARCHIVE' ? 'Being archived — confirm operational needs'
                 : `Low utilization (${s.utilizationScore}%) for ${s.tier} asset`;
               return (
-                <tr key={s.indexName} style={{ borderBottom: '1px solid #0f172a' }}>
+                <tr key={`${s.indexName}-${s.sourcetype || ""}`} style={{ borderBottom: '1px solid #0f172a' }}>
                   <td style={{ padding: '0.5rem 0.75rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
                   <td style={{ padding: '0.5rem 0.75rem' }}>
                     <span style={{ padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', background: `${tierColor}20`, color: tierColor, fontWeight: 600 }}>{s.tier}</span>
@@ -695,7 +735,7 @@ function UnderUtilized({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; 
                 ? 'Review retention policy — archive or reduce retention'
                 : 'Investigate query patterns — possible optimization';
               return (
-                <tr key={s.indexName} style={{ borderBottom: '1px solid #0f172a' }}>
+                <tr key={`${s.indexName}-${s.sourcetype || ""}`} style={{ borderBottom: '1px solid #0f172a' }}>
                   <td style={{ padding: '0.5rem 0.75rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
                   <td style={{ padding: '0.5rem 0.75rem' }}>
                     <span style={{ padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', background: `${tierColor}20`, color: tierColor, fontWeight: 600 }}>{s.tier}</span>
@@ -744,7 +784,7 @@ function UnderUtilized({ snapshots, onOpenDrawer }: { snapshots: SnapshotRow[]; 
 function RetentionOverview({ snapshots }: { snapshots: SnapshotRow[] }) {
   const fmt$ = (v: number) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `$${(v / 1_000).toFixed(0)}k` : v >= 1 ? `$${v.toFixed(0)}` : v > 0 ? `$${v.toFixed(2)}` : '$0';
 
-  type RetItem = { indexName: string; tier: string; retentionDays: number; utilizationScore: number; costPerYear: number; recommendation: string };
+  type RetItem = { indexName: string; sourcetype: string; tier: string; retentionDays: number; utilizationScore: number; costPerYear: number; recommendation: string };
   const items: RetItem[] = snapshots
     .map((s) => {
       let rec = '';
@@ -757,7 +797,7 @@ function RetentionOverview({ snapshots }: { snapshots: SnapshotRow[] }) {
       } else {
         rec = 'Retention looks appropriate';
       }
-      return { indexName: s.indexName, tier: s.tier, retentionDays: s.retentionDays, utilizationScore: s.utilizationScore, costPerYear: s.costPerYear, recommendation: rec };
+      return { indexName: s.indexName, sourcetype: s.sourcetype || '', tier: s.tier, retentionDays: s.retentionDays, utilizationScore: s.utilizationScore, costPerYear: s.costPerYear, recommendation: rec };
     })
     .sort((a, b) => b.retentionDays - a.retentionDays);
 
@@ -784,7 +824,7 @@ function RetentionOverview({ snapshots }: { snapshots: SnapshotRow[] }) {
               const tierColor = TIER_COLORS[s.tier] || '#64748b';
               const isActionable = !s.recommendation.startsWith('Retention looks');
               return (
-                <tr key={s.indexName} style={{ borderBottom: '1px solid #0f172a' }}>
+                <tr key={`${s.indexName}-${s.sourcetype || ""}`} style={{ borderBottom: '1px solid #0f172a' }}>
                   <td style={{ padding: '0.5rem 0.75rem', color: '#f8fafc', fontWeight: 600 }}>{s.indexName}</td>
                   <td style={{ padding: '0.5rem 0.75rem' }}>
                     <span style={{ padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.7rem', background: `${tierColor}20`, color: tierColor, fontWeight: 600 }}>{s.tier}</span>
@@ -955,7 +995,9 @@ function Table({ columns, rows, rowKeys }: { columns: string[]; rows: any[]; row
             <tr key={idx} style={{ borderBottom: '1px solid #1e293b' }}>
               {rowKeys.map((key) => (
                 <td key={key} style={{ padding: '0.75rem' }}>
-                  {String(row[key] || '—').slice(0, 50)}
+                  {row[key] !== null && row[key] !== undefined
+                    ? String(row[key]).slice(0, 50)
+                    : '—'}
                 </td>
               ))}
             </tr>
@@ -1046,7 +1088,9 @@ function SelectableTable({
                 </td>
                 {rowKeys.map((key) => (
                   <td key={key} style={{ padding: '0.75rem' }}>
-                    {String(row[key] || '—').slice(0, 50)}
+                    {row[key] !== null && row[key] !== undefined
+                      ? String(row[key]).slice(0, 50)
+                      : '—'}
                   </td>
                 ))}
               </tr>

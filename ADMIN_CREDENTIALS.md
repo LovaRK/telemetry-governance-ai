@@ -16,8 +16,8 @@ docker-compose up
 Logs will show:
 ```
 [Admin Init] Login with:
-  Email: admin@bitso.com
-  Password: Admin@12345
+  Email: admin@example.com
+  Password: <your-admin-password>
 ```
 
 **Login at:** `http://localhost:3002/login`
@@ -110,7 +110,7 @@ docker-compose up
 # Test with default credentials
 curl -X POST http://localhost:3002/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "admin@bitso.com", "password": "Admin@12345"}'
+  -d '{"email": "admin@example.com", "password": "<your-admin-password>"}'
 
 # Response should be 200 with access token (not 401)
 ```

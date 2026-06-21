@@ -24,7 +24,7 @@ export default function SplunkSettingsPage() {
     apiUrl: '', hecUrl: '', mcpUrl: '',
     hec_token: '', restAuthType: 'JWT', restAuthSecret: '',
     username: '', password: '',
-    ssl_verify: true,
+    ssl_verify: false,  // Default off — most customer Splunk instances use self-signed certs
   });
   const [status, setStatus] = useState<SplunkStatus | null>(null);
   const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);

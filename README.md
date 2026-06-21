@@ -1,334 +1,163 @@
-# 🏛️ GOVERNANCE OBSERVABILITY SYSTEM
+# datasensAI — Splunk Telemetry Intelligence Platform
 
-**Status**: Production-Ready (100% Complete - 40/40 Items)  
-**Architecture**: SOLID Principles + Dependency Injection  
-**Type Safety**: 0 TypeScript Errors  
-**Test Coverage**: Integration tested  
-**Lines of Code**: 10,340 LOC
+A mono-repo application that analyzes Splunk telemetry data to score every
+sourcetype on Utilization, Detection, and Quality — then surfaces dollar-impact
+recommendations through an executive dashboard.
 
----
+## Architecture
 
-## 📋 OVERVIEW
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Splunk Enterprise (customer instance or mock)              │
+│  REST API / MCP on port 8089                                │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+┌────────────────────▼────────────────────────────────────────┐
+│  Docker Stack                                               │
+│                                                             │
+│  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌───────────┐ │
+│  │ web:3002 │  │ worker    │  │ postgres │  │ splunk-   │ │
+│  │ (Next.js)│  │ (ts-node) │  │          │  │ mock:18089│ │
+│  │ API+UI   │  │ LLM agent │  │          │  │ (dev only)│ │
+│  └──────────┘  └───────────┘  └──────────┘  └───────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
 
-Enterprise governance observability platform providing:
+**Deterministic-first design:** The scoring engine computes all scores and tiers.
+The local LLM (Ollama gemma2:9b) only writes the human-readable narrative. The
+worker overwrites any LLM-emitted score with the deterministic value before
+persisting — no LLM drift.
 
-- **📊 Dashboard**: Real-time KPIs, health metrics, decision tracking
-- **🔗 Causality**: DAG visualization, root cause analysis, impact radius
-- **📝 Event Journaling**: Immutable audit trails, time-travel debugging
-- **🔍 Observability**: Health monitoring, latency analysis, operator tracking
-- **🔐 Security**: Role-based access control, operator anonymization
+## Mono-repo Structure
 
----
+```
+├── apps/
+│   ├── api/              # Backend services (scoring engine, aggregation, Splunk queries)
+│   │   ├── services/     # Business logic (deterministic-scoring-engine, aggregation, splunk)
+│   │   ├── routes/       # API route handlers
+│   │   ├── middleware/    # Auth, CORS, rate limiting
+│   │   └── migrations/   # Database migrations
+│   ├── web/              # Frontend (Next.js 14, App Router)
+│   │   ├── app/          # Pages and API routes
+│   │   ├── components/   # React components (dashboard/, layout/)
+│   │   ├── lib/          # Shared utilities (types, API client, auth)
+│   │   └── hooks/        # React hooks
+│   └── core/             # Shared app-level utilities
+├── packages/
+│   ├── auth/             # Authentication (JWT, RBAC, request context)
+│   └── core/             # Shared domain logic
+│       └── engine/       # Scoring + savings computation
+│           ├── scoring/  # Utilization, Detection, Quality, Composite, Tier
+│           └── savings/  # Storage cost savings engine (guide §8)
+├── core/                 # Infrastructure (database, security, observability)
+│   ├── database/         # PostgreSQL connection, queries
+│   └── security/         # Environment validation, encryption
+├── agents/               # LLM agent definitions
+├── docker/               # Docker Compose, worker entrypoint
+│   ├── docker-compose.yml
+│   └── worker.ts         # Background job processor (LLM + KPI aggregation)
+├── tools/                # Development tooling
+│   └── sandbox/          # Mock Splunk server for development
+├── scripts/              # Utility scripts (env prep, data seeding)
+└── tests/                # Contract and integration tests
+    └── contract/         # Formatter and savings engine contract tests
+```
 
-## 🚀 QUICK START
+## Quick Start
 
 ### Prerequisites
-- Node.js 18+
-- PostgreSQL 14+
-- Docker (optional)
 
-### Installation
+- **Docker Desktop** (Mac/Windows) or Docker Engine + Compose (Linux)
+- **Ollama** with `gemma2:9b` pulled (`ollama pull gemma2:9b`)
+- A **Splunk Enterprise** instance (optional — mock server included for dev)
 
-```bash
-# 1. Install dependencies
-npm install
-
-# 2. Setup environment
-cp .env.example .env.local
-
-# 3. Run database migrations
-npm run migrate
-
-# 4. Start development server
-npm run dev
-
-# 5. Open dashboard
-open http://localhost:3000
-```
-
----
-
-## 🏗️ ARCHITECTURE
-
-### Production Structure
-
-```
-apps/
-├── api/                           # Backend Services
-│   ├── lib/                       # Consolidated core services
-│   │   ├── governance/            # Decision & causality
-│   │   ├── events/                # Event journaling
-│   │   ├── auth/                  # Authentication
-│   │   └── db/                    # Database layer
-│   ├── middleware/                # HTTP middleware
-│   ├── routes/                    # API endpoints (thin)
-│   ├── migrations/                # Database migrations
-│   └── tests/                     # Integration tests
-│
-└── web/                           # Frontend (Next.js)
-    ├── lib/                       # Client services (REFACTORED)
-    │   ├── api/                   # Single API client
-    │   ├── services/              # Service layer
-    │   │   ├── index.ts           # DI container
-    │   │   ├── governance.service.ts
-    │   │   ├── event.service.ts
-    │   │   ├── observability.service.ts
-    │   │   └── auth.service.ts
-    │   ├── types/index.ts         # Unified types
-    │   └── hooks/                 # React hooks
-    ├── components/                # Components (by feature)
-    │   ├── dashboard/
-    │   ├── governance/
-    │   ├── visualization/
-    │   ├── audit/
-    │   └── shared/
-    ├── app/                       # Next.js pages
-    └── tests/                     # Tests
-```
-
----
-
-## 🎯 SOLID PRINCIPLES
-
-This codebase strictly follows SOLID principles:
-
-### Single Responsibility (S)
-Each service handles one domain:
-
-```typescript
-// Governance service - only governance operations
-export class GovernanceService {
-  async getDecision(id: string): Promise<Decision> {}
-  async recordCausalLink(link: CausalLink): Promise<void> {}
-}
-
-// Event service - only event operations  
-export class EventService {
-  async getDecisionEvents(decisionId: string): Promise<GovernanceEvent[]> {}
-  async createSnapshot(decisionId: string): Promise<EventSnapshot> {}
-}
-```
-
-### Open/Closed (O)
-Extensible without modifying core:
-
-```typescript
-// Factory pattern - add new services without changing existing code
-export function createGovernanceService(apiClient: IAPIClient): IGovernanceService {
-  return new GovernanceService(apiClient);
-}
-```
-
-### Liskov Substitution (L)
-All implementations follow their contracts:
-
-```typescript
-// Any IGovernanceService implementation is substitutable
-export interface IGovernanceService {
-  getDecision(id: string): Promise<Decision>;
-  recordCausalLink(link: CausalLink): Promise<void>;
-}
-```
-
-### Interface Segregation (I)
-Minimal, focused interfaces:
-
-```typescript
-// Only what clients need
-export interface IAPIClient {
-  get<T>(endpoint: string): Promise<T>;
-  post<T>(endpoint: string, data: any): Promise<T>;
-}
-```
-
-### Dependency Inversion (D)
-Depend on abstractions, inject dependencies:
-
-```typescript
-// Service depends on IAPIClient interface, not concrete implementation
-export class GovernanceService {
-  constructor(private apiClient: IAPIClient) {}
-}
-```
-
----
-
-## 📚 SERVICE USAGE
-
-### Import Services
-
-```typescript
-import { services } from '@/lib/services';
-
-const { governance, event, observability, auth } = services;
-```
-
-### Governance Operations
-
-```typescript
-// Get a decision
-const decision = await services.governance.getDecision('dec_123');
-
-// Record causal relationship
-await services.governance.recordCausalLink({
-  parentDecisionId: 'dec_1',
-  childDecisionId: 'dec_2',
-  causalityType: 'blocks',
-  confidence: 0.95,
-});
-
-// Analyze decision chain
-const analysis = await services.governance.analyzeDecisionChain('dec_123');
-
-// Build DAG for visualization
-const dag = await services.governance.buildCausalityDAG('dec_123', 3);
-```
-
-### Event Operations
-
-```typescript
-// Get events for a decision
-const events = await services.event.getDecisionEvents('dec_123');
-
-// Get event timeline
-const timeline = await services.event.getEventTimeline('dec_123');
-
-// Start time-travel replay
-const session = await services.event.startReplaySession('dec_123');
-
-// Get specific replay frame
-const frame = await services.event.getReplayFrame(session.sessionId, 0);
-```
-
-### Observability
-
-```typescript
-// Get health metrics
-const health = await services.observability.getHealthMetrics(3600000);
-
-// Get latency statistics
-const latency = await services.observability.getLatencyStatistics(3600000);
-
-// Get operator sessions
-const sessions = await services.observability.getOperatorSessions(50, 0);
-```
-
-### Authentication
-
-```typescript
-// Login
-const auth = await services.auth.login('user@example.com', 'password123');
-
-// Check permission
-if (services.auth.hasPermission('governance:view:decisions')) {
-  // Allow access
-}
-
-// Check role
-if (services.auth.hasRole('admin')) {
-  // Show admin UI
-}
-
-// Logout
-services.auth.logout();
-```
-
----
-
-## 🧪 TESTING
-
-### Create Mock Services
-
-```typescript
-import { createServiceContainer } from '@/lib/services';
-import { IAPIClient } from '@/lib/api/client';
-
-class MockAPIClient implements IAPIClient {
-  async get<T>(endpoint: string): Promise<T> {
-    return {} as T;
-  }
-  // ... implement other methods
-}
-
-const testServices = createServiceContainer(new MockAPIClient());
-```
-
-### Run Tests
+### Setup
 
 ```bash
-npm run test              # Run all tests
-npm run test:watch      # Watch mode
-npm run test:coverage   # Coverage report
+git clone <repo-url> datasensai && cd datasensai
+cp .env.example .env
 ```
 
----
-
-## 🔐 SECURITY
-
-- **Distributed Tracing**: Correlation IDs across services
-- **Operator Anonymization**: SHA-256 email hashing
-- **Role-Based Access**: viewer, analyst, operator, admin
-- **Permission Checks**: Fine-grained access control
-- **Immutable Audit**: Complete event log
-- **Token Refresh**: Automatic renewal
-
----
-
-## 📊 DATABASE
-
-### Core Tables
-- `agent_decisions` — Governance decisions
-- `governance_causality` — Causal relationships
-- `governance_events` — Immutable event log (monthly partitioned)
-- `governance_snapshots` — State snapshots
-
-### Recursive Views (5)
-- `decision_dependencies` — Bidirectional relationships
-- `decision_lineage` — Ancestor chain (root cause)
-- `decision_impact` — Descendant chain (impact)
-- `decision_causality_stats` — Per-decision stats
-- `correlation_clusters` — Trace grouping
-
----
-
-## 🚀 PRODUCTION DEPLOYMENT
-
-### Checklist
-- [ ] Environment variables configured
-- [ ] Database migrations applied
-- [ ] SSL certificates installed
-- [ ] Backups configured
-- [ ] Monitoring enabled
-- [ ] Rate limiting configured
-- [ ] CORS properly set
-
-### Deploy
+Edit `.env`:
 
 ```bash
-# Build production bundle
-npm run build
+ADMIN_EMAIL=you@yourco.com
+ADMIN_PASSWORD=<strong-password>
+SPLUNK_SECRET_ENCRYPTION_KEY=$(openssl rand -hex 32)
+GOVERNANCE_BOOTSTRAP_KEY=$(openssl rand -hex 32)
+```
 
-# Run migrations
-npm run migrate:prod
+### Run
 
-# Start server
-npm start
+```bash
+docker compose --env-file .env -f docker/docker-compose.yml up -d
+```
+
+Open http://localhost:3002, log in, configure Splunk in Settings, click **Refresh**.
+
+### Verify
+
+```bash
+# Contract tests (formatter + savings engine)
+npx jest tests/contract/ --no-coverage
 
 # Health check
-curl http://localhost:3000/health
+curl -s http://localhost:3002/api/health
 ```
 
----
+## Key Screens
 
-## 📞 SUPPORT
+| Screen | Route | Description |
+|---|---|---|
+| Executive Overview | `/` | ROI, GainScope, Savings gauges; tier distribution; savings staircase |
+| Detail Analysis | `/detail` | Per-index scoring breakdown; Resolution Confidence; Field Usage |
+| Storage Cost | `/storage-cost` | Per-index storage cost ranking with savings breakdown |
+| Governance | `/governance` | Review queue; approve/reject recommendations |
+| Settings | `/settings` | Splunk connection; AI provider; user management |
 
-- **Comprehensive Guide**: See [SOURCE_OF_TRUTH.md](./SOURCE_OF_TRUTH.md) — the canonical reference for the entire system
-- **Chaos Testing**: See [CHAOS_QUICKSTART.md](./CHAOS_QUICKSTART.md) for 5-minute quick start
-- **Chaos Setup**: See [CHAOS_SETUP.md](./CHAOS_SETUP.md) for comprehensive testing guide
-- **Issues**: Check logs: `docker logs app`
-- **Health**: http://localhost:3000/health
-- **E2E Tests**: Run `npm run test:e2e` to verify no hard-coded data
+## Scoring Methodology
 
----
+All formulas are implemented from `datasensAI_calculation_guide.pdf`:
 
-**Last Updated**: 2026-05-19 | **Version**: 1.0.0 | **Status**: Production-Ready (E2E Verified)
+| Score | Formula | File |
+|---|---|---|
+| Utilization | Weighted sum of alerts, searches, dashboards, ad-hoc, users (0–100) | `packages/core/engine/scoring/utilization.ts` |
+| Detection | `0.40 × potential + 0.60 × realized` (MITRE + Lantern) | `packages/core/engine/scoring/detection.ts` |
+| Quality | `max(0, 100 − issue_density × 2000)` | `packages/core/engine/scoring/quality.ts` |
+| Composite | `U×Wu + D×Wd + Q×Wq` (default weights 0.35/0.40/0.25) | `packages/core/engine/scoring/composite.ts` |
+| Tier | Critical ≥65, Important ≥40, Nice-to-Have ≥20, Low-Value <20 | `packages/core/engine/tier.ts` |
+| Storage Savings | Retention excess + compression opportunity × $/GB/month | `packages/core/engine/savings/storage.ts` |
+
+## LLM Policy
+
+- **Default:** Local Ollama `gemma2:9b` — nothing leaves your machine
+- **Optional:** Anthropic API — only when explicitly selected in Settings and API key entered
+- **Never:** Auto-fallback to Anthropic
+
+## Documentation
+
+| Document | Purpose |
+|---|---|
+| [INSTALL_TEJA.md](INSTALL_TEJA.md) | Detailed install + run guide |
+| [HANDOVER_DATASENSAI.md](HANDOVER_DATASENSAI.md) | Verified parity matrix, what works, what's blocked |
+| [HANDOFF_CHECKLIST.md](HANDOFF_CHECKLIST.md) | Day-1 checklist for new operator |
+| [KNOWN_ISSUES.md](KNOWN_ISSUES.md) | Known limitations and workarounds |
+| [TESTING.md](TESTING.md) | Test strategy and commands |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Production deployment guide |
+
+## Development
+
+The web container hot-reloads `apps/web/` and `apps/api/` changes. The worker
+bakes source at build time — rebuild after editing `docker/worker.ts`:
+
+```bash
+GOVERNANCE_BOOTSTRAP_KEY=<key> ADMIN_PASSWORD=<pw> SPLUNK_SECRET_ENCRYPTION_KEY=<key> \
+  docker compose build worker && docker compose up -d worker
+```
+
+### Running Tests
+
+```bash
+npx jest tests/contract/              # Contract tests (19 tests)
+npx jest tests/ --no-coverage         # All tests
+```

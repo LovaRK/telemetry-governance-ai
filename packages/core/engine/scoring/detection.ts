@@ -6,6 +6,9 @@
 
 import type { DetectionInputs, DetectionScoreResult } from '../types';
 
+/** Scoring sub-module version. Matches SCORING_VERSION in composite.ts. */
+export const SCORING_VERSION = '1.0';
+
 const DETECTION_GAP_TECHNIQUE_MIN = 15;
 const DETECTION_GAP_COVERAGE_MAX = 25;
 const OPERATIONAL_GAP_LANTERN_MIN = 4;

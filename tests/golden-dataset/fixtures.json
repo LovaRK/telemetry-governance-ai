@@ -1,0 +1,122 @@
+{
+  "description": "Golden scoring fixtures derived BY HAND from the datasensAI Calculation & Methodology Guide §11 (Worked Examples — Three Different Tiers). These are the canonical numbers Teja's Data Sensei produces for the same inputs. If any expected value here drifts, scoring parity with Data Sensei is broken.",
+  "environment": [
+    {
+      "name": "endpoint:edr — Tier 1 (Critical), guide Example A",
+      "index": "endpoint",
+      "sourcetype": "endpoint:edr",
+      "inputs": {
+        "alertCount": 0,
+        "scheduledSearchCount": 8,
+        "dashboardPanelCount": 238,
+        "adHocSearchCount": 0,
+        "distinctUserCount": 6,
+        "mitreTechniqueCount": 65,
+        "lanternUsecaseCount": 0,
+        "activeAlertCount": 5,
+        "weightedIssues": 0,
+        "dailyGb": 3.38
+      },
+      "expected": {
+        "weightedSum": 512,
+        "utilization": 100.0,
+        "detection": 92.5,
+        "quality": 100.0,
+        "composite": 97.0,
+        "tier": "Critical",
+        "detectionGap": true,
+        "operationalGap": false
+      }
+    },
+    {
+      "name": "network:firewall_traffic — Tier 3 (Nice-to-Have), guide Example B",
+      "index": "network",
+      "sourcetype": "network:firewall_traffic",
+      "inputs": {
+        "alertCount": 0,
+        "scheduledSearchCount": 2,
+        "dashboardPanelCount": 12,
+        "adHocSearchCount": 0,
+        "distinctUserCount": 3,
+        "mitreTechniqueCount": 10,
+        "lanternUsecaseCount": 5,
+        "activeAlertCount": 0,
+        "weightedIssues": 800,
+        "dailyGb": 8.0
+      },
+      "expected": {
+        "weightedSum": 36,
+        "utilization": 7.0,
+        "detection": 12.0,
+        "quality": 99.8,
+        "composite": 32.2,
+        "tier": "Nice-to-Have",
+        "detectionGap": false,
+        "operationalGap": true
+      }
+    },
+    {
+      "name": "legacy:foo — clean-but-useless quirk, guide Example C",
+      "index": "legacy",
+      "sourcetype": "legacy:foo",
+      "inputs": {
+        "alertCount": 0,
+        "scheduledSearchCount": 0,
+        "dashboardPanelCount": 0,
+        "adHocSearchCount": 1,
+        "distinctUserCount": 1,
+        "mitreTechniqueCount": 0,
+        "lanternUsecaseCount": 0,
+        "activeAlertCount": 0,
+        "weightedIssues": 0,
+        "dailyGb": 4.0
+      },
+      "expected": {
+        "weightedSum": 3,
+        "utilization": 0.6,
+        "detection": 0.0,
+        "quality": 100.0,
+        "composite": 25.2,
+        "tier": "Nice-to-Have",
+        "detectionGap": false,
+        "operationalGap": false
+      }
+    }
+  ],
+  "reweightedCases": [
+    {
+      "name": "legacy:foo with quality-de-emphasized weights → Tier 4, guide Example C variant",
+      "sourcetype": "legacy:foo",
+      "weights": { "utilization": 0.45, "detection": 0.45, "quality": 0.10 },
+      "subScores": { "utilization": 0.6, "detection": 0.0, "quality": 100.0 },
+      "expected": { "composite": 10.3, "tier": "Low-Value" }
+    },
+    {
+      "name": "endpoint:edr with security-first profile",
+      "sourcetype": "endpoint:edr",
+      "weights": { "utilization": 0.25, "detection": 0.50, "quality": 0.25 },
+      "subScores": { "utilization": 100.0, "detection": 92.5, "quality": 100.0 },
+      "expected": { "composite": 96.3, "tier": "Critical" }
+    },
+    {
+      "name": "network:firewall_traffic with operations-first profile",
+      "sourcetype": "network:firewall_traffic",
+      "weights": { "utilization": 0.50, "detection": 0.25, "quality": 0.25 },
+      "subScores": { "utilization": 7.0, "detection": 12.0, "quality": 99.8 },
+      "expected": { "composite": 31.5, "tier": "Nice-to-Have" }
+    }
+  ],
+  "qualityEdgeCases": [
+    { "name": "1,000 weighted issues in 2 GB (~2M events) → 99, guide §6", "weightedIssues": 1000, "dailyGb": 2.0, "expected": 99.0 },
+    { "name": "100,000 weighted issues in 2 GB → floor 0, guide §6", "weightedIssues": 100000, "dailyGb": 2.0, "expected": 0.0 },
+    { "name": "no quality issues → perfect 100", "weightedIssues": 0, "dailyGb": 5.0, "expected": 100.0 },
+    { "name": "zero volume → default 100 (cannot compute density)", "weightedIssues": 50, "dailyGb": 0, "expected": 100.0 }
+  ],
+  "portfolioKpis": {
+    "description": "Computed over the 3-sourcetype environment above at balanced weights",
+    "roiScore": 51.5,
+    "gainScopePct": 22.0,
+    "lowValueSpendAt3650": 43800,
+    "lowValueSpendAt183": 2196
+  }
+}

@@ -274,8 +274,10 @@ export default function GovernanceWorkflowPanel({ snapshotId }: Props) {
         : '/api/recommendations';
       const res = await apiFetch(url);
       if (res.ok) {
-        const data = await res.json();
-        setRecommendations(data.recommendations || []);
+        const body = await res.json();
+        // API wraps in { data: { recommendations: [...] }, meta: {...} }
+        const recs = body?.data?.recommendations ?? body?.recommendations ?? [];
+        setRecommendations(recs);
       }
     } catch (e) {
       console.error('[GovernanceWorkflowPanel] fetch error', e);
@@ -318,8 +320,9 @@ export default function GovernanceWorkflowPanel({ snapshotId }: Props) {
         // Sync real audit trail after action
         const detail = await apiFetch(`/api/recommendations/${id}`);
         if (detail.ok) {
-          const data = await detail.json();
-          setAuditData(prev => ({ ...prev, [id]: data.auditTrail || [] }));
+          const body = await detail.json();
+          const trail = body?.data?.auditTrail ?? body?.auditTrail ?? [];
+          setAuditData(prev => ({ ...prev, [id]: trail }));
           // Ensure audit is expanded to show the new entry
           setExpandedAudit(id);
         }
@@ -337,8 +340,9 @@ export default function GovernanceWorkflowPanel({ snapshotId }: Props) {
     if (!auditData[id]) {
       const res = await apiFetch(`/api/recommendations/${id}`);
       if (res.ok) {
-        const data = await res.json();
-        setAuditData(prev => ({ ...prev, [id]: data.auditTrail || [] }));
+        const body = await res.json();
+        const trail = body?.data?.auditTrail ?? body?.auditTrail ?? [];
+        setAuditData(prev => ({ ...prev, [id]: trail }));
       }
     }
   };

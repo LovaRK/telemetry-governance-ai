@@ -94,13 +94,44 @@ export const GET = createRoute(async (request: NextRequest) => {
 /** POST — record a new coherence observation (called by the aggregation worker) */
 export const POST = createRoute(async (request: NextRequest) => {
   const body = await request.json();
-  const { indexName, cacheTier, coherenceScore, stalenessSeconds, hitRate, missRate, driftDetected, driftSeverity } = body;
+  const {
+    indexName,
+    correlationId,
+    mutationCommittedAt,
+    serverCommitToInvalidationMs,
+    invalidationToClientAwarenessMs,
+    clientAwarenessToRefetchMs,
+    refetchToUiReconciliationMs,
+    totalDivergenceWindowMs,
+    isDivergent,
+    invalidationFailed,
+    refetchFailed,
+    uiStillStale,
+  } = body;
 
   await query(
     `INSERT INTO cache_coherence_telemetry
-       (index_name, cache_tier, coherence_score, staleness_seconds, hit_rate, miss_rate, drift_detected, drift_severity, recorded_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())`,
-    [indexName, cacheTier || 'HOT', coherenceScore ?? 100, stalenessSeconds ?? 0, hitRate ?? 1, missRate ?? 0, driftDetected ?? false, driftSeverity || null]
+       (index_name, correlation_id, mutation_committed_at,
+        server_commit_to_invalidation_ms, invalidation_to_client_awareness_ms,
+        client_awareness_to_refetch_ms, refetch_to_ui_reconciliation_ms,
+        total_divergence_window_ms, is_divergent,
+        invalidation_failed, refetch_failed, ui_still_stale,
+        recorded_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())`,
+    [
+      indexName,
+      correlationId || crypto.randomUUID(),
+      mutationCommittedAt || new Date().toISOString(),
+      serverCommitToInvalidationMs ?? 0,
+      invalidationToClientAwarenessMs ?? 0,
+      clientAwarenessToRefetchMs ?? 0,
+      refetchToUiReconciliationMs ?? 0,
+      totalDivergenceWindowMs ?? 0,
+      isDivergent ?? false,
+      invalidationFailed ?? false,
+      refetchFailed ?? false,
+      uiStillStale ?? false,
+    ]
   );
 
   return {

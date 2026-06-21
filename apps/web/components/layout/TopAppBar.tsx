@@ -39,7 +39,7 @@ export default function TopAppBar({ cacheStatus, onRefresh, loading, hasConfig }
       return { color: '#f59e0b', text: '⚠ LLM decisions pending' };
     }
     if (effectiveSnapshotStatus === 'READY' && effectiveLlmStatus === 'FAILED') {
-      return { color: '#ef4444', text: '⚠ Intelligence failed' };
+      return { color: '#f59e0b', text: '⚠ AI recommendations unavailable' };
     }
     if (effectiveSnapshotStatus === 'READY' && effectiveLlmStatus === 'READY') {
       return { color: '#22c55e', text: '✓ Complete' };

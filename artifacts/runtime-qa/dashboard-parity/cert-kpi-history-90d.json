@@ -1,6 +1,0 @@
-{
-  "status": 401,
-  "body": {
-    "error": "Token expired or invalid"
-  }
-}

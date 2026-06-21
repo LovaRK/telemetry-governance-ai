@@ -15,6 +15,8 @@ import { loadUserConfig } from '../apps/api/services/config-service';
 import { pool, query, transaction } from '../core/database/connection';
 import { ModelGovernanceService, RuntimeFingerprint } from '../apps/api/services/model-governance-service';
 import { appendStageEvent, markRunFailed, publishRunAtomic, setRunExecutionMetrics } from '../apps/api/services/pipeline-ledger-service';
+import { startSelfObservability, stopSelfObservability } from '../apps/api/services/governance-self-observability';
+import { computeDeterministicSavings, type RetentionInput, type CompressionSavingsInput, type SavingsConfig, type DeterministicSavings } from '../packages/core/engine/savings/storage';
 
 const POLL_INTERVAL_MS = parseInt(process.env.WORKER_POLL_INTERVAL_MS || '5000', 10);
 const BATCH_SIZE = 1; // One index at a time — local Ollama memory constraint
@@ -123,7 +125,7 @@ async function processJob(job: any): Promise<void> {
         metadata: { mode: 'no_material_candidates', requestId },
       });
       await appendStageEvent({ runId, stage: 'PUBLISH', status: 'IN_PROGRESS', requestId });
-      await publishRunAtomic({ runId, snapshotId, tenantId });
+      await publishRunAtomic({ runId, snapshotId, tenantId, snapshotSource: 'splunk_live' });
       await appendStageEvent({ runId, stage: 'PUBLISH', status: 'SUCCESS', requestId });
     }
     await setJobComplete(job.jobId, snapshotId);
@@ -169,6 +171,17 @@ async function processJob(job: any): Promise<void> {
     for (const cr of candidateReasons) {
       const key = cr.sourcetype ? `${cr.index}:${cr.sourcetype}` : cr.index;
       reasonsMap.set(key, cr.reasons);
+    }
+  }
+
+  // Deterministic scores from the fast path are authoritative: the LLM only
+  // contributes narrative (recommendation/reasoning/evidence/action/savings).
+  // Any score the model emits is overridden before persistence.
+  const precomputedMap = new Map<string, NonNullable<RawTelemetryInput['precomputedScores']>>();
+  for (const inp of effectiveInputs) {
+    if (inp.precomputedScores) {
+      const key = inp.sourcetype ? `${inp.index}:${inp.sourcetype}` : inp.index;
+      precomputedMap.set(key, inp.precomputedScores);
     }
   }
 
@@ -246,6 +259,15 @@ async function processJob(job: any): Promise<void> {
         for (const decision of decisions) {
           const reasonKey = decision.sourcetype ? `${decision.index}:${decision.sourcetype}` : decision.index;
           const candidateReason = reasonsMap.get(reasonKey) || [];
+          const pre = precomputedMap.get(reasonKey);
+          if (pre) {
+            decision.utilizationScore = pre.utilizationScore;
+            decision.detectionScore   = pre.detectionScore;
+            decision.qualityScore     = pre.qualityScore;
+            decision.compositeScore   = pre.compositeScore;
+            decision.tier             = pre.tier as 'Critical' | 'Important' | 'Nice-to-Have' | 'Low-Value';
+            decision.detectionGap     = pre.detectionGap;
+          }
           await writeDecisionToDb(client, decision, snapshotId, today, tenantId, runId, requestId, candidateReason, runtime);
         }
       });
@@ -476,7 +498,7 @@ async function processJob(job: any): Promise<void> {
     });
     await appendStageEvent({ runId, stage: 'PUBLISH', status: 'IN_PROGRESS', requestId });
     try {
-      await publishRunAtomic({ runId, snapshotId, tenantId });
+      await publishRunAtomic({ runId, snapshotId, tenantId, snapshotSource: 'splunk_live' });
       await appendStageEvent({ runId, stage: 'PUBLISH', status: 'SUCCESS', requestId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -661,7 +683,15 @@ async function rebuildExecutiveKpis(snapshotId: string, today: string, tenantId:
       ROUND(AVG(detection_score)::numeric, 1) AS avg_det,
       ROUND(AVG(quality_score)::numeric, 1) AS avg_qual,
       ROUND(AVG(confidence_score)::numeric * 100, 1) AS avg_conf,
-      COALESCE(SUM(estimated_savings), 0) AS savings
+      -- compute savings from action type (LLM often leaves estimated_savings=0)
+      COALESCE(SUM(
+        CASE action
+          WHEN 'ARCHIVE'   THEN annual_license_cost * 0.60
+          WHEN 'OPTIMIZE'  THEN annual_license_cost * 0.20
+          WHEN 'ELIMINATE' THEN annual_license_cost * 1.00
+          ELSE 0
+        END
+      ), 0) AS savings
     FROM agent_decisions
     WHERE tenant_id = $1 AND snapshot_id = $2
     `,
@@ -695,12 +725,77 @@ async function rebuildExecutiveKpis(snapshotId: string, today: string, tenantId:
     [tenantId, snapshotId]
   );
 
+  // Sync estimated_savings back to agent_decisions (LLM often leaves it 0)
+  await query(
+    `UPDATE agent_decisions
+     SET estimated_savings = CASE action
+       WHEN 'ARCHIVE'   THEN annual_license_cost * 0.60
+       WHEN 'OPTIMIZE'  THEN annual_license_cost * 0.20
+       WHEN 'ELIMINATE' THEN annual_license_cost * 1.00
+       ELSE 0
+     END
+     WHERE tenant_id = $1 AND snapshot_id = $2 AND estimated_savings = 0
+       AND action IN ('ARCHIVE', 'OPTIMIZE', 'ELIMINATE')`,
+    [tenantId, snapshotId]
+  );
+
+  // ── Deterministic Storage Savings (guide §8) ──
+  // Replaces action-proxy as the headline savings figure.
+  // Per-index: retention excess + compression opportunity (field savings = null until lookup wired).
+  const perIndexResult = await query<{
+    daily_avg_gb: string;
+    retention_days: string;
+    utilization_score: string;
+  }>(
+    `SELECT
+       COALESCE(ts.daily_avg_gb, 0)::text AS daily_avg_gb,
+       COALESCE(ts.retention_days, 90)::int AS retention_days,
+       COALESCE(ad.utilization_score, 0)::float AS utilization_score
+     FROM agent_decisions ad
+     JOIN telemetry_snapshots ts
+       ON ts.tenant_id = ad.tenant_id
+      AND ts.snapshot_id = ad.snapshot_id
+      AND ts.index_name = ad.index_name
+      AND ts.sourcetype IS NOT DISTINCT FROM ad.sourcetype
+     WHERE ad.tenant_id = $1
+       AND ad.snapshot_id = $2`,
+    [tenantId, snapshotId]
+  );
+
+  let deterministicSavingsTotal = 0;
+  let savingsRetention = 0;
+  let savingsCompression = 0;
+  const savingsCfg: Partial<SavingsConfig> = {};
+
+  for (const row of perIndexResult.rows) {
+    const dagb = Number(row.daily_avg_gb) || 0;
+    if (dagb <= 0) continue;
+    const retIn: RetentionInput = { dailyAvgGb: dagb, retentionDays: Number(row.retention_days) || 90 };
+    const compIn: CompressionSavingsInput = { dailyAvgGb: dagb, utilizationPct: Number(row.utilization_score) || 0 };
+    const s = computeDeterministicSavings(retIn, null, compIn, savingsCfg);
+    deterministicSavingsTotal += s.totalSavings;
+    savingsRetention += s.retentionSavings;
+    savingsCompression += s.compressionSavings;
+  }
+  deterministicSavingsTotal = Math.round(deterministicSavingsTotal * 100) / 100;
+
   const stats = decisionStatsResult.rows[0] || {};
   const volume = volumeStatsResult.rows[0] || {};
   const totalDailyGb = Number(volume.total_daily_gb) || 0;
   const gainScopeScore = totalDailyGb > 0
     ? Math.round(((Number(volume.tier_12_gb) || 0) / totalDailyGb) * 10000) / 100
     : 0;
+
+  // Build v3 5-stage savings staircase (Current → Ingest → Retention → S3 → Optimized)
+  const totalSpend = Number(volume.total_spend) || 0;
+  const r2 = Math.round;
+  const savingsStaircase = [
+    { label: 'Current',            action: 'BASELINE', savings: 0,                                             cumulative: 0,                                                  spend: r2(totalSpend * 100) / 100 },
+    { label: 'After Ingest Opt',   action: 'COMPRESS', savings: r2(savingsCompression * 100) / 100,            cumulative: r2(savingsCompression * 100) / 100,                  spend: r2((totalSpend - savingsCompression) * 100) / 100 },
+    { label: 'After Retention',    action: 'RETAIN',   savings: r2(savingsRetention * 100) / 100,              cumulative: r2((savingsCompression + savingsRetention) * 100) / 100, spend: r2((totalSpend - savingsCompression - savingsRetention) * 100) / 100 },
+    { label: 'After S3 Tiering',   action: 'S3',       savings: 0,                                             cumulative: r2((savingsCompression + savingsRetention) * 100) / 100, spend: r2((totalSpend - savingsCompression - savingsRetention) * 100) / 100 },
+    { label: 'Optimized Target',   action: 'TARGET',   savings: 0,                                             cumulative: r2(deterministicSavingsTotal * 100) / 100,           spend: r2((totalSpend - deterministicSavingsTotal) * 100) / 100 },
+  ];
 
   await query(
     `
@@ -711,8 +806,9 @@ async function rebuildExecutiveKpis(snapshotId: string, today: string, tenantId:
       total_daily_gb, total_sourcetypes,
       tier_critical, tier_important, tier_nice_to_have, tier_low_value,
       security_gaps, operational_gaps,
-      avg_utilization, avg_detection, avg_quality, avg_confidence
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      avg_utilization, avg_detection, avg_quality, avg_confidence,
+      savings_staircase
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
     ON CONFLICT (tenant_id, snapshot_id) DO UPDATE SET
       roi_score                 = EXCLUDED.roi_score,
       gainscope_score           = EXCLUDED.gainscope_score,
@@ -731,6 +827,7 @@ async function rebuildExecutiveKpis(snapshotId: string, today: string, tenantId:
       avg_detection             = EXCLUDED.avg_detection,
       avg_quality               = EXCLUDED.avg_quality,
       avg_confidence            = EXCLUDED.avg_confidence,
+      savings_staircase         = EXCLUDED.savings_staircase,
       updated_at                = NOW()
     `,
     [
@@ -741,7 +838,7 @@ async function rebuildExecutiveKpis(snapshotId: string, today: string, tenantId:
       gainScopeScore,
       Number(volume.total_spend) || 0,
       Number(volume.low_value_spend) || 0,
-      Number(stats.savings) || 0,
+      deterministicSavingsTotal,
       totalDailyGb,
       Number(volume.total_sourcetypes) || 0,
       Number(stats.tier_critical) || 0,
@@ -754,6 +851,7 @@ async function rebuildExecutiveKpis(snapshotId: string, today: string, tenantId:
       Number(stats.avg_det) || 0,
       Number(stats.avg_qual) || 0,
       Number(stats.avg_conf) || 0,
+      JSON.stringify(savingsStaircase),
     ]
   );
 }
@@ -783,34 +881,48 @@ async function populateSecondaryTables(snapshotId: string, today: string) {
     FROM agent_decisions WHERE snapshot_date = $1
   `, [today]);
 
+  // Idempotent: clear this snapshot_date first so re-runs don't accumulate duplicates.
+  await query(`DELETE FROM quality_hotspots  WHERE snapshot_date = $1`, [today]).catch((e) =>
+    console.warn('[Worker] quality_hotspots clear failed:', e instanceof Error ? e.message : e));
+  await query(`DELETE FROM security_coverage WHERE snapshot_date = $1`, [today]).catch((e) =>
+    console.warn('[Worker] security_coverage clear failed:', e instanceof Error ? e.message : e));
+  await query(`DELETE FROM field_usage       WHERE snapshot_date = $1`, [today]).catch((e) =>
+    console.warn('[Worker] field_usage clear failed:', e instanceof Error ? e.message : e));
+
+  let qh = 0, sc = 0, fu = 0;
+  const logInsert = (label: string) => (e: unknown) =>
+    console.warn(`[Worker] ${label} insert failed:`, e instanceof Error ? e.message : e);
+
   for (const d of decisions.rows) {
-    // Quality hotspots — low quality score items
+    // Quality hotspots — low quality score items. Column is estimated_impact (text).
     if (Number(d.quality_score) < 50) {
       const issueType = extractIssueType(d.evidence);
       await query(`
-        INSERT INTO quality_hotspots (snapshot_date, sourcetype, issue_count, quality_score, impact, issue_type, daily_gb)
-        VALUES ($1, $2, 1, $3, $4, $5, 0)
-      `, [today, d.sourcetype || d.index_name, Number(d.quality_score), Number(d.annual_license_cost), issueType]).catch(() => {});
+        INSERT INTO quality_hotspots (snapshot_date, sourcetype, issue_count, quality_score, estimated_impact)
+        VALUES ($1, $2, 1, $3, $4)
+      `, [today, d.sourcetype || d.index_name, Number(d.quality_score), issueType])
+        .then(() => { qh++; }).catch(logInsert('quality_hotspots'));
     }
 
-    // Security coverage — detection gaps
+    // Security coverage — detection gaps. coverage_pct carries the (lookup-driven)
+    // detection score; detection_gaps is an integer flag per the table schema.
     if (d.detection_gap) {
-      const sourceKey = d.sourcetype || '';
-      const techniques = MITRE_MAP[sourceKey] || [];
       await query(`
-        INSERT INTO security_coverage (snapshot_date, sourcetype, coverage_pct, active_alerts, detection_gaps, mitre_techniques)
-        VALUES ($1, $2, $3, 0, 1, $4)
-      `, [today, d.sourcetype || d.index_name, Number(d.detection_score), JSON.stringify(techniques)]).catch(() => {});
+        INSERT INTO security_coverage (snapshot_date, sourcetype, coverage_pct, active_alerts, detection_gaps)
+        VALUES ($1, $2, $3, 0, 1)
+      `, [today, d.sourcetype || d.index_name, Number(d.detection_score)])
+        .then(() => { sc++; }).catch(logInsert('security_coverage'));
     }
 
-    // Field usage — estimation from utilization
+    // Field usage — estimation from utilization (optimization headroom).
     await query(`
       INSERT INTO field_usage (snapshot_date, sourcetype, fields_indexed, fields_used, optimization_pct)
       VALUES ($1, $2, 1, 0, $3)
-    `, [today, d.sourcetype || d.index_name, Math.round(100 - Number(d.utilization_score))]).catch(() => {});
+    `, [today, d.sourcetype || d.index_name, Math.round(100 - Number(d.utilization_score))])
+      .then(() => { fu++; }).catch(logInsert('field_usage'));
   }
 
-  console.log(`[Worker] Secondary tables populated for ${decisions.rows.length} decisions`);
+  console.log(`[Worker] Secondary tables populated from ${decisions.rows.length} decisions: ${qh} quality_hotspots, ${sc} security_coverage, ${fu} field_usage`);
 }
 
 function extractIssueType(evidence: any): string {
@@ -940,6 +1052,9 @@ async function main() {
   console.log('[Worker] Starting. Polling job_queue every', POLL_INTERVAL_MS, 'ms');
   console.log('[Worker] OLLAMA_BASE_URL:', process.env.OLLAMA_BASE_URL || 'http://localhost:11434');
 
+  // Phase 13: Start governance self-observability collector (5-minute window)
+  startSelfObservability(5 * 60_000);
+
   // Validate schema contract on startup
   try {
     await validateSchemaContract();
@@ -1014,6 +1129,7 @@ main().catch(err => {
 
 const shutdown = async () => {
   try {
+    stopSelfObservability();    // Phase 13: stop observability collector before exit
     await governanceService.shutdown();
   } catch (e) {
     console.error('[Worker] Governance shutdown warning:', e);

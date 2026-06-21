@@ -2,6 +2,14 @@ import { Pool, PoolClient } from 'pg';
 import fetch from 'node-fetch';
 import https from 'https';
 import { encryptSecret, decryptSecret } from '../../../core/security/secret-manager';
+import { environmentValidator } from '../../../core/security/environment-validator';
+import { governanceEngine, Decision, GovernanceDecision } from '../../../core/governance/engine';
+import { isGovernanceEnforcing, isGovernanceActive } from '../../../core/governance/governance-mode';
+import {
+  recordClassifiedMismatch,
+  recordShadowConsensusMatch,
+  MismatchType
+} from '../../../core/governance/governance-metrics';
 
 export interface SplunkConfig {
   url?: string;
@@ -50,7 +58,9 @@ function buildRestAuthHeader(config: SplunkConfig): string | null {
 }
 
 export class SplunkConfigService {
-  constructor(private pool: Pool) {}
+  constructor(private _pool: Pool) {}
+
+  get pool(): Pool { return this._pool; }
 
   async testSplunkConnection(config: SplunkConfig): Promise<SplunkTestResult> {
     const errors: string[] = [];
@@ -98,10 +108,148 @@ export class SplunkConfigService {
   async saveSplunkConfig(
     tenant_id: string,
     config: SplunkConfig,
-    client?: PoolClient
+    client?: PoolClient,
+    requestContext?: {
+      trace_id?: string;
+      correlation_id?: string;
+      causation_id?: string;
+      actor_id?: string;
+      actor_type?: 'human' | 'agent' | 'service';
+    }
   ): Promise<TenantSplunkStatus> {
-    const pool = client || this.pool;
+    const pool = client || this._pool;
     try {
+      // SECURITY: Validate URLs against environment restrictions (Layer 1 & 2)
+      const urlValidation = environmentValidator.validateAllSplunkUrls(
+        config.apiUrl || config.url,
+        config.hecUrl || config.url,
+        config.mcpUrl
+      );
+
+      if (!urlValidation.valid) {
+        const error = new Error(`URL Validation Failed (${environmentValidator.getEnvironmentMode()} mode):\n${urlValidation.reasons.join('\n')}`);
+        console.error('[SECURITY]', error.message);
+        throw error;
+      }
+
+      // PHASE 2A: Governance evaluation (mode-controlled)
+      // Shadow mode: RGE in parallel with old validator (observational)
+      // Enforcing mode: RGE authoritative (fail-closed)
+      // Disabled mode: No governance evaluation
+      let rgeDecision: GovernanceDecision | null = null;
+      try {
+        if (isGovernanceActive() && requestContext?.trace_id && requestContext?.correlation_id) {
+          rgeDecision = governanceEngine.evaluate({
+            action: 'SAVE_SPLUNK_CONFIG',
+            actor_id: requestContext.actor_id || tenant_id,
+            actor_type: requestContext.actor_type || 'human',
+            resource: `splunk:config:${config.apiUrl || config.url || 'unknown'}:8089`,
+            trace_id: requestContext.trace_id,
+            correlation_id: requestContext.correlation_id,
+            causation_id: requestContext.causation_id,
+            policy_snapshot_hash: 'policy-v1-phase-2a'
+          });
+
+          // Determine if there's a mismatch between RGE and old validator
+          const rgeDecisionStr = String(rgeDecision.decision);
+          const oldValidatorDecisionStr = urlValidation.valid ? 'ALLOW' : 'DENY';
+          const hasMismatch = rgeDecisionStr !== oldValidatorDecisionStr;
+
+          // Log RGE decision with semantic observability (not just boolean comparison)
+          console.log('[GOVERNANCE_DECISION]', {
+            trace_id: requestContext.trace_id,
+            correlation_id: requestContext.correlation_id,
+
+            // RGE decision (semantic detail for mismatch debugging)
+            rge_decision: rgeDecisionStr,
+            rge_risk_level: rgeDecision.risk_level,
+            rge_matched_policies: rgeDecision.matched_policy_ids,
+            rge_enforcement_mode: rgeDecision.enforcement_mode,
+            rge_reasons: rgeDecision.reasons,
+
+            // Old validator (for comparison)
+            old_validator_decision: oldValidatorDecisionStr,
+            old_validator_reasons: urlValidation.reasons,
+
+            // Input identity (for forensic grouping and replay)
+            input_fingerprint: rgeDecision.input_fingerprint,
+            normalized_resource: rgeDecision.resource,
+
+            // Mismatch detection (semantic)
+            mismatch: hasMismatch,
+
+            // Environment context
+            environment: governanceEngine.getEnvironment(),
+            actor_id: rgeDecision.actor_id,
+            action: rgeDecision.action,
+
+            // Metadata
+            decision_id: rgeDecision.decision_id,
+            created_at: rgeDecision.created_at
+          });
+
+          // Record mismatch or consensus for metrics
+          // CRITICAL: This enables shadow_consensus_rate calculation
+          if (hasMismatch) {
+            // Classify the mismatch type (for sophisticated debugging)
+            // Phase 2A: Only policy/environment mismatches possible
+            const mismatchType = rgeDecision.risk_level === 'CRITICAL'
+              ? MismatchType.ENVIRONMENT  // Environment isolation is critical in Phase 2A
+              : MismatchType.POLICY;      // Shouldn't happen in Phase 2A, but categorize if it does
+
+            recordClassifiedMismatch(
+              mismatchType,
+              rgeDecisionStr,
+              oldValidatorDecisionStr,
+              governanceEngine.getEnvironment()
+            );
+          } else {
+            // Decisions match: record consensus
+            recordShadowConsensusMatch(governanceEngine.getEnvironment());
+          }
+
+          // Enforcement: Controlled by GovernanceMode (not commented code)
+          if (isGovernanceEnforcing() && rgeDecision.decision === Decision.DENY) {
+            // Enforcing mode: RGE DENY blocks execution (fail-closed)
+            throw new Error(
+              `[GOVERNANCE_DENIED] ${rgeDecision.reasons.join('; ')} ` +
+              `(decision_id: ${rgeDecision.decision_id}, risk_level: ${rgeDecision.risk_level})`
+            );
+          }
+          // Shadow mode: RGE DENY is logged but does not block (observational)
+        }
+      } catch (rgeError) {
+        // RGE evaluation failed
+        if (isGovernanceEnforcing()) {
+          // Enforcing mode: RGE failure is fail-closed (block execution)
+          throw new Error(
+            `[GOVERNANCE_EVALUATION_FAILED] ${(rgeError as Error).message} ` +
+            `(fail-closed: governance unavailable)`
+          );
+        } else {
+          // Shadow/disabled mode: Log error but don't block
+          console.error('[GOVERNANCE_EVALUATION_ERROR]', {
+            error: (rgeError as Error).message,
+            trace_id: requestContext?.trace_id,
+            mode: isGovernanceEnforcing() ? 'ENFORCING' : 'SHADOW',
+            timestamp: new Date().toISOString()
+          });
+          // Continue executing - don't fail on RGE errors in shadow mode
+        }
+      }
+
+      // Log approved URLs for audit trail (TEST 2.2)
+      console.log('[SPLUNK_CONFIG_SAVE]', {
+        tenant_id,
+        environment: environmentValidator.getEnvironmentMode(),
+        apiUrl: config.apiUrl || config.url,
+        hecUrl: config.hecUrl || config.url,
+        mcpUrl: config.mcpUrl,
+        trace_id: requestContext?.trace_id,
+        rge_decision: rgeDecision?.decision,
+        timestamp: new Date().toISOString(),
+      });
+
       let encryptedSecret: string | null = null;
       if (config.restAuthSecret) {
         encryptedSecret = encryptSecret(config.restAuthSecret);
@@ -112,6 +260,10 @@ export class SplunkConfigService {
         );
         if (existing.rows.length > 0) encryptedSecret = existing.rows[0].splunk_rest_auth_secret;
       }
+
+      // Encrypt password at rest; normalize authType to uppercase for consistent comparisons
+      const encryptedPassword = config.password ? encryptSecret(config.password) : null;
+      const normalizedAuthType = config.restAuthType ? config.restAuthType.toUpperCase() : null;
 
       const hasSecret = typeof encryptedSecret === 'string' && encryptedSecret.length > 0;
       const result = await pool.query(
@@ -131,9 +283,9 @@ export class SplunkConfigService {
           config.mcpUrl || null,
           config.hec_token,
           config.username || null,
-          config.password || null,
+          encryptedPassword,
           config.ssl_verify,
-          config.restAuthType || null,
+          normalizedAuthType,
           hasSecret ? encryptedSecret : null,
           hasSecret,
           tenant_id,
@@ -159,7 +311,7 @@ export class SplunkConfigService {
     testResult: SplunkTestResult,
     client?: PoolClient
   ): Promise<void> {
-    const pool = client || this.pool;
+    const pool = client || this._pool;
     await pool.query(
       `UPDATE tenants SET
         last_splunk_test = NOW(),
@@ -173,7 +325,7 @@ export class SplunkConfigService {
   }
 
   async getSplunkConfig(tenant_id: string): Promise<SplunkConfig | null> {
-    const result = await this.pool.query(
+    const result = await this._pool.query(
       `SELECT splunk_url, splunk_api_url, splunk_hec_url, splunk_mcp_url,
               splunk_hec_token, splunk_username, splunk_password, splunk_ssl_verify,
               splunk_rest_auth_type, splunk_rest_auth_secret, splunk_rest_auth_secret_version
@@ -194,6 +346,15 @@ export class SplunkConfigService {
       }
     }
 
+    let decryptedPassword: string | undefined;
+    if (row.splunk_password) {
+      try {
+        decryptedPassword = decryptSecret(row.splunk_password);
+      } catch {
+        decryptedPassword = undefined;
+      }
+    }
+
     return {
       url: row.splunk_url,
       apiUrl: row.splunk_api_url || row.splunk_url,
@@ -201,7 +362,7 @@ export class SplunkConfigService {
       mcpUrl: row.splunk_mcp_url,
       hec_token: row.splunk_hec_token,
       username: row.splunk_username,
-      password: row.splunk_password,
+      password: decryptedPassword,
       ssl_verify: row.splunk_ssl_verify,
       restAuthType: row.splunk_rest_auth_type,
       restAuthSecret: decryptedSecret,
@@ -210,7 +371,7 @@ export class SplunkConfigService {
   }
 
   async getSplunkStatus(tenant_id: string): Promise<TenantSplunkStatus | null> {
-    const result = await this.pool.query(
+    const result = await this._pool.query(
       `SELECT id, is_configured, last_splunk_test, splunk_test_status, splunk_test_error
        FROM tenants WHERE id = $1`,
       [tenant_id]

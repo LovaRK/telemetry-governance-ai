@@ -14,7 +14,7 @@ export interface UserConfig {
 
 const DEFAULT_CONFIG: Omit<UserConfig, 'id' | 'createdAt' | 'updatedAt'> = {
   configKey: 'default',
-  costPerGbPerDay: 0.50,
+  costPerGbPerDay: 10.00,   // $3,650/GB/year ÷ 365 = $10/day (Splunk Enterprise legacy rate)
   maxRetentionDays: 730,
   maxParallel: 2,
   decisionWeights: {},
@@ -73,8 +73,9 @@ export async function updateUserConfig(updates: Partial<Omit<UserConfig, 'id' | 
 }
 
 export async function updateCostModel(costPerGbPerDay: number): Promise<UserConfig> {
-  if (costPerGbPerDay < 0.01 || costPerGbPerDay > 10) {
-    throw new Error('Cost per GB per day must be between 0.01 and 10.00');
+  if (costPerGbPerDay < 0.01 || costPerGbPerDay > 500) {
+    // $0.01–$500/GB/day covers $3.65/yr to $182,500/yr — handles all known Splunk contracts
+    throw new Error('Cost per GB per day must be between 0.01 and 500.00');
   }
   return updateUserConfig({ costPerGbPerDay });
 }

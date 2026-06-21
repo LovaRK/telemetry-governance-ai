@@ -75,14 +75,20 @@ export function QueueHealthMetrics() {
 
   if (!latestMetrics) {
     return (
-      <div style={{ padding: '20px', color: '#666', textAlign: 'center' }}>
-        <p>No queue health metrics available yet</p>
+      <div style={{ padding: '20px', background: '#f5f5f5', borderRadius: '8px', textAlign: 'center', color: '#666' }}>
+        <p style={{ marginBottom: '8px', fontWeight: 600 }}>⏳ No queue metrics yet</p>
+        <p style={{ fontSize: '0.9rem', color: '#999', margin: 0 }}>
+          Queue metrics appear after the first aggregation pipeline job completes. Run "Refresh" on the dashboard to populate this section.
+        </p>
       </div>
     );
   }
 
   return (
     <div style={{ padding: '20px' }}>
+      <div style={{ marginBottom: '20px', padding: '12px 16px', background: '#f0f8ff', border: '1px solid #b0d4ff', borderRadius: '6px', fontSize: '0.85rem', color: '#1565c0', lineHeight: '1.4' }}>
+        <strong>ℹ️ Pipeline Telemetry:</strong> Metrics from the aggregation pipeline processing. Metadata Reuse Rate = fingerprint consistency across snapshots. Query Filter Efficiency = query selectivity optimization rate. Decision Stability = rate of recommendation changes between runs. These measure pipeline health and recommendation stability.
+      </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h2 style={{ marginBottom: 0, color: '#333' }}>Queue Health Metrics</h2>
         <button

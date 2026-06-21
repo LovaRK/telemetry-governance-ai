@@ -8,15 +8,18 @@ services:
     environment:
       - DATABASE_URL=postgresql://telemetry:telemetry@postgres:5432/telemetry_os
       - NODE_ENV=development
+      - APP_ENV=${APP_ENV:-sandbox}
       - NODE_TLS_REJECT_UNAUTHORIZED=0
-      - NEXT_PUBLIC_SPLUNK_MCP_URL=https://144.202.48.85:8089
-      - NEXT_PUBLIC_SPLUNK_TOKEN=Basic cmFtOlJhbWFAMTk4OA==
-      - NEXT_PUBLIC_SPLUNK_DISABLE_SSL_VERIFY=true
-      - LLM_MODEL=gemma2:9b
+      # Splunk connection is configured per-tenant in Settings → no real creds in compose.
+      # These optional bootstrap envs only seed the first tenant; leave blank to configure in the UI.
+      - NEXT_PUBLIC_SPLUNK_MCP_URL=${NEXT_PUBLIC_SPLUNK_MCP_URL:-}
+      - NEXT_PUBLIC_SPLUNK_TOKEN=${NEXT_PUBLIC_SPLUNK_TOKEN:-}
+      - NEXT_PUBLIC_SPLUNK_DISABLE_SSL_VERIFY=${NEXT_PUBLIC_SPLUNK_DISABLE_SSL_VERIFY:-true}
+      - LLM_MODEL=${LLM_MODEL:-gemma2:9b}
       - WEB_PORT=${WEB_PORT:-3002}  # Pass to container for health checks
-      - GOVERNANCE_BOOTSTRAP_KEY=75512d550a46fc514ca7874ba7fee1244f39303d99a782e82cbcfd2097ee03cd
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@bitso.com}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-Admin@12345}
+      - GOVERNANCE_BOOTSTRAP_KEY=${GOVERNANCE_BOOTSTRAP_KEY:?Must set GOVERNANCE_BOOTSTRAP_KEY (openssl rand -hex 32)}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?Must set ADMIN_PASSWORD}
       - SPLUNK_SECRET_ENCRYPTION_KEY=${SPLUNK_SECRET_ENCRYPTION_KEY:?Must set SPLUNK_SECRET_ENCRYPTION_KEY}
     volumes:
       - ../apps/web:/app/apps/web  # Hot-reload: Next.js app
@@ -42,6 +45,7 @@ services:
       dockerfile: docker/Dockerfile.worker
     environment:
       - DATABASE_URL=postgresql://telemetry:telemetry@postgres:5432/telemetry_os
+      - APP_ENV=${APP_ENV:-sandbox}
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - NODE_TLS_REJECT_UNAUTHORIZED=0
@@ -72,6 +76,27 @@ services:
       timeout: ${HEALTH_CHECK_TIMEOUT:-5s}
       retries: ${HEALTH_CHECK_RETRIES:-5}
       start_period: 15s
+
+  splunk-mock:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mock
+    ports:
+      - "${MOCK_SPLUNK_PORT:-18089}:18089"
+    environment:
+      - APP_ENV=sandbox
+      - ALLOW_SYNTHETIC_DATA=true
+      - MOCK_PORT=18089
+      - NODE_ENV=development
+    profiles:
+      - sandbox
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:18089/services/server/info >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
 volumes:
   postgres_data:

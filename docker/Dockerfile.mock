@@ -1,0 +1,16 @@
+FROM node:20-alpine
+WORKDIR /app
+
+# Copy root package manifests
+COPY package*.json ./
+RUN npm install
+
+# Install mock server runtime deps
+RUN npm install --save-dev @types/node@^20.0.0 ts-node@^10.9.2 typescript@^5.0.0
+
+COPY tsconfig*.json ./
+COPY tools/sandbox/splunk-mock-server.ts ./tools/sandbox/splunk-mock-server.ts
+
+EXPOSE 18089
+
+CMD ["./node_modules/.bin/ts-node", "--project", "tsconfig.json", "tools/sandbox/splunk-mock-server.ts"]

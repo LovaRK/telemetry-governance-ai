@@ -1,4 +1,0 @@
-
-> agentic-telemetry-dashboard@1.0.0 test:pipeline
-> jest -c jest.gates.config.js tests/pipeline
-

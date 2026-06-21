@@ -6,6 +6,9 @@
 
 import type { UtilizationInputs } from '../types';
 
+/** Scoring sub-module version. Matches SCORING_VERSION in composite.ts. */
+export const SCORING_VERSION = '1.0';
+
 export function computeUtilizationScores(inputs: UtilizationInputs[]): Map<string, number> {
   const weightedSums = new Map<string, number>();
 

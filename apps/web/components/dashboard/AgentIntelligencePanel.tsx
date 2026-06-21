@@ -3,7 +3,8 @@
 import React from 'react';
 import { SnapshotRow, ExecutiveKPIs } from '../../lib/types';
 
-function fmt$(v: number): string {
+function fmt$(v: number | null): string {
+  if (v === null || v === undefined) return '$0';
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
   if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}k`;
   if (v >= 1) return `$${v.toFixed(0)}`;
@@ -20,7 +21,12 @@ interface Props {
 export default function AgentIntelligencePanel({ snapshots, kpis, hasAgentDecisions = false }: Props) {
   const s3Candidates = snapshots.filter((s) => s.isS3Candidate);
   const detectionGaps = snapshots.filter((s) => s.detectionGap);
-  const quickWins = snapshots.filter((s) => s.isQuickWin);
+  const flaggedQuickWins = snapshots.filter((s) => s.isQuickWin);
+  const fallbackQuickWins = [...snapshots]
+    .filter(s => (s.estimatedSavings ?? 0) > 0 &&
+      ['ARCHIVE', 'OPTIMIZE', 'ELIMINATE'].includes((s.action || '').toUpperCase()))
+    .sort((a, b) => (b.estimatedSavings ?? 0) - (a.estimatedSavings ?? 0));
+  const quickWins = flaggedQuickWins.length > 0 ? flaggedQuickWins : fallbackQuickWins;
   const topByRisk = [...snapshots].sort((a, b) => Number(b.riskScore) - Number(a.riskScore)).slice(0, 5);
 
   return (
@@ -35,8 +41,13 @@ export default function AgentIntelligencePanel({ snapshots, kpis, hasAgentDecisi
           : topByRisk.length === 0
             ? <div style={{ color: '#475569', fontSize: '0.8rem' }}>No data</div>
             : topByRisk.map((s) => (
-              <div key={s.indexName} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
-                <span style={{ color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>{s.indexName}</span>
+              <div key={`${s.indexName}-${s.sourcetype || ''}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
+                <span style={{ color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>
+                  {s.sourcetype ? `${s.sourcetype}` : s.indexName}
+                  {s.sourcetype && s.indexName !== s.sourcetype && (
+                    <span style={{ color: '#475569', fontSize: '0.7rem', marginLeft: 4 }}>({s.indexName})</span>
+                  )}
+                </span>
                 <span style={{ color: Number(s.riskScore) > 70 ? '#ef4444' : Number(s.riskScore) > 40 ? '#f59e0b' : '#22c55e', fontWeight: 700 }}>
                   {Number(s.riskScore).toFixed(0)}
                 </span>
@@ -52,7 +63,7 @@ export default function AgentIntelligencePanel({ snapshots, kpis, hasAgentDecisi
         {detectionGaps.length === 0
           ? <div style={{ color: '#22c55e', fontSize: '0.8rem' }}>✓ No critical detection gaps identified</div>
           : detectionGaps.slice(0, 5).map((s) => (
-            <div key={s.indexName} style={{ marginBottom: '0.625rem', paddingBottom: '0.625rem', borderBottom: '1px solid #1e293b' }}>
+            <div key={`${s.indexName}-${s.sourcetype || ''}`} style={{ marginBottom: '0.625rem', paddingBottom: '0.625rem', borderBottom: '1px solid #1e293b' }}>
               <div style={{ color: '#f8fafc', fontSize: '0.8rem', fontWeight: 600 }}>{s.indexName}</div>
               {s.recommendation && (
                 <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem', fontStyle: 'italic' }}>

@@ -11,8 +11,9 @@
  * Results are normalized into the shapes consumed by deterministic-scoring-engine.ts.
  */
 
-import { SplunkClient } from './splunk-client';
+import { SplunkDataSource } from './splunk-client';
 import type { UtilizationInputs, DetectionInputs, QualityInputs } from './deterministic-scoring-engine';
+import { auditSplQuery } from './parser-confidence-service';
 
 export interface FieldUsageResult {
   sourcetype: string;
@@ -57,11 +58,11 @@ export interface KnowledgeObjectCounts {
  * Falls back gracefully to empty array if Splunk doesn't support query.
  */
 export async function querySavedSearchInventory(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   indexNames: string[]
 ): Promise<KnowledgeObjectCounts[]> {
   try {
-    const raw = await (splunk as any).restGet(
+    const raw = await splunk.restGet(
       '/services/saved/searches?count=0&output_mode=json&search=disabled%3Dfalse'
     );
     if (!raw?.entry) return buildFallback(indexNames);
@@ -112,7 +113,7 @@ export async function querySavedSearchInventory(
     // Each dashboard view XML is scanned for `index=<name>` references.
     // Attribution weighting (1/N) applied the same way as saved searches.
     try {
-      const dashRaw = await (splunk as any).restGet(
+      const dashRaw = await splunk.restGet(
         '/services/data/ui/views?count=0&output_mode=json&digest=1'
       );
       if (dashRaw?.entry) {
@@ -171,34 +172,164 @@ export async function querySavedSearchInventory(
  * Falls back to an empty Map if _internal is not accessible.
  */
 export async function queryParsingErrors(
-  splunk: SplunkClient,
-  lookbackDays: number = 7
+  splunk: SplunkDataSource,
+  lookbackDays: number = 7,
+  tenantId?: string,
 ): Promise<Map<string, number>> {
   const result = new Map<string, number>();
 
-  // SPL: scan _internal for CRIPPLEDness / parsing issues grouped by sourcetype
-  // We use the log_level=WARN component=DateParser or component=LineBreaker pattern
-  const spl = `search index=_internal sourcetype=splunkd (component=DateParserVerbose OR component=DateParser OR component=LineBreaker OR component=TRANSFORMS) log_level=WARN earliest=-${lookbackDays}d
+  // MIGRATION NOTE: Previously used raw `search index=_internal` which collapses
+  // at enterprise scale (O(N) full scan). Now uses tstats with summariesonly=true
+  // to leverage accelerated data model summaries.
+  //
+  // tstats approach: pull component-level counts from the _internal data model.
+  // Falls back to raw SPL only if tstats returns zero results (data model not built yet).
+  //
+  // Anti-pattern eliminated:
+  //   BEFORE: search index=_internal sourcetype=splunkd ... (unbounded raw scan)
+  //   AFTER:  tstats summariesonly=true ... (data model accelerated)
+
+  // Primary: tstats against the InternalLogs data model (available in Splunk 8.0+)
+  const tsstatsSpl = `| tstats summariesonly=true
+    count AS event_count
+    WHERE index=_internal
+      sourcetype=splunkd
+      (component=DateParserVerbose OR component=DateParser OR component=LineBreaker OR component=TRANSFORMS)
+      earliest=-${lookbackDays}d
+      latest=now
+    BY index, sourcetype, component
+  | eval weight=if(component="DateParserVerbose", 0.5, 1.0)
+  | eval weighted_issues=event_count*weight
+  | stats sum(weighted_issues) AS weighted_issues BY index, sourcetype
+  | rename index AS idx, sourcetype AS st
+  | where isnotnull(idx) AND isnotnull(st)
+  | head 1000`;
+
+  // Fallback: raw SPL with explicit time bounds and head circuit breaker
+  // Used when tstats returns empty (data model not yet accelerated)
+  const fallbackSpl = `search index=_internal sourcetype=splunkd
+    (component=DateParserVerbose OR component=DateParser OR component=LineBreaker OR component=TRANSFORMS)
+    log_level=WARN
+    earliest=-${lookbackDays}d
+    latest=now
   | rex field=message "for sourcetype='(?<st>[^']+)'"
   | rex field=message "in source='[^']*index=(?<idx>[^'\\s]+)'"
   | eval weight=if(component="DateParserVerbose", 0.5, 1.0)
   | stats sum(weight) AS weighted_issues by idx, st
-  | where isnotnull(idx) AND isnotnull(st)`;
+  | where isnotnull(idx) AND isnotnull(st)
+  | head 1000`;
+
+  const tryQuery = async (spl: string, label: string): Promise<boolean> => {
+    try {
+      const rows: Array<{ idx: string; st: string; weighted_issues: string }> =
+        await splunk.runSearch(spl, { earliestTime: `-${lookbackDays}d`, latestTime: 'now' });
+
+      if (Array.isArray(rows) && rows.length > 0) {
+        for (const row of rows) {
+          const key = `${row.idx}::${row.st}`;
+          result.set(key, parseFloat(row.weighted_issues) || 0);
+        }
+        console.log(`[ParsingErrors:${label}] Found ${result.size} sourcetypes with parsing issues (lookback=${lookbackDays}d)`);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.warn(`[ParsingErrors:${label}] Query failed:`, (e as Error).message);
+      return false;
+    }
+  };
+
+  // Try tstats first; fall back to raw SPL if needed
+  const tsstatsSuccess = await tryQuery(tsstatsSpl, 'tstats');
+  const activeSpl = tsstatsSuccess ? tsstatsSpl : fallbackSpl;
+  if (!tsstatsSuccess) {
+    await tryQuery(fallbackSpl, 'raw_fallback');
+    if (result.size === 0) {
+      console.warn('[ParsingErrors] Both tstats and raw SPL returned no results — quality scores default to 100');
+    }
+  }
+
+  // ── Phase 9: Emit parser confidence audit record (fire-and-forget) ──
+  if (tenantId) {
+    void auditSplQuery(tenantId, activeSpl, {
+      indexName: '_internal',
+    }).catch(err => console.warn('[queryParsingErrors] Parser confidence audit failed:', err));
+  }
+
+  return result;
+}
+
+// ─── Ad-hoc Usage Signals (_audit) ───────────────────────────────────────────
+
+export interface AdhocUsage {
+  adHocSearchCount: number;
+  distinctUserCount: number;
+}
+
+/**
+ * Query _audit for completed ad-hoc searches (last `lookbackDays`).
+ *
+ * Utilization formula includes adhoc×1 + users×2 — without these signals our
+ * scores diverge from Data Sensei, which reads the same audit trail.
+ *
+ * - savedsearch_name="" filters to ad-hoc only (scheduled runs carry a name)
+ * - searches starting with '|' (tstats/metadata/eventcount — including this
+ *   agent's own refresh queries) are excluded as non-human noise
+ * - index refs extracted with the same literal-index regex + 1/N attribution
+ *   used for knowledge objects
+ *
+ * Returns Map<indexName, AdhocUsage>; empty Map when _audit is inaccessible.
+ */
+export async function queryAdhocUsage(
+  splunk: SplunkDataSource,
+  indexNames: string[],
+  lookbackDays: number = 7,
+): Promise<Map<string, AdhocUsage>> {
+  const result = new Map<string, AdhocUsage>();
+  const indexNamesSet = new Set(indexNames.map(n => n.toLowerCase()));
+
+  const spl = `search index=_audit action=search info=completed savedsearch_name=""
+    earliest=-${lookbackDays}d latest=now
+  | where isnotnull(search) AND search!=""
+  | table user, search
+  | head 5000`;
 
   try {
-    const rows: Array<{ idx: string; st: string; weighted_issues: string }> =
-      await (splunk as any).runSearch(spl, { earliestTime: `-${lookbackDays}d`, latestTime: 'now' });
+    const rows: Array<{ user: string; search: string }> =
+      await splunk.runSearch(spl, { earliestTime: `-${lookbackDays}d`, latestTime: 'now' });
 
-    if (Array.isArray(rows)) {
-      for (const row of rows) {
-        const key = `${row.idx}::${row.st}`;
-        result.set(key, parseFloat(row.weighted_issues) || 0);
+    const usersByIndex = new Map<string, Set<string>>();
+
+    for (const row of rows) {
+      const raw = (row.search || '').trim().replace(/^'/, '');
+      if (!raw || raw.startsWith('|')) continue; // generating commands = machine noise
+
+      const refs = [...new Set(
+        (raw.match(/index\s*=\s*"?([\w-]+)"?/gi) || [])
+          .map(m => m.replace(/index\s*=\s*"?/i, '').replace(/"$/, '').toLowerCase())
+      )].filter(idx => indexNamesSet.has(idx));
+      if (refs.length === 0) continue;
+
+      const w = 1 / refs.length;
+      const user = (row.user || 'unknown').trim();
+      for (const idx of refs) {
+        const cur = result.get(idx) || { adHocSearchCount: 0, distinctUserCount: 0 };
+        cur.adHocSearchCount += w;
+        result.set(idx, cur);
+        if (!usersByIndex.has(idx)) usersByIndex.set(idx, new Set());
+        usersByIndex.get(idx)!.add(user);
       }
     }
-    console.log(`[ParsingErrors] Found ${result.size} sourcetypes with parsing issues (lookback=${lookbackDays}d)`);
+
+    for (const [idx, users] of usersByIndex) {
+      result.get(idx)!.distinctUserCount = users.size;
+    }
+
+    if (result.size > 0) {
+      console.log(`[AdhocUsage] ${result.size} indexes with ad-hoc activity (lookback=${lookbackDays}d)`);
+    }
   } catch (e) {
-    console.warn('[ParsingErrors] Query failed — quality scores default to 100:', (e as Error).message);
-    // Return empty map → buildQualityInputs defaults to weightedIssues=0 → quality=100
+    console.warn('[AdhocUsage] _audit query failed, adhoc/user counts default to 0:', (e as Error).message);
   }
 
   return result;
@@ -316,8 +447,78 @@ const LANTERN_BASELINE: Record<string, number> = {
   'splunk_web_access':        0,
 };
 
-function lookupMitre(index: string, sourcetype: string | null): number {
+/** Per-sourcetype technique/usecase counts pulled live from the customer's Splunk. */
+export interface DetectionMappings {
+  mitre: Map<string, number>;
+  lantern: Map<string, number>;
+}
+
+const EMPTY_MAPPINGS: DetectionMappings = { mitre: new Map(), lantern: new Map() };
+
+/**
+ * Pull MITRE ATT&CK and Lantern use-case mappings from the customer's Splunk
+ * lookups (shipped by the TA-bitsIO-datasensAI add-on):
+ *   - sourcetype_attack_mapping.csv  → MITRE technique counts per sourcetype
+ *   - sourcetype_lantern_mapping.csv → Lantern use-case counts per sourcetype
+ *
+ * Schema-tolerant: if a row carries an explicit count column it is used; otherwise
+ * each row is treated as one technique/usecase and rows are counted per sourcetype.
+ *
+ * Returns empty maps on any failure — callers fall back to the built-in baseline,
+ * so behaviour is unchanged when the TA / lookups are absent (zero regression).
+ */
+export async function queryDetectionMappings(splunk: SplunkDataSource): Promise<DetectionMappings> {
+  const COUNT_COLS = ['technique_count', 'mitre_count', 'lantern_usecase_count', 'usecase_count', 'count', 'cnt'];
+  const ST_COLS = ['sourcetype', 'orig_sourcetype', 'st'];
+
+  const readLookup = async (lookupName: string): Promise<Map<string, number>> => {
+    const out = new Map<string, number>();
+    try {
+      const rows = await splunk.runSearch(`| inputlookup ${lookupName}`);
+      if (!Array.isArray(rows) || rows.length === 0) return out;
+      const rowCounts = new Map<string, number>();
+      for (const row of rows) {
+        const stKey = ST_COLS.map(c => row[c]).find(v => typeof v === 'string' && v.trim());
+        if (!stKey) continue;
+        const key = String(stKey).toLowerCase().trim();
+        const explicit = COUNT_COLS.map(c => row[c]).find(v => v !== undefined && v !== null && v !== '');
+        if (explicit !== undefined) {
+          out.set(key, Math.max(out.get(key) ?? 0, Number(explicit) || 0));
+        } else {
+          rowCounts.set(key, (rowCounts.get(key) ?? 0) + 1);
+        }
+      }
+      // Merge row-counted sourcetypes that had no explicit count column
+      for (const [k, v] of rowCounts) if (!out.has(k)) out.set(k, v);
+      return out;
+    } catch (e) {
+      console.warn(`[DetectionMappings] inputlookup ${lookupName} failed, using baseline:`, (e as Error).message);
+      return out;
+    }
+  };
+
+  const [mitre, lantern] = await Promise.all([
+    readLookup('sourcetype_attack_mapping.csv'),
+    readLookup('sourcetype_lantern_mapping.csv'),
+  ]);
+  return { mitre, lantern };
+}
+
+function matchFromMap(map: Map<string, number>, key: string): number | undefined {
+  if (map.has(key)) return map.get(key);
+  for (const [pattern, count] of map) {
+    if (key.startsWith(pattern) || pattern.startsWith(key)) return count;
+  }
+  return undefined;
+}
+
+function lookupMitre(index: string, sourcetype: string | null, live?: Map<string, number>): number {
   const key = (sourcetype || index).toLowerCase().trim();
+  // Live Splunk lookup wins when present
+  if (live && live.size > 0) {
+    const m = matchFromMap(live, key);
+    if (m !== undefined) return m;
+  }
   // Exact match first
   if (MITRE_BASELINE[key] !== undefined) return MITRE_BASELINE[key];
   // Prefix match
@@ -327,8 +528,12 @@ function lookupMitre(index: string, sourcetype: string | null): number {
   return 0;
 }
 
-function lookupLantern(index: string, sourcetype: string | null): number {
+function lookupLantern(index: string, sourcetype: string | null, live?: Map<string, number>): number {
   const key = (sourcetype || index).toLowerCase().trim();
+  if (live && live.size > 0) {
+    const l = matchFromMap(live, key);
+    if (l !== undefined) return l;
+  }
   if (LANTERN_BASELINE[key] !== undefined) return LANTERN_BASELINE[key];
   for (const [pattern, count] of Object.entries(LANTERN_BASELINE)) {
     if (key.startsWith(pattern) || pattern.startsWith(key)) return count;
@@ -377,15 +582,16 @@ export function buildUtilizationInputs(
  */
 export function buildDetectionInputs(
   indexMeta: RawIndexMeta[],
-  koInventory: KnowledgeObjectCounts[]
+  koInventory: KnowledgeObjectCounts[],
+  mappings: DetectionMappings = EMPTY_MAPPINGS
 ): DetectionInputs[] {
   const koMap = new Map(koInventory.map(k => [k.index, k]));
 
   return indexMeta.map(meta => ({
     index:              meta.index,
     sourcetype:         meta.sourcetype,
-    mitreTechniqueCount: lookupMitre(meta.index, meta.sourcetype),
-    lanternUsecaseCount: lookupLantern(meta.index, meta.sourcetype),
+    mitreTechniqueCount: lookupMitre(meta.index, meta.sourcetype, mappings.mitre),
+    lanternUsecaseCount: lookupLantern(meta.index, meta.sourcetype, mappings.lantern),
     activeAlertCount:   koMap.get(meta.index)?.alertCount ?? 0,
   }));
 }
@@ -415,7 +621,7 @@ export function buildQualityInputs(
 // ─── Legacy stubs (preserved for backward compatibility) ─────────────────────
 
 export async function queryFieldUsage(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   lookbackDays: number = 30
 ): Promise<FieldUsageResult[]> {
   console.warn('[FieldUsage] Not yet implemented — requires TA CSV');
@@ -423,7 +629,7 @@ export async function queryFieldUsage(
 }
 
 export async function querySecurityCoverage(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   lookbackDays: number = 30
 ): Promise<SecurityCoverageResult[]> {
   console.warn('[SecurityCoverage] Using MITRE baseline lookup table');
@@ -431,7 +637,7 @@ export async function querySecurityCoverage(
 }
 
 export async function queryDataQualityMetrics(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   lookbackDays: number = 30
 ): Promise<QualityHotspotResult[]> {
   console.warn('[QualityHotspots] Not yet implemented — requires TA CSV');

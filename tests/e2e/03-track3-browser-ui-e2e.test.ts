@@ -111,6 +111,9 @@ test.describe('Track 3: Browser UI/UX Full E2E', () => {
 
   test('decision history uses db-backed api, not stub', async ({ page }) => {
     await login(page, BASE_URL);
+    // Wait for the page to stabilise before evaluating so the fetch
+    // isn't aborted by an in-flight navigation triggered by the dashboard load.
+    await page.waitForLoadState('domcontentloaded');
 
     const response = await page.evaluate(async () => {
       const res = await fetch('/api/decision-history', {

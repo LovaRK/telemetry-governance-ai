@@ -59,8 +59,8 @@ describe('Integration (live Splunk): governance failure publish isolation', () =
         [runA, snapshotA, tenantId]
       );
       await pool.query(
-        `INSERT INTO tenant_snapshot_pointer (tenant_id, active_run_id, active_snapshot_id, updated_at)
-         VALUES ($1,$2,$3,NOW())`,
+        `INSERT INTO tenant_snapshot_pointer (tenant_id, snapshot_source, active_run_id, active_snapshot_id, updated_at)
+         VALUES ($1,'splunk_live',$2,$3,NOW())`,
         [tenantId, runA, snapshotA]
       );
       const publishedBefore = await pool.query<{ run_id: string; snapshot_id: string; published_at: string }>(
@@ -193,7 +193,7 @@ describe('Integration (live Splunk): governance failure publish isolation', () =
         `INSERT INTO active_model_pointer
          (tenant_id, model_id, prompt_id, current_promotion_id, decision_contract_version, config_version, updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,NOW())
-         ON CONFLICT (tenant_id) DO UPDATE SET
+         ON CONFLICT (tenant_id, snapshot_source) DO UPDATE SET
            model_id = EXCLUDED.model_id,
            prompt_id = EXCLUDED.prompt_id,
            current_promotion_id = EXCLUDED.current_promotion_id,

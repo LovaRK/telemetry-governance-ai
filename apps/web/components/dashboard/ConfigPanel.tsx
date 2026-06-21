@@ -2,7 +2,7 @@
 import { apiFetch } from '../../lib/api-client';
 
 import React, { useState, useEffect } from 'react';
-import type { UserConfig } from '../../app/api/config/route';
+import type { TenantRuntimeConfig as UserConfig } from '../../app/api/config/route';
 
 interface ConfigPanelProps {
   isOpen: boolean;
@@ -17,7 +17,7 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
   const [formState, setFormState] = useState({
-    costPerGbPerDay: 0.5,
+    costPerGbPerDay: 10.0,  // $3,650/GB/year default
     maxIndexesPerRun: 1000,
     llmTimeoutMs: 30000,
   });
@@ -39,7 +39,7 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
       const data = responseBody?.data ?? responseBody;
       setConfig(data);
       setFormState({
-        costPerGbPerDay: Number(data?.costPerGbPerDay ?? 0.5),
+        costPerGbPerDay: Number(data?.costPerGbPerDay ?? 10.0),
         maxIndexesPerRun: Number(data?.maxIndexesPerRun ?? 1000),
         llmTimeoutMs: Number(data?.llmTimeoutMs ?? 30000),
       });
@@ -74,7 +74,7 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
   };
 
   if (!isOpen) return null;
-  const costPerGbPerDay = Number(formState.costPerGbPerDay ?? 0.5);
+  const costPerGbPerDay = Number(formState.costPerGbPerDay ?? 10.0);
   const llmTimeoutMs = Number(formState.llmTimeoutMs ?? 30000);
 
   return (
@@ -153,31 +153,31 @@ export default function ConfigPanel({ isOpen, onClose }: ConfigPanelProps) {
           </div>
         ) : (
           <>
-            {/* Cost Per GB/Day */}
+            {/* Cost Per GB/Year */}
             <div style={{ marginBottom: '1.5rem' }}>
               <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '0.5rem' }}>
-                License Cost ($/GB/day)
+                Annual License Cost ($/GB/year)
               </label>
               <input
-                type="range"
-                min="0.1"
-                max="2"
-                step="0.05"
-                value={costPerGbPerDay}
+                type="number"
+                min="1"
+                max="100000"
+                step="100"
+                value={Math.round(costPerGbPerDay * 365)}
                 onChange={(e) =>
                   setFormState((prev) => ({
                     ...prev,
-                    costPerGbPerDay: parseFloat(e.target.value),
+                    costPerGbPerDay: parseFloat(e.target.value) / 365,
                   }))
                 }
-                style={{ width: '100%', marginBottom: '0.5rem' }}
+                style={{
+                  width: '100%', padding: '0.5rem',
+                  backgroundColor: '#1e293b', border: '1px solid #334155',
+                  borderRadius: 4, color: '#e2e8f0', fontSize: '0.875rem',
+                }}
               />
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#94a3b8' }}>
-                <span>$0.10</span>
-                <span style={{ fontWeight: 600, color: '#3b82f6' }}>
-                  ${costPerGbPerDay.toFixed(2)}
-                </span>
-                <span>$2.00</span>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+                Default: $3,650/GB/year (Splunk Enterprise legacy rate) ≈ ${costPerGbPerDay.toFixed(2)}/day
               </div>
             </div>
 

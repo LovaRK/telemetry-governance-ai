@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useLayoutEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { apiFetch } from '../lib/api-client';
+import { fmt$ } from './dashboard/executive-overview/utils';
 
 interface KPIHistoryPoint {
   date: string;
@@ -49,16 +50,11 @@ export default function KPITrendChart({
 
     const measureWidth = () => {
       const width = containerRef.current?.offsetWidth || 0;
-      console.log(`[${metric}] Width measurement: offsetWidth=${width}, display=${window.getComputedStyle(containerRef.current!).display}`);
-      if (width > 0) {
-        setContainerWidth(width);
-      }
+      if (width > 0) setContainerWidth(width);
     };
 
-    // Measure immediately
     measureWidth();
 
-    // Also set up resize observer for dynamic resizing
     const resizeObserver = new ResizeObserver(measureWidth);
     resizeObserver.observe(containerRef.current);
 
@@ -96,7 +92,7 @@ export default function KPITrendChart({
     switch (metric) {
       case 'roi':        return { key: 'roiScore',                name: 'ROI Score',                  color: '#10b981', yAxisDomain: [0, 100] as [number,number] };
       case 'gainscope':  return { key: 'gainScopeScore',          name: 'GainScope Score',            color: '#3b82f6', yAxisDomain: [0, 100] as [number,number] };
-      case 'savings':    return { key: 'storageSavingsPotential', name: 'Storage Savings ($)',        color: '#8b5cf6', yAxisDomain: 'auto' as const, formatter: (v: number) => `$${(v/1000).toFixed(0)}k` };
+      case 'savings':    return { key: 'storageSavingsPotential', name: 'Storage Savings ($)',        color: '#8b5cf6', yAxisDomain: 'auto' as const, formatter: (v: number) => fmt$(v) };
       case 'ingest':     return { key: 'totalDailyGb',            name: 'Daily Ingest (GB)',          color: '#f59e0b', yAxisDomain: 'auto' as const, formatter: (v: number) => `${v.toFixed(1)}GB` };
       case 'utilization':return { key: 'avgUtilization',          name: 'Avg Utilization',            color: '#06b6d4', yAxisDomain: [0, 100] as [number,number], formatter: (v: number) => `${v.toFixed(0)}%` };
       case 'quality':    return { key: 'avgQuality',              name: 'Avg Quality Score',          color: '#ec4899', yAxisDomain: [0, 100] as [number,number], formatter: (v: number) => `${v.toFixed(0)}%` };
@@ -128,16 +124,10 @@ export default function KPITrendChart({
     const val = point[config.key as keyof KPIHistoryPoint] as number;
     const display = config.formatter ? config.formatter(val) : val.toFixed(1);
     return (
-      <div style={{ height, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+      <div style={{ height, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
         <div style={{ fontSize: '2.5rem', fontWeight: 800, color: config.color }}>{display}</div>
         <div style={{ fontSize: '0.72rem', color: '#64748b', textAlign: 'center' }}>
-          Current snapshot · {new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-        </div>
-        <div style={{ fontSize: '0.65rem', color: '#475569', textAlign: 'center' }}>
-          Selected period: last {days} days
-        </div>
-        <div style={{ fontSize: '0.65rem', color: '#f59e0b', textAlign: 'center', fontWeight: 600 }}>
-          Insufficient history (need at least 2 snapshots)
+          {new Date(point.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
         </div>
       </div>
     );
@@ -174,12 +164,6 @@ export default function KPITrendChart({
       [config.key]: point[config.key as keyof KPIHistoryPoint] as number,
     };
   });
-
-  // DIAGNOSTIC: Log data transformation pipeline
-  console.log(`[${metric}] API→Chart transform: ${data.length}→${uniqueByDate.size}→${chartData.length} | CHARTDATA:${JSON.stringify(chartData)} | yDomain:${JSON.stringify(config.yAxisDomain)} | stroke:${config.color}`);
-
-  // DIAGNOSTIC: Debug chart rendering
-  console.log(`[${metric}] Rendering chart: height=${height}, chartData=${chartData.length} points, dataKey=${config.key}`);
 
   return (
     <div style={{ width: '100%' }}>

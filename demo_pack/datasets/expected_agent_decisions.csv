@@ -1,7 +1,0 @@
-sourcetype,decision,confidence,estimated_savings,reason
-WinEventLog,KEEP,0.95,0,High security relevance
-docker:container,OPTIMIZE,0.82,5000,Retention too long
-debug_logs,ELIMINATE,0.91,18000,Minimal searches and alerts
-fortigate_traffic,APPROVAL_REQUIRED,0.76,12000,Security impact exists
-o365:management:activity,KEEP,0.96,0,Compliance critical
-tutorial_index,ELIMINATE,0.99,3500,Unused telemetry

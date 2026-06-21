@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "curl",
+      "runtimeArgs": ["-s", "http://localhost:3002/api/health"],
+      "port": 3002,
+      "autoPort": false
+    }
+  ]
+}

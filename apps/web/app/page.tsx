@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import TopAppBar from '../components/layout/TopAppBar';
 import ExecutiveOverview from '../components/dashboard/ExecutiveOverview';
+import FilterBar from '../components/FilterBar';
 import AgentIntelligencePanel from '../components/dashboard/AgentIntelligencePanel';
 import SourceIntelligenceGrid from '../components/dashboard/SourceIntelligenceGrid';
 import ConnectionGatedUI from '../components/shared/ConnectionGatedUI';
@@ -191,9 +192,9 @@ function Home() {
         const nextKpis = summaryData.kpis;
         if (prevKpis && nextKpis) {
           const diffs: Array<{ label: string; before: number; after: number }> = [];
-          const collect = (label: string, before: number, after: number) => {
+          const collect = (label: string, before: number | null, after: number | null) => {
             if (Number.isFinite(before) && Number.isFinite(after) && before !== after) {
-              diffs.push({ label, before, after });
+              diffs.push({ label, before: before!, after: after! });
             }
           };
           collect('ROI', prevKpis.roiScore, nextKpis.roiScore);
@@ -266,7 +267,7 @@ function Home() {
       return;
     }
 
-    if (state.executiveSummary?.snapshots?.length > 0 || (state.executiveSummary as any)?.empty === true) {
+    if ((state.executiveSummary?.snapshots?.length ?? 0) > 0 || (state.executiveSummary as any)?.empty === true) {
       setSummary(state.executiveSummary as ExecutiveSummary);
       setKpiExplain(state.explainability.records || []);
       setExplainabilityCoverage(state.explainability.coverage || null);
@@ -543,7 +544,7 @@ function Home() {
 
   // While snapshot is ready but AI is still running, keep syncing lifecycle from backend.
   // Use smart polling: 3s while RUNNING, 60s while READY, pause when hidden
-  const shouldPollDashboard = cacheStatus && lifecycleSnapshotStatus === 'READY' && lifecycleLlmStatus === 'RUNNING';
+  const shouldPollDashboard = !!(cacheStatus && lifecycleSnapshotStatus === 'READY' && lifecycleLlmStatus === 'RUNNING');
   const dashboardPollCallback = useCallback(() => loadDashboardState(), []);
   useSmartPolling(
     dashboardPollCallback,
@@ -564,9 +565,9 @@ function Home() {
   }, [activeJobId, pipelineEvents, pipelineRun]);
 
   // Check if form has required fields filled for initial connection
-  const hasFormValidation = formData.mcp_url && (
+  const hasFormValidation = !!(formData.mcp_url && (
     formData.auth_type === 'token' ? formData.token : (formData.username && formData.password)
-  );
+  ));
 
   const canRefresh = splunkConfigLoaded && (splunkConfigured || cacheStatus?.pipelineStatus === 'READY' || hasFormValidation);
 
@@ -838,6 +839,7 @@ function Home() {
               </div>
             )}
             <button onClick={handleRefresh} disabled={refreshing || !canRefresh}
+              title={!canRefresh ? 'Please enter Splunk connection details above first' : 'Connect to Splunk → Fetch data → Calculate metrics → Run LLM → Update dashboard'}
               style={{ padding: '0.75rem', background: refreshing ? '#1e293b' : '#3b82f6', color: refreshing ? '#64748b' : '#fff', border: 'none', borderRadius: 8, cursor: refreshing || !canRefresh ? 'not-allowed' : 'pointer', fontSize: '0.875rem', fontWeight: 600, opacity: !canRefresh ? 0.5 : 1 }}>
               {refreshing ? '⟳ Running LLM pipeline… (up to 5 min)' : '↺ Connect & Refresh'}
             </button>
@@ -905,7 +907,7 @@ function Home() {
             </div>
             {refreshing && <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Running LLM pipeline…</span>}
             <button onClick={handleRefresh} disabled={refreshing || !canRefresh}
-              title={!canRefresh ? 'Splunk configuration is not saved in Settings yet.' : 'Fetch latest live data from Splunk'}
+              title={!canRefresh ? 'Splunk configuration is not saved in Settings yet.' : 'Refresh: Fetch latest Splunk data → Recalculate metrics → Run LLM recommendations → Update dashboard (2–10 min)'}
               style={{ padding: '0.375rem 0.875rem', background: (refreshing || !canRefresh) ? '#1e293b' : '#3b82f6', color: (refreshing || !canRefresh) ? '#64748b' : '#fff', border: 'none', borderRadius: 6, cursor: refreshing || !canRefresh ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: 600, opacity: canRefresh ? 1 : 0.65 }}>
               {refreshing ? '⟳ Fetching…' : '↺ Refresh'}
             </button>
@@ -942,8 +944,8 @@ function Home() {
         )}
 
         {intelligenceFailed && (
-          <div style={alertStyle('#ef4444')}>
-            ⚠ Snapshot ready · Intelligence failed. Re-run refresh to regenerate LLM decisions.
+          <div style={alertStyle('#f59e0b')}>
+            ⚠ AI recommendations unavailable. Data refresh completed successfully — KPIs and scores are accurate. To enable AI recommendations, configure an AI provider in <strong>Settings → AI</strong>.
           </div>
         )}
 
@@ -953,11 +955,11 @@ function Home() {
           </div>
         )}
 
-        {cacheStatus?.hasEverRefreshed && (
+        {cacheStatus?.hasEverRefreshed && process.env.NEXT_PUBLIC_SHOW_AI_DEBUG === 'true' && (
           <div style={{ ...alertStyle('#334155'), borderColor: '#1e293b', background: '#0b1220' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
               <div style={{ fontSize: '0.78rem', color: '#cbd5e1' }}>
-                AI Debug: live backend pipeline state and logs (always visible for local debugging).
+                AI Debug: live backend pipeline state and logs.
               </div>
               <button
                 onClick={captureAiDebug}
@@ -1208,6 +1210,12 @@ function Home() {
                 <a href="/detail" style={{ padding: '0.5rem 1.25rem', background: 'transparent', color: '#334155', border: '1px solid #1e293b', borderRadius: 8, fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                   Enhanced Viz ↗
                 </a>
+                <a href="/storage-cost" style={{ padding: '0.5rem 1.25rem', background: 'transparent', color: '#334155', border: '1px solid #1e293b', borderRadius: 8, fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  Storage Cost ↗
+                </a>
+                <a href="/settings" style={{ padding: '0.5rem 1.25rem', background: 'transparent', color: '#334155', border: '1px solid #1e293b', borderRadius: 8, fontSize: '0.8rem', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  ⚙ Settings
+                </a>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -1255,6 +1263,7 @@ function Home() {
 
             {activeTab === 'overview' && (
               <>
+                <FilterBar />
                 <AgentIntelligencePanel snapshots={summary.snapshots} kpis={summary.kpis} hasAgentDecisions={hasAgentDecisions} />
               <ExecutiveOverview summary={summary} hasAgentDecisions={hasAgentDecisions} explainabilityEnabled={showExplainabilityPanel} />
                 {hasAgentDecisions && summary.decisions && summary.decisions.length > 0 && (
@@ -1290,13 +1299,13 @@ function Home() {
                   <ModelHealthMonitor />
                 </div>
                 <div>
-                  <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '1rem' }}>Queue Health</h3>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '1rem' }}>Pipeline Telemetry</h3>
                   <QueueHealthMetrics />
                 </div>
-                <div>
-                  <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '1rem' }}>Decision Review Queue</h3>
-                  <DecisionReviewQueue />
-                </div>
+                {/* HIDDEN: Decision Review Queue pending verification
+                    Needs: workflow validation, backing table identification, trigger documentation.
+                    Show: only after verification that this is production-ready.
+                */}
               </div>
             )}
           </>

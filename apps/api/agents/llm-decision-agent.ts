@@ -32,6 +32,12 @@
 import { LLMRouter } from '../../../agents/reasoning/llm-router';
 import { UserConfig } from '../services/config-service';
 import type { ScoredSourcetype } from '../services/deterministic-scoring-engine';
+import {
+  AIProviderStateMachine,
+  AIProviderMode,
+  AIProviderState,
+  createAIProviderStateMachine,
+} from '../services/ai-provider-state-machine';
 
 export interface RawTelemetryInput {
   index: string;
@@ -327,6 +333,101 @@ function applyDefaults(decisions: any[], inputs: RawTelemetryInput[], config: Us
   });
 }
 
+/**
+ * Build a partial response from pre-computed scores when AI is unavailable.
+ * This allows the dashboard to display deterministic scores even if LLM reasoning fails.
+ */
+function buildPartialResponseFromPrecomputedScores(
+  inputs: RawTelemetryInput[],
+  config: UserConfig
+): AgentDecisionSummary {
+  const decisions: LLMDecision[] = inputs.map((input) => {
+    const annualCost = Math.round(input.dailyAvgGb * 365 * config.costPerGbPerDay * 100) / 100;
+    const scores = input.precomputedScores || {
+      utilizationScore: 0,
+      detectionScore: 0,
+      qualityScore: 100,
+      compositeScore: 0,
+      tier: 'Low-Value',
+      detectionGap: false,
+      operationalGap: false,
+    };
+
+    // Determine default action based on tier
+    let action: 'KEEP' | 'OPTIMIZE' | 'ARCHIVE' | 'ELIMINATE' | 'S3_CANDIDATE' = 'KEEP';
+    if (scores.compositeScore >= 65) {
+      action = 'KEEP';
+    } else if (scores.compositeScore >= 40) {
+      action = 'KEEP';
+    } else if (scores.compositeScore >= 20) {
+      action = 'OPTIMIZE';
+    } else {
+      action = 'ELIMINATE';
+    }
+
+    return {
+      index: input.index,
+      sourcetype: input.sourcetype,
+      tier: (scores.tier as 'Critical' | 'Important' | 'Nice-to-Have' | 'Low-Value') || 'Low-Value',
+      action,
+      compositeScore: scores.compositeScore,
+      utilizationScore: scores.utilizationScore,
+      detectionScore: scores.detectionScore,
+      qualityScore: scores.qualityScore,
+      riskScore: 100 - scores.compositeScore,
+      annualLicenseCost: annualCost,
+      estimatedSavings: 0, // No LLM reasoning, so cannot estimate savings
+      confidence: 'LOW' as const,
+      confidenceScore: 0.5,
+      recommendation: 'Data available but AI reasoning unavailable.',
+      reasoning: 'Scores are pre-computed deterministically. LLM reasoning is temporarily unavailable.',
+      evidence: [],
+      isQuickWin: false,
+      isS3Candidate: false,
+      detectionGap: scores.detectionGap,
+    };
+  });
+
+  // Aggregate metrics
+  const totalLicenseSpend = decisions.reduce((s, d) => s + d.annualLicenseCost, 0);
+  const lowValueSpend = decisions
+    .filter((d) => d.tier === 'Low-Value')
+    .reduce((s, d) => s + d.annualLicenseCost, 0);
+
+  const tierCounts = {
+    critical: decisions.filter((d) => d.tier === 'Critical').length,
+    important: decisions.filter((d) => d.tier === 'Important').length,
+    niceToHave: decisions.filter((d) => d.tier === 'Nice-to-Have').length,
+    lowValue: decisions.filter((d) => d.tier === 'Low-Value').length,
+  };
+
+  const n = decisions.length || 1;
+  const avgUtil = decisions.reduce((s, d) => s + d.utilizationScore, 0) / n;
+  const avgDet = decisions.reduce((s, d) => s + d.detectionScore, 0) / n;
+  const avgQual = decisions.reduce((s, d) => s + d.qualityScore, 0) / n;
+
+  return {
+    decisions,
+    roiScore: avgUtil, // Use avg utilization as proxy for ROI
+    gainScopeScore: (tierCounts.critical + tierCounts.important) / n * 100,
+    totalLicenseSpend,
+    licenseSpendLowValue: lowValueSpend,
+    storageSavingsPotential: lowValueSpend * 0.5,
+    totalDailyGb: inputs.reduce((s, i) => s + i.dailyAvgGb, 0),
+    totalSourcetypes: inputs.length,
+    tierCounts,
+    securityGaps: 0,
+    operationalGaps: 0,
+    avgUtilization: avgUtil,
+    avgDetection: avgDet,
+    avgQuality: avgQual,
+    avgConfidence: 0.5,
+    quickWins: [],
+    savingsStaircase: [],
+    agentReasoning: 'AI recommendation engine is temporarily unavailable. Displaying pre-computed deterministic scores only.',
+  };
+}
+
 export async function runLLMDecisionAgent(
   inputs: RawTelemetryInput[],
   config: UserConfig,
@@ -336,12 +437,38 @@ export async function runLLMDecisionAgent(
     throw new Error('No telemetry inputs provided to LLM decision agent');
   }
 
+  // Initialize AI Provider State Machine
+  const stateMachine = createAIProviderStateMachine();
   const router = new LLMRouter();
 
-  const healthy = await router.isHealthy();
-  if (!healthy) {
-    throw new Error('No local LLM available: Ollama is not running. Dashboard unavailable. Start Ollama. Anthropic is optional and only used when explicitly enabled in settings.');
+  // Check Ollama health
+  const ollamaHealthy = await router.isHealthy();
+
+  // Check Anthropic API key availability
+  const anthropicKeyExists = !!process.env.ANTHROPIC_API_KEY;
+
+  // Decide which provider to use based on mode and availability
+  const decision = await stateMachine.decideProvider(ollamaHealthy, anthropicKeyExists);
+
+  // Handle provider decision outcomes
+  if (decision.state === AIProviderState.FAILED) {
+    // Critical failure: no provider available and no fallback
+    throw new Error(stateMachine.getCustomerMessage(decision));
   }
+
+  if (decision.state === AIProviderState.PARTIAL) {
+    // Partial state: Data computed successfully, but AI is unavailable
+    // Return pre-computed scores from inputs without LLM reasoning
+    console.log('[LLMDecisionAgent] PARTIAL state: LLM unavailable, returning pre-computed scores');
+    return buildPartialResponseFromPrecomputedScores(inputs, config);
+  }
+
+  // READY or RUNNING state: proceed with LLM decision making
+  if (decision.state !== AIProviderState.READY) {
+    throw new Error(`Unexpected provider state: ${decision.state}`);
+  }
+
+  console.log(`[LLMDecisionAgent] Using provider: ${decision.provider}`);
 
   const BATCH_SIZE = 1; // Reduced from 5 for local Ollama memory constraint (gemma2:9b is 5.4GB + batch overhead)
   // Keep local-demo feedback loop fast: fail the batch quickly instead of

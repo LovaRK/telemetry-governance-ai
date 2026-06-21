@@ -14,7 +14,7 @@ export const GET = createRoute(async (request: Request) => {
     `SELECT
       ddh.index_name,
       ddh.drift_severity as drift_status,
-      ddh.drift_confidence_penalty as severity_score,
+      NULL::numeric as severity_score,
       ddh.drift_reason,
       ddh.evaluated_at,
       ad.confidence_score,

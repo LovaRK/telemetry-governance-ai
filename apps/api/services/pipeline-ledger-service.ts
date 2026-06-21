@@ -349,24 +349,41 @@ export async function markRunFailed(runId: string, errorMessage: string): Promis
   await query(`UPDATE pipeline_runs SET status = 'FAILED', published = false, error_message = $2, idempotency_hash = NULL WHERE run_id = $1`, [runId, errorMessage]);
 }
 
-export async function publishRunAtomic(params: { runId: string; snapshotId: string; tenantId: string }): Promise<void> {
+export async function publishRunAtomic(params: {
+  runId: string;
+  snapshotId: string;
+  tenantId: string;
+  snapshotSource?: 'splunk_live' | 'csv_analytics'; // default: splunk_live
+}): Promise<void> {
+  const source = params.snapshotSource ?? 'splunk_live';
   const client = await getClient();
   try {
     await client.query('BEGIN');
-    const pointerRes = await client.query<any>(`SELECT active_run_id FROM tenant_snapshot_pointer WHERE tenant_id = $1 FOR UPDATE`, [params.tenantId]);
+    // Lock only this source's row — does not touch the other pipeline's pointer
+    const pointerRes = await client.query<any>(
+      `SELECT active_run_id FROM tenant_snapshot_pointer
+       WHERE tenant_id = $1 AND snapshot_source = $2 FOR UPDATE`,
+      [params.tenantId, source]
+    );
     if (pointerRes.rows.length > 0) {
       const previousRunId = pointerRes.rows[0].active_run_id;
-      await client.query(`UPDATE pipeline_runs SET superseded_by_run_id = $1 WHERE run_id = $2`, [params.runId, previousRunId]);
+      await client.query(
+        `UPDATE pipeline_runs SET superseded_by_run_id = $1 WHERE run_id = $2`,
+        [params.runId, previousRunId]
+      );
     }
-    await client.query(`UPDATE pipeline_runs SET status = 'SUCCEEDED', published = true, published_at = NOW(), idempotency_hash = NULL WHERE run_id = $1`, [params.runId]);
     await client.query(
-      `INSERT INTO tenant_snapshot_pointer (tenant_id, active_run_id, active_snapshot_id, updated_at)
-       VALUES ($1,$2,$3,NOW())
-       ON CONFLICT (tenant_id) DO UPDATE
-       SET active_run_id = EXCLUDED.active_run_id,
+      `UPDATE pipeline_runs SET status = 'SUCCEEDED', published = true, published_at = NOW(), idempotency_hash = NULL WHERE run_id = $1`,
+      [params.runId]
+    );
+    await client.query(
+      `INSERT INTO tenant_snapshot_pointer (tenant_id, snapshot_source, active_run_id, active_snapshot_id, updated_at)
+       VALUES ($1,$2,$3,$4,NOW())
+       ON CONFLICT (tenant_id, snapshot_source) DO UPDATE
+       SET active_run_id      = EXCLUDED.active_run_id,
            active_snapshot_id = EXCLUDED.active_snapshot_id,
-           updated_at = EXCLUDED.updated_at`,
-      [params.tenantId, params.runId, params.snapshotId]
+           updated_at         = EXCLUDED.updated_at`,
+      [params.tenantId, source, params.runId, params.snapshotId]
     );
     await client.query('COMMIT');
   } catch (error) {
@@ -378,7 +395,12 @@ export async function publishRunAtomic(params: { runId: string; snapshotId: stri
 }
 
 export async function getLatestPublishedRun(tenantId: string): Promise<PipelineRunRecord | null> {
-  const pointer = await query<any>(`SELECT p.active_run_id FROM tenant_snapshot_pointer p WHERE p.tenant_id = $1`, [tenantId]);
+  // Reads splunk_live (worker's output) — used by worker itself for internal checks
+  const pointer = await query<any>(
+    `SELECT p.active_run_id FROM tenant_snapshot_pointer p
+     WHERE p.tenant_id = $1 AND p.snapshot_source = 'splunk_live'`,
+    [tenantId]
+  );
   if (pointer.rows.length === 0) return null;
   const run = await query<any>(
     `SELECT run_id as "runId", snapshot_id as "snapshotId", tenant_id as "tenantId", status, published,

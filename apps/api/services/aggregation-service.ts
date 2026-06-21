@@ -1,9 +1,9 @@
 import { PoolClient } from 'pg';
-import { SplunkClient } from './splunk-client';
+import { SplunkClient, SplunkDataSource } from './splunk-client';
 import { runLLMDecisionAgent, RawTelemetryInput, LLMDecision } from '../agents/llm-decision-agent';
 import { loadUserConfig } from './config-service';
 import { RequestContext } from '@packages/auth/request-context';
-import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics, querySavedSearchInventory, queryParsingErrors, buildUtilizationInputs, buildDetectionInputs, buildQualityInputs } from './splunk-queries-service';
+import { queryFieldUsage, querySecurityCoverage, queryDataQualityMetrics, querySavedSearchInventory, queryParsingErrors, queryAdhocUsage, queryDetectionMappings, buildUtilizationInputs, buildDetectionInputs, buildQualityInputs } from './splunk-queries-service';
 import {
   computeUtilizationScores,
   computeDetectionScores,
@@ -28,11 +28,70 @@ import { recordDriftEvent, recordCleanSnapshot } from './confidence-recovery-ser
 import { getRiskWeightedSamplingService } from './risk-weighted-sampling-service';
 import { enqueueReanalysisJob } from './reanalysis-budget-service';
 import { query, transaction } from '../../../core/database/connection';
+import * as crypto from 'crypto';
+import { SCORING_VERSION } from '../../../packages/core/engine/scoring/composite';
+import { applyMinimumActivityGate } from '../../../packages/core/engine/scoring/composite';
 import { enqueueJob } from './job-service';
 import { applyGuardrailsToBatch } from './llm-output-guardrails';
 import { buildSnapshotHash, buildSourceHash } from './pipeline-hash-service';
 import { v4 as uuidv4 } from 'uuid';
-import crypto from 'crypto';
+import { mkdirSync, writeFileSync } from 'fs';
+import * as path from 'path';
+
+/** Methodology/release tag stamped on every snapshot row and audit artifact. */
+export const FORMULA_VERSION = process.env.FORMULA_VERSION || 'v1.0-handoff';
+
+/**
+ * B2.5 — Score Audit Artifact.
+ * One JSON file per pipeline run: raw inputs, weights, sub-scores, composite,
+ * tier for every index::sourcetype. When someone asks "why is the score 87?",
+ * this file is the proof: exact inputs → formula → output.
+ */
+function writeScoreAuditArtifact(
+  runId: string,
+  snapshotId: string,
+  scoring: DeterministicScoringResult
+): void {
+  try {
+    const dir = process.env.SCORE_AUDIT_DIR || path.join(process.cwd(), 'artifacts', 'score-audit');
+    mkdirSync(dir, { recursive: true });
+    const records = Array.from(scoring.scoredMap.entries()).map(([key, s]) => ({
+      key,
+      index: s.index,
+      sourcetype: s.sourcetype,
+      inputs: scoring.rawInputs.get(key) || null,
+      weights: scoring.weights,
+      scores: {
+        utilization: s.utilizationScore,
+        detection: s.detectionScore,
+        quality: s.qualityScore,
+        composite: s.compositeScore,
+      },
+      tier: s.tier,
+      detectionGap: s.detectionGap,
+      operationalGap: s.operationalGap,
+      dailyGb: s.dailyGb,
+      annualCostUsd: Math.round(s.annualCostUsd * 100) / 100,
+    }));
+    const artifact = {
+      runId,
+      snapshotId,
+      generatedAt: new Date().toISOString(),
+      scoringVersion: SCORING_VERSION,
+      formulaVersion: FORMULA_VERSION,
+      weights: scoring.weights,
+      portfolio: scoring.portfolio,
+      recordCount: records.length,
+      records,
+    };
+    const file = path.join(dir, `${runId}.json`);
+    writeFileSync(file, JSON.stringify(artifact, null, 2));
+    console.log(`[ScoreAudit] Wrote ${records.length} records → ${file}`);
+  } catch (e) {
+    // Audit artifact is evidence, not a pipeline dependency — never fail the run.
+    console.warn('[ScoreAudit] Failed to write artifact:', e instanceof Error ? e.message : e);
+  }
+}
 
 export interface FastAggregationResult {
   snapshotId: string;
@@ -66,8 +125,144 @@ const DEFAULT_CONFIG: AggregationConfig = {
 const SOURCETYPE_DRILLDOWN_GB = 0.1;
 const MAX_SOURCETYPE_INDEXES = 20;
 
+export interface DeterministicScoringResult {
+  scoredMap: Map<string, ScoredSourcetype>;
+  weights: ReturnType<typeof extractWeightsFromConfig>;
+  /** Raw scoring inputs per key — consumed by the score-audit artifact. */
+  rawInputs: Map<string, {
+    alertCount: number; scheduledSearchCount: number; dashboardPanelCount: number;
+    adHocSearchCount: number; distinctUserCount: number;
+    mitreTechniqueCount: number; lanternUsecaseCount: number; activeAlertCount: number;
+    weightedIssues: number; dailyGb: number;
+  }>;
+  portfolio: {
+    roiScore: number; gainScopePct: number; lowValueSpendUsd: number;
+    securityGapCount: number; operationalGapCount: number;
+  };
+}
+
+/**
+ * Deterministic Scoring (calc-guide formulas) for a set of pipeline inputs.
+ *
+ * Single source of truth for BOTH aggregation paths: pulls KO inventory and
+ * parsing errors from live Splunk, computes U/D/Q/composite/tier per
+ * index::sourcetype, and returns portfolio KPIs. The LLM never produces these
+ * numbers — it only reasons over them.
+ */
+export async function computeDeterministicScoresForInputs(
+  splunk: SplunkDataSource,
+  allInputs: RawTelemetryInput[],
+  userConfig: Awaited<ReturnType<typeof loadUserConfig>>,
+  costPerGbPerDay: number
+): Promise<DeterministicScoringResult> {
+  const weights = extractWeightsFromConfig(userConfig.decisionWeights || {});
+
+  const indexNames = Array.from(new Set(allInputs.map(i => i.index)));
+  const koInventory = await querySavedSearchInventory(splunk, indexNames).catch(e => {
+    console.warn('[Scoring] KO inventory unavailable, using zeros:', e.message);
+    return indexNames.map(idx => ({
+      key: `${idx}::_`, index: idx, sourcetype: null,
+      alertCount: 0, scheduledSearchCount: 0, dashboardPanelCount: 0,
+      adHocSearchCount: 0, distinctUserCount: 0,
+    }));
+  });
+
+  // B3: ad-hoc search + distinct-user signals from _audit (adhoc×1 + users×2
+  // in the utilization formula). Merged into the index-level KO records.
+  const adhocUsage = await queryAdhocUsage(splunk, indexNames, 7);
+  for (const ko of koInventory) {
+    const usage = adhocUsage.get(ko.index.toLowerCase());
+    if (usage) {
+      ko.adHocSearchCount = usage.adHocSearchCount;
+      ko.distinctUserCount = usage.distinctUserCount;
+    }
+  }
+
+  const rawMeta = allInputs.map(i => ({
+    index: i.index, sourcetype: i.sourcetype || null,
+    dailyAvgGb: i.dailyAvgGb, totalEvents: i.totalEvents, retentionDays: i.retentionDays,
+  }));
+
+  const parsingErrors = await queryParsingErrors(splunk, 7).catch(e => {
+    console.warn('[Scoring] Parsing error query failed, defaulting quality=100:', (e as Error).message);
+    return new Map<string, number>();
+  });
+
+  // Pull MITRE/Lantern mappings live from the customer's Splunk lookups (TA add-on).
+  // Empty on failure → buildDetectionInputs falls back to the built-in baseline.
+  const detectionMappings = await queryDetectionMappings(splunk).catch(e => {
+    console.warn('[Scoring] Detection mappings unavailable, using baseline:', (e as Error).message);
+    return { mitre: new Map<string, number>(), lantern: new Map<string, number>() };
+  });
+  if (detectionMappings.mitre.size > 0 || detectionMappings.lantern.size > 0) {
+    console.log(`[Scoring] Detection mappings from Splunk: ${detectionMappings.mitre.size} MITRE, ${detectionMappings.lantern.size} Lantern sourcetypes`);
+  }
+
+  const utilInputs = buildUtilizationInputs(rawMeta, koInventory);
+  const detInputs  = buildDetectionInputs(rawMeta, koInventory, detectionMappings);
+  const qualInputs = buildQualityInputs(rawMeta, parsingErrors);
+
+  const utilScores = computeUtilizationScores(utilInputs);
+  const detResults = computeDetectionScores(detInputs);
+
+  const scoredMap = new Map<string, ScoredSourcetype>();
+  const rawInputs: DeterministicScoringResult['rawInputs'] = new Map();
+
+  for (const inp of allInputs) {
+    const key       = `${inp.index}::${inp.sourcetype || '_'}`;
+    const utilScore = utilScores.get(key) ?? 0;
+    const detResult = detResults.get(key) ?? { score: 0, detectionGap: false, operationalGap: false };
+    const qualInp   = qualInputs.find(q => q.index === inp.index && (q.sourcetype || null) === (inp.sourcetype || null));
+    const qualScore = qualInp ? computeQualityScore(qualInp) : 100;
+    const composite = computeCompositeScore(utilScore, detResult.score, qualScore, weights);
+    const tier      = assignTier(composite);
+
+    scoredMap.set(key, {
+      index: inp.index, sourcetype: inp.sourcetype || null,
+      utilizationScore: utilScore,
+      detectionScore: detResult.score,
+      qualityScore: qualScore,
+      compositeScore: composite,
+      tier,
+      dailyGb: inp.dailyAvgGb,
+      annualCostUsd: inp.dailyAvgGb * 365 * costPerGbPerDay,
+      detectionGap: detResult.detectionGap,
+      operationalGap: detResult.operationalGap,
+    });
+
+    const u = utilInputs.find(x => x.index === inp.index && (x.sourcetype || null) === (inp.sourcetype || null));
+    const d = detInputs.find(x => x.index === inp.index && (x.sourcetype || null) === (inp.sourcetype || null));
+    rawInputs.set(key, {
+      alertCount: u?.alertCount ?? 0,
+      scheduledSearchCount: u?.scheduledSearchCount ?? 0,
+      dashboardPanelCount: u?.dashboardPanelCount ?? 0,
+      adHocSearchCount: u?.adHocSearchCount ?? 0,
+      distinctUserCount: u?.distinctUserCount ?? 0,
+      mitreTechniqueCount: d?.mitreTechniqueCount ?? 0,
+      lanternUsecaseCount: d?.lanternUsecaseCount ?? 0,
+      activeAlertCount: d?.activeAlertCount ?? 0,
+      weightedIssues: qualInp?.weightedIssues ?? 0,
+      dailyGb: inp.dailyAvgGb,
+    });
+  }
+
+  const allScored = Array.from(scoredMap.values());
+  return {
+    scoredMap,
+    weights,
+    rawInputs,
+    portfolio: {
+      roiScore: computeROIScore(allScored),
+      gainScopePct: computeGainScope(allScored),
+      lowValueSpendUsd: computeLowValueSpend(allScored),
+      securityGapCount: allScored.filter(s => s.detectionGap).length,
+      operationalGapCount: allScored.filter(s => s.operationalGap).length,
+    },
+  };
+}
+
 export async function runAggregation(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   ctx: RequestContext,
   config: AggregationConfig = DEFAULT_CONFIG
 ): Promise<AggregationResult> {
@@ -180,64 +375,9 @@ export async function runAggregation(
   // verified numbers rather than estimating from raw metadata.
   console.log(`[Aggregation] Running deterministic scoring engine...`);
 
-  const weights = extractWeightsFromConfig(userConfig.decisionWeights || {});
+  const scoring = await computeDeterministicScoresForInputs(splunk, allInputs, userConfig, costPerGbPerDay);
+  const { scoredMap, weights } = scoring;
   console.log(`[Aggregation] Score weights: util=${weights.utilization}, det=${weights.detection}, qual=${weights.quality}`);
-
-  // Fetch knowledge object inventory (alerts, scheduled searches, dashboards, users)
-  const indexNames = Array.from(new Set(allInputs.map(i => i.index)));
-  const koInventory = await querySavedSearchInventory(splunk, indexNames).catch(e => {
-    console.warn('[Aggregation] KO inventory unavailable, using zeros:', e.message);
-    return indexNames.map(idx => ({
-      key: `${idx}::_`, index: idx, sourcetype: null,
-      alertCount: 0, scheduledSearchCount: 0, dashboardPanelCount: 0,
-      adHocSearchCount: 0, distinctUserCount: 0,
-    }));
-  });
-
-  const rawMeta = allInputs.map(i => ({
-    index: i.index, sourcetype: i.sourcetype || null,
-    dailyAvgGb: i.dailyAvgGb, totalEvents: i.totalEvents, retentionDays: i.retentionDays,
-  }));
-
-  // Fetch real parsing error signals from Splunk _internal for quality scoring.
-  // Falls back to empty Map (quality=100) if _internal is inaccessible.
-  const parsingErrors = await queryParsingErrors(splunk, 7).catch(e => {
-    console.warn('[Aggregation] Parsing error query failed, defaulting quality=100:', (e as Error).message);
-    return new Map<string, number>();
-  });
-
-  const utilInputs  = buildUtilizationInputs(rawMeta, koInventory);
-  const detInputs   = buildDetectionInputs(rawMeta, koInventory);
-  const qualInputs  = buildQualityInputs(rawMeta, parsingErrors);
-
-  const utilScores  = computeUtilizationScores(utilInputs);
-  const detResults  = computeDetectionScores(detInputs);
-
-  // Build scored map for all inputs
-  const scoredMap = new Map<string, ScoredSourcetype>();
-  for (const inp of allInputs) {
-    const key       = `${inp.index}::${inp.sourcetype || '_'}`;
-    const utilScore = utilScores.get(key) ?? 0;
-    const detResult = detResults.get(key) ?? { score: 0, detectionGap: false, operationalGap: false };
-    const qualInp   = qualInputs.find(q => q.index === inp.index && (q.sourcetype || null) === (inp.sourcetype || null));
-    const qualScore = qualInp ? computeQualityScore(qualInp) : 100;
-    const composite = computeCompositeScore(utilScore, detResult.score, qualScore, weights);
-    const tier      = assignTier(composite);
-    const annualCost = inp.dailyAvgGb * 365 * costPerGbPerDay;
-
-    scoredMap.set(key, {
-      index: inp.index, sourcetype: inp.sourcetype || null,
-      utilizationScore: utilScore,
-      detectionScore: detResult.score,
-      qualityScore: qualScore,
-      compositeScore: composite,
-      tier,
-      dailyGb: inp.dailyAvgGb,
-      annualCostUsd: annualCost,
-      detectionGap: detResult.detectionGap,
-      operationalGap: detResult.operationalGap,
-    });
-  }
 
   // Inject pre-computed scores into inputs for LLM prompt context
   const allInputsWithScores: RawTelemetryInput[] = allInputs.map(inp => {
@@ -436,6 +576,68 @@ export async function runAggregation(
         ) / 10
       : 0;
 
+    // ── PHASE 3.3: TIER SPEND AGGREGATION ──────────────────────────────────────
+    // Aggregate annual_license_cost by tier from all scored sourcetypes
+    const tierSpend = {
+      tier1:     allScored.filter(s => s.tier === 'Critical').reduce((sum, s) => sum + s.annualCostUsd, 0),
+      tier2:     allScored.filter(s => s.tier === 'Important').reduce((sum, s) => sum + s.annualCostUsd, 0),
+      tier3:     allScored.filter(s => s.tier === 'Nice-to-Have').reduce((sum, s) => sum + s.annualCostUsd, 0),
+      tier4:     allScored.filter(s => s.tier === 'Low-Value').reduce((sum, s) => sum + s.annualCostUsd, 0),
+    };
+
+    const tierSpendTotal = tierSpend.tier1 + tierSpend.tier2 + tierSpend.tier3 + tierSpend.tier4;
+
+    // ── SNAPSHOT PROMOTION RULE (HARD REJECTION GATE) ──────────────────────────
+    // Reconciliation: tier spends must sum to total_license_spend (±0.01 tolerance)
+    const tierSpendDelta = Math.abs(tierSpendTotal - deterministicTotalLicenseSpend);
+    const tierSpendReconciled = tierSpendDelta <= 0.01;
+
+    if (!tierSpendReconciled) {
+      // HARD REJECTION: Invalid snapshot
+      console.error('[Aggregation] HARD REJECTION: Tier spend reconciliation failed', {
+        expected_total_license_spend: deterministicTotalLicenseSpend,
+        actual_tier_spend_sum: tierSpendTotal,
+        delta: tierSpendDelta,
+        tolerance: 0.01,
+        snapshot_id: snapshotId,
+        pipeline_run_id: SCORING_VERSION,
+      });
+
+      // Emit governance event for audit trail
+      try {
+        await client.query(
+          `INSERT INTO governance_events (
+            event_type, severity, snapshot_id, message, details, created_at
+          ) VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [
+            'reconciliation_failed',
+            'error',
+            snapshotId,
+            'Tier spend reconciliation failed - snapshot rejected',
+            JSON.stringify({
+              expected_total_license_spend: deterministicTotalLicenseSpend,
+              actual_tier_spend_sum: tierSpendTotal,
+              delta: tierSpendDelta,
+              tier_breakdown: tierSpend,
+            }),
+          ]
+        );
+      } catch (e) {
+        console.error('[Aggregation] Failed to emit governance event:', e);
+      }
+
+      // Return early - do NOT call upsertExecutiveKpis
+      // Previous valid snapshot remains in production
+      console.warn('[Aggregation] Keeping previous valid snapshot in production');
+      return {
+        snapshotId,
+        inserted,
+        errors: 1,
+        durationMs: Date.now() - start,
+        agentReasoning: `Snapshot rejected: tier spend reconciliation failed (delta=${tierSpendDelta.toFixed(2)} > 0.01)`,
+      };
+    }
+
     // Patch agentSummary tier counts and avg scores with deterministic values
     if (allScored.length > 0) {
       agentSummary.tierCounts    = deterministicTierCounts;
@@ -457,6 +659,16 @@ export async function runAggregation(
       tierImportant:       deterministicTierCounts.important,
       tierNiceToHave:      deterministicTierCounts.niceToHave,
       tierLowValue:        deterministicTierCounts.lowValue,
+      tier1SpendAnnual:    tierSpend.tier1,
+      tier2SpendAnnual:    tierSpend.tier2,
+      tier3SpendAnnual:    tierSpend.tier3,
+      tier4SpendAnnual:    tierSpend.tier4,
+      tier1Count:          deterministicTierCounts.critical,
+      tier2Count:          deterministicTierCounts.important,
+      tier3Count:          deterministicTierCounts.niceToHave,
+      tier4Count:          deterministicTierCounts.lowValue,
+      tierSpendReconciled: tierSpendReconciled,
+      tierSpendDelta:      tierSpendDelta,
       securityGaps:        securityGapCount,
       operationalGaps:     operationalGapCount,
       avgUtilization:      deterministicAvgUtil,
@@ -571,6 +783,66 @@ export async function runAggregation(
 }
 
 // Sanitize decision fields: ensure all numeric fields are actual numbers (not strings)
+/**
+ * Compute a deterministic SHA256 hash for a telemetry snapshot.
+ * Used to implement the immutability chain:
+ *   snapshot_hash = SHA256(canonical_fields)
+ *   previous_snapshot_hash = snapshot_hash of prior row for same index
+ *
+ * The hash covers the fields that define the snapshot's "identity":
+ * scores, tier, scoring version, and the index. NOT timestamps.
+ */
+function computeSnapshotHash(fields: {
+  index_name: string;
+  utilization_score: number;
+  detection_score: number;
+  quality_score: number;
+  composite_score: number;
+  scoring_version: string;
+  scoring_profile: string;
+  pipeline_run_id: string;
+}): string {
+  const canonical = {
+    composite_score: fields.composite_score,
+    detection_score: fields.detection_score,
+    index_name: fields.index_name,
+    pipeline_run_id: fields.pipeline_run_id,
+    quality_score: fields.quality_score,
+    scoring_profile: fields.scoring_profile,
+    scoring_version: fields.scoring_version,
+    utilization_score: fields.utilization_score,
+  };
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(canonical, Object.keys(canonical).sort()))
+    .digest('hex');
+}
+
+/**
+ * Get the most recent snapshot_hash for an index (for chain linking).
+ * Returns null if no prior snapshot exists.
+ */
+async function getPreviousSnapshotHash(
+  client: PoolClient,
+  indexName: string,
+  sourcetype: string | null
+): Promise<string | null> {
+  try {
+    const result = await client.query<{ snapshot_hash: string }>(
+      `SELECT snapshot_hash FROM telemetry_snapshots
+       WHERE index_name = $1 AND (sourcetype = $2 OR ($2 IS NULL AND sourcetype IS NULL))
+         AND snapshot_hash IS NOT NULL
+       ORDER BY snapshot_date DESC, updated_at DESC
+       LIMIT 1`,
+      [indexName, sourcetype]
+    );
+    return result.rows[0]?.snapshot_hash ?? null;
+  } catch {
+    // Non-critical: chain linking failure doesn't block snapshot persistence
+    return null;
+  }
+}
+
 function sanitizeDecision(d: LLMDecision): any {
   const confidenceMap: Record<string, number> = { 'HIGH': 0.9, 'MEDIUM': 0.5, 'LOW': 0.3 };
   return {
@@ -609,6 +881,30 @@ async function upsertDecision(
     S3_CANDIDATE: 'ARCHIVE',
   };
 
+  // Apply minimum activity gate (prevents "clean but useless" data escaping Low-Value tier)
+  const { gated: minimum_activity_gated } = applyMinimumActivityGate(
+    clean.compositeScore,
+    clean.utilizationScore,
+    clean.detectionScore
+  );
+
+  // Compute immutability chain
+  const previous_snapshot_hash = await getPreviousSnapshotHash(
+    client,
+    clean.index,
+    clean.sourcetype || null
+  );
+  const snapshot_hash = computeSnapshotHash({
+    index_name: clean.index,
+    utilization_score: clean.utilizationScore,
+    detection_score: clean.detectionScore,
+    quality_score: clean.qualityScore,
+    composite_score: clean.compositeScore,
+    scoring_version: SCORING_VERSION,
+    scoring_profile: 'balanced',  // TODO Phase 6: read from active profile
+    pipeline_run_id: snapshotId,
+  });
+
   await client.query(
     `
     INSERT INTO telemetry_snapshots (
@@ -616,21 +912,33 @@ async function upsertDecision(
       total_events, daily_avg_gb, retention_days,
       utilization_pct, cost_per_year, risk_score,
       classification, confidence, recommendation, evidence,
-      raw_metadata
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      raw_metadata,
+      scoring_version, scoring_profile, minimum_activity_gated,
+      weight_utilization, weight_detection, weight_quality,
+      snapshot_hash, previous_snapshot_hash
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+              $18,$19,$20,$21,$22,$23,$24,$25)
     ON CONFLICT (snapshot_date, granularity, index_name, sourcetype) DO UPDATE SET
-      snapshot_id     = EXCLUDED.snapshot_id,
-      total_events    = EXCLUDED.total_events,
-      daily_avg_gb    = EXCLUDED.daily_avg_gb,
-      retention_days  = EXCLUDED.retention_days,
-      cost_per_year   = EXCLUDED.cost_per_year,
-      risk_score      = EXCLUDED.risk_score,
-      classification  = EXCLUDED.classification,
-      confidence      = EXCLUDED.confidence,
-      recommendation  = EXCLUDED.recommendation,
-      evidence        = EXCLUDED.evidence,
-      raw_metadata    = EXCLUDED.raw_metadata,
-      updated_at      = NOW()
+      snapshot_id              = EXCLUDED.snapshot_id,
+      total_events             = EXCLUDED.total_events,
+      daily_avg_gb             = EXCLUDED.daily_avg_gb,
+      retention_days           = EXCLUDED.retention_days,
+      cost_per_year            = EXCLUDED.cost_per_year,
+      risk_score               = EXCLUDED.risk_score,
+      classification           = EXCLUDED.classification,
+      confidence               = EXCLUDED.confidence,
+      recommendation           = EXCLUDED.recommendation,
+      evidence                 = EXCLUDED.evidence,
+      raw_metadata             = EXCLUDED.raw_metadata,
+      scoring_version          = EXCLUDED.scoring_version,
+      scoring_profile          = EXCLUDED.scoring_profile,
+      minimum_activity_gated   = EXCLUDED.minimum_activity_gated,
+      weight_utilization       = EXCLUDED.weight_utilization,
+      weight_detection         = EXCLUDED.weight_detection,
+      weight_quality           = EXCLUDED.weight_quality,
+      snapshot_hash            = EXCLUDED.snapshot_hash,
+      previous_snapshot_hash   = EXCLUDED.previous_snapshot_hash,
+      updated_at               = NOW()
     `,
     [
       snapshotId,
@@ -669,6 +977,15 @@ async function upsertDecision(
         reasoning: clean.reasoning,
         agentDecision: true,
       }),
+      // Scoring version fields (Phase 2)
+      SCORING_VERSION,
+      'balanced',            // TODO Phase 6: read active profile from scoring_profiles table
+      minimum_activity_gated,
+      0.35,                  // weight_utilization default (matches DEFAULT_WEIGHTS)
+      0.40,                  // weight_detection default
+      0.25,                  // weight_quality default
+      snapshot_hash,
+      previous_snapshot_hash,
     ]
   );
 }
@@ -691,6 +1008,16 @@ async function upsertExecutiveKpis(
     tierImportant: number;
     tierNiceToHave: number;
     tierLowValue: number;
+    tier1SpendAnnual: number;
+    tier2SpendAnnual: number;
+    tier3SpendAnnual: number;
+    tier4SpendAnnual: number;
+    tier1Count: number;
+    tier2Count: number;
+    tier3Count: number;
+    tier4Count: number;
+    tierSpendReconciled: boolean;
+    tierSpendDelta: number;
     securityGaps: number;
     operationalGaps: number;
     avgUtilization: number;
@@ -707,10 +1034,13 @@ async function upsertExecutiveKpis(
       total_license_spend, license_spend_low_value, storage_savings_potential,
       total_daily_gb, total_sourcetypes,
       tier_critical, tier_important, tier_nice_to_have, tier_low_value,
+      tier_1_spend_annual, tier_2_spend_annual, tier_3_spend_annual, tier_4_spend_annual,
+      tier_1_count, tier_2_count, tier_3_count, tier_4_count,
+      tier_spend_reconciled, tier_spend_delta,
       security_gaps, operational_gaps,
       avg_utilization, avg_detection, avg_quality, avg_confidence,
       quick_wins, savings_staircase, agent_reasoning
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
     ON CONFLICT (tenant_id, snapshot_id) DO UPDATE SET
       snapshot_id             = EXCLUDED.snapshot_id,
       snapshot_date           = EXCLUDED.snapshot_date,
@@ -725,6 +1055,16 @@ async function upsertExecutiveKpis(
       tier_important          = EXCLUDED.tier_important,
       tier_nice_to_have       = EXCLUDED.tier_nice_to_have,
       tier_low_value          = EXCLUDED.tier_low_value,
+      tier_1_spend_annual     = EXCLUDED.tier_1_spend_annual,
+      tier_2_spend_annual     = EXCLUDED.tier_2_spend_annual,
+      tier_3_spend_annual     = EXCLUDED.tier_3_spend_annual,
+      tier_4_spend_annual     = EXCLUDED.tier_4_spend_annual,
+      tier_1_count            = EXCLUDED.tier_1_count,
+      tier_2_count            = EXCLUDED.tier_2_count,
+      tier_3_count            = EXCLUDED.tier_3_count,
+      tier_4_count            = EXCLUDED.tier_4_count,
+      tier_spend_reconciled   = EXCLUDED.tier_spend_reconciled,
+      tier_spend_delta        = EXCLUDED.tier_spend_delta,
       security_gaps           = EXCLUDED.security_gaps,
       operational_gaps        = EXCLUDED.operational_gaps,
       avg_utilization         = EXCLUDED.avg_utilization,
@@ -749,6 +1089,16 @@ async function upsertExecutiveKpis(
       overrides?.tierImportant     ?? summary.tierCounts.important,
       overrides?.tierNiceToHave    ?? summary.tierCounts.niceToHave,
       overrides?.tierLowValue      ?? summary.tierCounts.lowValue,
+      overrides?.tier1SpendAnnual  ?? 0,
+      overrides?.tier2SpendAnnual  ?? 0,
+      overrides?.tier3SpendAnnual  ?? 0,
+      overrides?.tier4SpendAnnual  ?? 0,
+      overrides?.tier1Count        ?? summary.tierCounts.critical,
+      overrides?.tier2Count        ?? summary.tierCounts.important,
+      overrides?.tier3Count        ?? summary.tierCounts.niceToHave,
+      overrides?.tier4Count        ?? summary.tierCounts.lowValue,
+      overrides?.tierSpendReconciled ?? true,
+      overrides?.tierSpendDelta    ?? 0,
       overrides?.securityGaps      ?? summary.securityGaps,
       overrides?.operationalGaps   ?? summary.operationalGaps,
       overrides?.avgUtilization    ?? summary.avgUtilization,
@@ -1032,7 +1382,7 @@ async function updateCacheMetadata(client: PoolClient, key: string, count: numbe
  * CRITICAL: tenantId is mandatory from RequestContext, never inferred.
  */
 export async function runFastAggregation(
-  splunk: SplunkClient,
+  splunk: SplunkDataSource,
   ctx: RequestContext,
   config: AggregationConfig = DEFAULT_CONFIG,
   options?: {
@@ -1069,6 +1419,32 @@ export async function runFastAggregation(
       })
     : [];
 
+  // ── 1.5 Deterministic scoring (calc-guide formulas) ─────────────────────
+  // Computed BEFORE persistence so snapshots carry real U/D/Q/composite/tier
+  // instead of PENDING placeholders, and the LLM job payload carries
+  // precomputedScores the worker treats as authoritative.
+  const allInputsEarly: RawTelemetryInput[] = [
+    ...indexMetrics.map((m) => ({
+      index: m.index, sourcetype: undefined as string | undefined,
+      dailyAvgGb: m.dailyAvgGb, totalEvents: m.totalEvents,
+      retentionDays: m.retentionDays, firstEvent: m.firstEvent, lastEvent: m.lastEvent,
+    })),
+    ...sourcetypeMetrics.map((m) => ({
+      index: m.index, sourcetype: m.sourcetype,
+      dailyAvgGb: m.dailyAvgGb, totalEvents: m.totalEvents,
+      retentionDays: m.retentionDays, firstEvent: m.firstEvent, lastEvent: m.lastEvent,
+    })),
+  ];
+
+  const scoring = await computeDeterministicScoresForInputs(splunk, allInputsEarly, userConfig, costPerGbPerDay);
+  console.log(`[FastAgg] Deterministic scoring: ROI=${scoring.portfolio.roiScore}, GainScope=${scoring.portfolio.gainScopePct}%, ` +
+    `low-value $${scoring.portfolio.lowValueSpendUsd.toFixed(0)}/yr, ` +
+    `gaps sec=${scoring.portfolio.securityGapCount}/ops=${scoring.portfolio.operationalGapCount} ` +
+    `(weights ${scoring.weights.utilization}/${scoring.weights.detection}/${scoring.weights.quality})`);
+
+  // B2.5 score-audit artifact: exact inputs → formula → output, per run
+  writeScoreAuditArtifact(options?.runId || snapshotId, snapshotId, scoring);
+
   const totalDailyGb = indexMetrics.reduce((sum, item) => sum + item.dailyAvgGb, 0);
   const totalEvents = indexMetrics.reduce((sum, item) => sum + item.totalEvents, 0);
   const sourceFingerprint = {
@@ -1088,21 +1464,49 @@ export async function runFastAggregation(
   const sourceHash = buildSourceHash(sourceFingerprint);
   let snapshotHash = sourceHash;
 
-  // ── 2. Write raw snapshots with tier=PENDING ────────────────────────────
+  // ── 2. Write snapshots carrying deterministic scores ────────────────────
+  // The engine owns tier + scores; the LLM only adds narrative later. Until
+  // the worker writes its narrative, recommendation stays a pending marker
+  // but the numbers shown are already final.
+  const tierDefaultAction: Record<string, string> = {
+    'Critical': 'KEEP', 'Important': 'KEEP', 'Nice-to-Have': 'OPTIMIZE', 'Low-Value': 'ELIMINATE',
+  };
   let inserted = 0;
   await transaction(async (client) => {
     for (const m of indexMetrics) {
       const annualCost = m.dailyAvgGb * costPerGbPerDay * 365;
+      const scored = scoring.scoredMap.get(`${m.index}::_`);
       await client.query(`
         INSERT INTO telemetry_snapshots (
           tenant_id,
           snapshot_id, snapshot_date, granularity, index_name, sourcetype,
           total_events, daily_avg_gb, retention_days,
           utilization_pct, cost_per_year, risk_score,
-          classification, confidence, recommendation, evidence, raw_metadata
-        ) VALUES ($1,$2,$3,'index',$4,NULL,$5,$6,$7,0,$8,0,'INVESTIGATE',0.5,'Pending AI analysis','[]','{}')
+          classification, confidence, recommendation, evidence, raw_metadata,
+          scoring_version, formula_version
+        ) VALUES ($1,$2,$3,'index',$4,NULL,$5,$6,$7,$8,$9,$10,$11,0.5,'Pending AI analysis','[]',$12,$13,$14)
         ON CONFLICT (tenant_id, snapshot_id, granularity, index_name, sourcetype) DO NOTHING
-      `, [tenantId, snapshotId, today, m.index, m.totalEvents, m.dailyAvgGb, m.retentionDays, annualCost]);
+      `, [
+        tenantId, snapshotId, today, m.index, m.totalEvents, m.dailyAvgGb, m.retentionDays,
+        scored?.utilizationScore ?? 0,
+        annualCost,
+        scored?.compositeScore ?? 0,
+        scored ? (tierDefaultAction[scored.tier] || 'INVESTIGATE') : 'INVESTIGATE',
+        JSON.stringify(scored ? {
+          deterministic: {
+            utilizationScore: scored.utilizationScore,
+            detectionScore: scored.detectionScore,
+            qualityScore: scored.qualityScore,
+            compositeScore: scored.compositeScore,
+            tier: scored.tier,
+            detectionGap: scored.detectionGap,
+            operationalGap: scored.operationalGap,
+            weights: scoring.weights,
+          },
+        } : {}),
+        SCORING_VERSION,
+        FORMULA_VERSION,
+      ]);
       inserted++;
     }
 
@@ -1168,27 +1572,24 @@ export async function runFastAggregation(
   }, ctx);
 
   // ── 3. Build candidate list for LLM (heuristic filter) ─────────────────
+  // Inputs carry precomputedScores: the worker persists these as the
+  // authoritative numbers; the LLM contributes narrative only.
   const MAX_INDEXES = parseInt(process.env.MAX_INDEXES_PER_RUN || '100', 10);
-  const allInputs: RawTelemetryInput[] = [
-    ...indexMetrics.map((m) => ({
-      index: m.index,
-      sourcetype: undefined,
-      dailyAvgGb: m.dailyAvgGb,
-      totalEvents: m.totalEvents,
-      retentionDays: m.retentionDays,
-      firstEvent: m.firstEvent,
-      lastEvent: m.lastEvent,
-    })),
-    ...sourcetypeMetrics.map((m) => ({
-      index: m.index,
-      sourcetype: m.sourcetype,
-      dailyAvgGb: m.dailyAvgGb,
-      totalEvents: m.totalEvents,
-      retentionDays: m.retentionDays,
-      firstEvent: m.firstEvent,
-      lastEvent: m.lastEvent,
-    })),
-  ];
+  const allInputs: RawTelemetryInput[] = allInputsEarly.map((inp) => {
+    const scored = scoring.scoredMap.get(`${inp.index}::${inp.sourcetype || '_'}`);
+    return scored ? {
+      ...inp,
+      precomputedScores: {
+        utilizationScore: scored.utilizationScore,
+        detectionScore: scored.detectionScore,
+        qualityScore: scored.qualityScore,
+        compositeScore: scored.compositeScore,
+        tier: scored.tier,
+        detectionGap: scored.detectionGap,
+        operationalGap: scored.operationalGap,
+      },
+    } : inp;
+  });
 
   // Smart candidate filter: only send materially expensive/stale items to LLM.
   // Small lab/demo Splunk environments should still publish server-derived KPIs
