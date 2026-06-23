@@ -27,10 +27,17 @@ function extractIndexRefs(spl, trackedSet) {
 }
 
 function main() {
+  // Teja confirmed 1stmile daily ingest is ~92 GB (Slack, June 2026).
+  // CSV is a 2-day export (Oct 26-27 2025); raw total ≈159.93 GB → ~80 GB/day avg.
+  // Gap vs 92 GB: higher-volume days + sources not in this snapshot. Use 92 as authoritative.
+  const LOGICAL_DAILY_INGEST_GB = 92;
+  const PHYSICAL_INJECTION_GB = 0.25;
+
   // ── Volume: index → sourcetype → GB ────────────────────────────────────────
   const volumeRows = readSeedCsv('1stmile_index_sourcetype_and_source_volume_lookupcsv.csv');
   const volume = new Map(); // index → Map(sourcetype → {gb, source})
   let totalGb = 0;
+  const csvDates = new Set();
   for (const r of volumeRows) {
     const index = (r.index || '').trim();
     const st = (r.sourcetype || '').trim();
@@ -42,10 +49,16 @@ function main() {
     cur.gb += gb;
     stMap.set(st, cur);
     totalGb += gb;
+    const t = (r._time || '').substring(0, 10);
+    if (t) csvDates.add(t);
   }
+  const csvDateCount = csvDates.size || 1;
+  const csvDailyAvgGb = parseFloat((totalGb / csvDateCount).toFixed(2));
   const trackedIndexes = [...volume.keys()];
   const trackedSet = new Set(trackedIndexes.map(i => i.toLowerCase()));
-  log(`Volume: ${trackedIndexes.length} indexes, ${[...volume.values()].reduce((n, m) => n + m.size, 0)} index::sourcetype pairs, ${totalGb.toFixed(1)} GB/day total in source env`);
+  log(`Volume: ${trackedIndexes.length} indexes, ${[...volume.values()].reduce((n, m) => n + m.size, 0)} index::sourcetype pairs`);
+  log(`  CSV total: ${totalGb.toFixed(1)} GB across ${csvDateCount} date(s) → raw avg ${csvDailyAvgGb} GB/day`);
+  log(`  Logical baseline: ${LOGICAL_DAILY_INGEST_GB} GB/day (Teja-confirmed) → scaleFactor ${(LOGICAL_DAILY_INGEST_GB / totalGb).toFixed(4)}`);
 
   // ── Index metadata: retention ──────────────────────────────────────────────
   const metaRows = readSeedCsv('1stmile_index_metadata_lookupcsv.csv');
@@ -209,18 +222,15 @@ function main() {
     };
   });
 
-  // Teja confirmed 1stmile daily ingest is ~92 GB. The CSV source total (159.93 GB)
-  // is higher because it aggregates across multiple source environments. The logical
-  // daily ingest is the authoritative business value; physical injection is scaled
-  // down (0.25 GB) for the dev Splunk environment. Dashboard reads logical values.
-  const LOGICAL_DAILY_INGEST_GB = 92;
-  const PHYSICAL_INJECTION_GB = 0.25;
-
   const manifest = {
     generatedAt: new Date().toISOString(),
-    sourceTotalDailyGb: parseFloat(totalGb.toFixed(2)),
-    logicalDailyIngestGb: LOGICAL_DAILY_INGEST_GB,
-    physicalInjectionGb: PHYSICAL_INJECTION_GB,
+    // Raw CSV totals (2-day export from 1stmile Splunk, Oct 26-27 2025)
+    sourceTotalDailyGb: parseFloat(totalGb.toFixed(2)),  // sum across all CSV rows
+    csvDateCount,                                          // distinct dates in CSV (2)
+    csvDailyAvgGb,                                        // sourceTotalDailyGb / csvDateCount (~80 GB)
+    // Authoritative customer profile (Teja-confirmed, June 2026)
+    logicalDailyIngestGb: LOGICAL_DAILY_INGEST_GB,        // 92 GB — business baseline
+    physicalInjectionGb: PHYSICAL_INJECTION_GB,           // 0.25 GB — injected into dev Splunk
     scaleFactor: parseFloat((LOGICAL_DAILY_INGEST_GB / totalGb).toFixed(6)),
     app: 'datasense_demo',
     indexes,
