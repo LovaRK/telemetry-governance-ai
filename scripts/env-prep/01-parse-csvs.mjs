@@ -209,9 +209,19 @@ function main() {
     };
   });
 
+  // Teja confirmed 1stmile daily ingest is ~92 GB. The CSV source total (159.93 GB)
+  // is higher because it aggregates across multiple source environments. The logical
+  // daily ingest is the authoritative business value; physical injection is scaled
+  // down (0.25 GB) for the dev Splunk environment. Dashboard reads logical values.
+  const LOGICAL_DAILY_INGEST_GB = 92;
+  const PHYSICAL_INJECTION_GB = 0.25;
+
   const manifest = {
     generatedAt: new Date().toISOString(),
     sourceTotalDailyGb: parseFloat(totalGb.toFixed(2)),
+    logicalDailyIngestGb: LOGICAL_DAILY_INGEST_GB,
+    physicalInjectionGb: PHYSICAL_INJECTION_GB,
+    scaleFactor: parseFloat((LOGICAL_DAILY_INGEST_GB / totalGb).toFixed(6)),
     app: 'datasense_demo',
     indexes,
     macros: usefulMacros,

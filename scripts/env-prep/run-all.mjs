@@ -27,6 +27,7 @@ const steps = [
   '03-create-indexes.mjs',
   '04-hec-setup.mjs',
   '05-generate-events.mjs',
+  '05b-upload-lookups.mjs',  // upload 1stmile volume CSV → logical 92 GB/day profile
   '06-create-knowledge-objects.mjs',
   '07-generate-usage.mjs',
   ...(dryRun ? [] : ['08-validate.mjs']),

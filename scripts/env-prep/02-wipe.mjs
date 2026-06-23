@@ -26,11 +26,23 @@ function includeArg() {
 
 async function main() {
   const manifest = loadManifest();
-  const rest = new SplunkRest();
   const manifestIndexes = new Set(manifest.indexes.map(i => i.name));
   const extra = includeArg();
 
-  // Current live indexes
+  // Dry-run: plan from manifest alone — no Splunk connection needed.
+  if (DRY_RUN) {
+    const toDelete = [...manifestIndexes, ...extra].filter(n => !n.startsWith('_') && !BUILTIN.has(n));
+    log(`Wipe plan (DRY RUN)`);
+    log(`  app to delete:      ${manifest.app}`);
+    log(`  indexes to delete:  ${toDelete.length ? toDelete.join(', ') : '(none in manifest)'}`);
+    if (extra.length) log(`  --include extras:   ${extra.join(', ')}`);
+    log('\nDry run complete.');
+    return;
+  }
+
+  const rest = new SplunkRest();
+
+  // Query live Splunk to see what actually exists before deleting.
   const live = await rest.get('/services/data/indexes?count=500');
   const liveNames = (live.entry || []).map(e => e.name);
 
@@ -39,13 +51,11 @@ async function main() {
   );
   const skipped = liveNames.filter(n => !deletable.includes(n));
 
-  log(`Wipe plan ${DRY_RUN ? '(DRY RUN)' : ''}`);
+  log(`Wipe plan`);
   log(`  app to delete:      ${manifest.app}`);
   log(`  indexes to delete:  ${deletable.length ? deletable.join(', ') : '(none)'}`);
   log(`  indexes untouched:  ${skipped.join(', ')}`);
   if (extra.length) log(`  --include extras:   ${extra.join(', ')}`);
-
-  if (DRY_RUN) { log('\nDry run complete.'); return; }
 
   // Delete the demo app (removes its saved searches, dashboards, macros, eventtypes, tags)
   const appStatus = await rest.delete(`/services/apps/local/${manifest.app}`, [404]);

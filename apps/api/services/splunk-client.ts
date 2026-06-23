@@ -213,6 +213,11 @@ export class SplunkClient implements SplunkDataSource {
       const data = this.parseJsonOrThrow(res.text, '/services/data/indexes');
       const entries: any[] = data.entry || [];
 
+      // Lookup-first: read the 1stmile customer profile lookup when present.
+      // This normalizes logical daily ingest to Teja's confirmed 92 GB/day baseline
+      // regardless of how much was physically injected into this dev environment.
+      const profileGbByIndex = await this.getVolumeFromCustomerProfileLookup().catch(() => new Map<string, number>());
+
       // Try to enrich with real 24h ingest bytes from license_usage (if permissions allow).
       const ingestGbByIndex = await this.getRecentDailyIngestGbByIndex().catch(() => new Map<string, number>());
       // Stronger fallback for demo/small environments: derive 24h bytes directly from event payload.
@@ -231,7 +236,12 @@ export class SplunkClient implements SplunkDataSource {
           const metadataDailyGb = currentSizeMB > 0 ? parseFloat((currentSizeMB / 1024 / retentionDays).toFixed(4)) : 0;
           const licenseDailyGb = ingestGbByIndex.get(e.name) ?? 0;
           const sampledDailyGb = sampledGbByIndex.get(e.name) ?? 0;
-          const dailyAvgGb = Math.max(metadataDailyGb, licenseDailyGb, sampledDailyGb);
+          // Profile lookup wins: it carries the confirmed logical customer ingest baseline.
+          // Falls back to physical Splunk measurements when no lookup is present.
+          const profileDailyGb = profileGbByIndex.get(e.name) ?? 0;
+          const dailyAvgGb = profileDailyGb > 0
+            ? profileDailyGb
+            : Math.max(metadataDailyGb, licenseDailyGb, sampledDailyGb);
 
           return {
             index: e.name,
@@ -244,6 +254,47 @@ export class SplunkClient implements SplunkDataSource {
         })
         .filter(r => r.totalEvents > 0 || r.dailyAvgGb > 0); // skip completely empty indexes
     }, 'getIndexMetrics');
+  }
+
+  /**
+   * Lookup-first volume path for the 1stmile customer profile.
+   *
+   * Reads `1stmile_index_sourcetype_and_source_volume_lookupcsv` (uploaded by
+   * env-prep step 05b) and normalises the per-index GB so they sum to the
+   * Teja-confirmed logical daily ingest of 92 GB/day.  Returns an empty map
+   * when the lookup is absent (graceful fallback to physical measurements).
+   *
+   * This separates *physical dev Splunk data* (0.25 GB injected sample) from
+   * *business ingest profile* (92 GB/day logical baseline), so dashboard KPIs
+   * and ROI/savings calculations reflect the real 1stmile environment scale.
+   */
+  private async getVolumeFromCustomerProfileLookup(): Promise<Map<string, number>> {
+    const LOOKUP_NAME = '1stmile_index_sourcetype_and_source_volume_lookupcsv';
+    const LOGICAL_DAILY_GB = 92; // Teja-confirmed 1stmile daily ingest
+
+    const rows = await this.runSearchJob(
+      `| inputlookup ${LOOKUP_NAME} | stats sum(GB_idx_st_s) as raw_gb by index`
+    ).catch(() => []);
+
+    const rawByIndex = new Map<string, number>();
+    let csvTotal = 0;
+    for (const row of rows) {
+      const gb = parseFloat((row as any).raw_gb ?? '0');
+      const idx: string = (row as any).index ?? '';
+      if (idx && gb > 0) {
+        rawByIndex.set(idx, gb);
+        csvTotal += gb;
+      }
+    }
+
+    if (csvTotal === 0) return new Map();
+
+    const scaleFactor = LOGICAL_DAILY_GB / csvTotal;
+    const out = new Map<string, number>();
+    for (const [idx, raw] of rawByIndex.entries()) {
+      out.set(idx, parseFloat((raw * scaleFactor).toFixed(4)));
+    }
+    return out;
   }
 
   /**
