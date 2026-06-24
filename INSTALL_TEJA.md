@@ -115,6 +115,52 @@ Then Refresh again.
 
 ---
 
+## Verify it's pulling from YOUR Splunk
+
+After a successful Refresh, your dashboard's index names + GB totals are
+discovered live from your Splunk — there is no hardcoded index list anywhere.
+Confirm with two checks:
+
+```bash
+# Indexes the worker pulled from /services/data/indexes on your instance:
+docker exec docker-postgres-1 psql -U telemetry -d telemetry_os -c "
+  SELECT index_name, daily_avg_gb, retention_days, classification
+  FROM telemetry_snapshots
+  WHERE snapshot_id = (SELECT snapshot_id FROM pipeline_runs WHERE status='SUCCEEDED' ORDER BY started_at DESC LIMIT 1)
+  ORDER BY daily_avg_gb DESC;"
+
+# Total daily ingest across all indexes:
+docker exec docker-postgres-1 psql -U telemetry -d telemetry_os -c "
+  SELECT SUM(daily_avg_gb)::numeric(10,2) AS total_daily_gb, COUNT(*) AS index_count
+  FROM telemetry_snapshots
+  WHERE snapshot_id = (SELECT snapshot_id FROM pipeline_runs WHERE status='SUCCEEDED' ORDER BY started_at DESC LIMIT 1);"
+```
+
+The `index_name` column should match what `| metadata type=indexes` returns
+in your Splunk Search head. If you have the `1stmile_index_sourcetype_and_source_volume_lookupcsv`
+lookup uploaded (env-prep step `05b`), the per-index GB is normalised to the
+Teja-confirmed 92 GB/day baseline — otherwise it's read from `currentDBSizeMB
+/ retentionDays`.
+
+---
+
+## Pipeline guarantees (updated 2026-06-24)
+
+The pipeline now survives long Ollama runs. Specifics:
+
+| Guarantee | How it works |
+|---|---|
+| **20+ min pipeline runs don't fail with "idle timeout"** | Worker emits a `HEARTBEAT` stage event after every batch; `cache-status` polls treat HEARTBEAT as activity |
+| **No more "Pipeline worker lease expired" after 5 min** | Lease window is 25 min, stale-job recovery uses `heartbeat_at` (refreshed per batch) instead of `started_at` (set once) |
+| **No more "OLLAMA_UNREACHABLE" while a batch is running** | LLM readiness probe uses `/api/tags` (non-blocking) instead of `/api/generate` (queues behind active inference) |
+| **No more forced logout during long pipeline runs** | Single-flight token refresh in `apps/web/lib/api-client.ts`; access-token TTL raised from 15 min → 1 h |
+| **Total daily ingest reports ~92 GB on the 1stmile profile** | Worker queries the customer-profile volume lookup; falls back to physical metadata when absent |
+
+If you previously hit any of these symptoms, pull `main` and rebuild the
+`worker` + `web` images.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -124,6 +170,9 @@ Then Refresh again.
 | Worker keeps restarting | Postgres not healthy yet, or no active model pointer — check `docker compose logs worker` |
 | `host.docker.internal` unreachable (Linux) | already mapped via `extra_hosts`; ensure Ollama listens on `0.0.0.0:11434` |
 | Port 3002/5433 in use | change `WEB_PORT` / `POSTGRES_PORT` in `.env` |
+| Pipeline fails at AI Decisions stage | Verify Ollama running: `curl http://localhost:11434/api/tags`. If on Anthropic, check API key in **Settings → AI Provider**. |
+| Dashboard shows old values after Refresh | Hard-reload the browser (Cmd/Ctrl + Shift + R). If still stale, check the latest published run: `SELECT run_id, snapshot_id, published, started_at FROM pipeline_runs ORDER BY started_at DESC LIMIT 3;` |
+| Bounced to /login mid-Refresh | Hard reload + log back in (requires today's `dev/dashboard-improvements` HEAD; older builds had a token-refresh race) |
 
 See `KNOWN_ISSUES.md` for current limitations and `ROLLBACK_PLAN.md` if a
 change misbehaves.

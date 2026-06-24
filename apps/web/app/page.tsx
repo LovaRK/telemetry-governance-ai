@@ -1342,7 +1342,11 @@ function Home() {
             if (status === 'running' || status === 'partial') {
               setPipelineRun((prev) => ({ ...prev, stage: 'ai_decisions', status: 'running' }));
               if (progress?.batch && progress?.totalBatches) {
-                setPipelineEvents((prev) => [...prev.slice(-9), { ts: new Date().toLocaleTimeString(), msg: `AI batch ${progress.batch}/${progress.totalBatches} · ${progress.decisionsWritten ?? 0} decisions written`, level: 'info' }]);
+                setPipelineEvents((prev) => {
+                  const msg = `AI batch ${progress.batch}/${progress.totalBatches} · ${progress.decisionsWritten ?? 0} decisions written`;
+                  if (prev.length > 0 && prev[prev.length - 1].msg === msg) return prev;
+                  return [...prev.slice(-9), { ts: new Date().toLocaleTimeString(), msg, level: 'info' }];
+                });
               }
             } else if (status === 'complete') {
               setPipelineRun((prev) => ({ ...prev, stage: 'governance_sync', status: 'running' }));

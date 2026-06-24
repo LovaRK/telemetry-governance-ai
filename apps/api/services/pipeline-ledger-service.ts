@@ -23,7 +23,7 @@ export interface PipelineRunRecord {
 export interface StageEventInput {
   runId: string;
   stage: 'SPLUNK_FETCH' | 'SNAPSHOT_WRITE' | 'KPI_AGGREGATION' | 'AI_DECISIONS' | 'GOVERNANCE_SYNC' | 'PUBLISH';
-  status: 'IN_PROGRESS' | 'SUCCESS' | 'FAILED';
+  status: 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'HEARTBEAT';
   errorType?: 'NETWORK' | 'MODEL_MISSING' | 'TIMEOUT' | 'AUTH' | 'PROMPT' | 'UNKNOWN' | null;
   errorCode?: string | null;
   attempt?: number;

@@ -42,7 +42,10 @@ function classifyLlmProbeFailure(reason: string): LlmFailureCode {
 async function checkLocalLlmReadiness(): Promise<{ ok: boolean; reason?: string }> {
   const baseUrl = process.env.OLLAMA_BASE_URL || 'http://host.docker.internal:11434';
   const requiredModel = (process.env.LLM_MODEL || process.env.MODEL_VERSION || 'gemma2:9b').trim();
-  const healthTtlSeconds = parseInt(process.env.LLM_HEALTH_CACHE_TTL_SECONDS || '60', 10);
+  // 300s TTL: the worker uses Ollama every ~80s per batch, so if the health cache is
+  // <5 min old and shows available, the model is provably running. Re-probing while a
+  // batch is in flight blocks on the model queue and times out, causing false UNAVAILABLE.
+  const healthTtlSeconds = parseInt(process.env.LLM_HEALTH_CACHE_TTL_SECONDS || '300', 10);
   const provider = 'ollama';
   try {
     const cached = await pool.query<{
@@ -74,9 +77,21 @@ async function checkLocalLlmReadiness(): Promise<{ ok: boolean; reason?: string 
     // Cache read failure should not block readiness probe.
   }
 
+  // Connectivity + model-presence check via /api/tags (fast, non-blocking).
+  // We do NOT run an inference probe here: gemma2:9b takes ~80s per call, so a
+  // probe while the worker is mid-batch would queue behind it and time out,
+  // producing a false OLLAMA_UNREACHABLE. /api/tags is sufficient — if the model
+  // is listed and Ollama responds, inference will work.
   const probeStarted = Date.now();
   try {
-    const res = await fetch(`${baseUrl}/api/tags`, { method: 'GET' });
+    const tagsController = new AbortController();
+    const tagsTimeout = setTimeout(() => tagsController.abort(), 10000);
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/api/tags`, { method: 'GET', signal: tagsController.signal });
+    } finally {
+      clearTimeout(tagsTimeout);
+    }
     if (!res.ok) {
       const reason = `OLLAMA_TAGS_HTTP_${res.status}`;
       await pool.query(
@@ -102,45 +117,21 @@ async function checkLocalLlmReadiness(): Promise<{ ok: boolean; reason?: string 
     });
     if (!hasModel) return { ok: false, reason: `MODEL_NOT_FOUND:${requiredModel}` };
 
-    const probeController = new AbortController();
-    const probeTimeout = setTimeout(() => probeController.abort(), 15000);
-    try {
-      const probe = await fetch(`${baseUrl}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: probeController.signal,
-        body: JSON.stringify({
-          model: requiredModel,
-          prompt: 'Return strict JSON: {"ok":true}',
-          stream: false,
-          format: 'json',
-          options: { temperature: 0.0, num_predict: 24 },
-        }),
-      });
-      if (!probe.ok) {
-        const err = await probe.text().catch(() => '');
-        return { ok: false, reason: `INFERENCE_HTTP_${probe.status}${err ? `:${err.slice(0, 80)}` : ''}` };
-      }
-      const probeJson = await probe.json().catch(() => null) as any;
-      const responseText = String(probeJson?.response || '').trim();
-      if (!responseText) return { ok: false, reason: 'INFERENCE_EMPTY_RESPONSE' };
-      await pool.query(
-        `INSERT INTO llm_health_cache (provider, last_checked, available, response_time_ms, running_model, inference_capacity)
-         VALUES ($1, NOW(), TRUE, $2, $3, 'healthy')
-         ON CONFLICT (provider) DO UPDATE
-         SET last_checked = EXCLUDED.last_checked,
-             available = EXCLUDED.available,
-             response_time_ms = EXCLUDED.response_time_ms,
-             running_model = EXCLUDED.running_model,
-             inference_capacity = EXCLUDED.inference_capacity`,
-        [provider, Date.now() - probeStarted, requiredModel]
-      ).catch(() => {});
-      return { ok: true };
-    } finally {
-      clearTimeout(probeTimeout);
-    }
-  } catch {
-    return { ok: false, reason: 'OLLAMA_UNREACHABLE' };
+    await pool.query(
+      `INSERT INTO llm_health_cache (provider, last_checked, available, response_time_ms, running_model, inference_capacity)
+       VALUES ($1, NOW(), TRUE, $2, $3, 'healthy')
+       ON CONFLICT (provider) DO UPDATE
+       SET last_checked = EXCLUDED.last_checked,
+           available = EXCLUDED.available,
+           response_time_ms = EXCLUDED.response_time_ms,
+           running_model = EXCLUDED.running_model,
+           inference_capacity = EXCLUDED.inference_capacity`,
+      [provider, Date.now() - probeStarted, requiredModel]
+    ).catch(() => {});
+    return { ok: true };
+  } catch (err) {
+    const isAbort = err instanceof Error && err.name === 'AbortError';
+    return { ok: false, reason: isAbort ? 'OLLAMA_TAGS_TIMEOUT' : 'OLLAMA_UNREACHABLE' };
   }
 }
 

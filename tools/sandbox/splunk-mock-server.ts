@@ -215,6 +215,25 @@ function buildSearchResults(spl: string): object {
   // detection resolves whether scoring keys by index name or sourcetype.
   const isAttackLookup  = /inputlookup\s+sourcetype_attack_mapping\.csv/i.test(spl);
   const isLanternLookup = /inputlookup\s+sourcetype_lantern_mapping\.csv/i.test(spl);
+
+  // 1stmile customer-profile volume lookup. The worker queries
+  //   | inputlookup 1stmile_index_sourcetype_and_source_volume_lookupcsv
+  //   | stats sum(GB_idx_st_s) as raw_gb by index
+  // and then normalises the per-index raw_gb so the totals sum to the
+  // Teja-confirmed 92 GB/day logical baseline. We emit one row per mock
+  // index using its dailyAvgGb as raw_gb; the normalisation in
+  // splunk-client.getVolumeFromCustomerProfileLookup() scales these to 92 GB.
+  const is1stmileVolumeLookup = /inputlookup\s+1stmile_index_sourcetype_and_source_volume_lookupcsv/i.test(spl);
+  if (is1stmileVolumeLookup) {
+    return {
+      results: MOCK_INDEXES.map(idx => ({
+        index: idx.name,
+        raw_gb: String(idx.dailyAvgGb),
+      })),
+      fields: [{ name: 'index' }, { name: 'raw_gb' }],
+    };
+  }
+
   if (isAttackLookup || isLanternLookup) {
     const countKey = isAttackLookup ? 'technique_count' : 'lantern_usecase_count';
     const rows: Array<Record<string, string>> = [];
