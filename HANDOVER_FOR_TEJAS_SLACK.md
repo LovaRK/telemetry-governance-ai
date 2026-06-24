@@ -110,27 +110,58 @@ The same code path runs against any tenant's real Splunk — the only difference
 ```
 Hi Tejas,
 
-I have prepared the telemetry-governance-ai setup branch for your local install and Splunk validation.
+Please validate the current branch using INSTALL_TEJA.md on your machine. Once the application is up and running, point it to your Splunk instance and verify that the telemetry values match the output of:
+
+   | metadata type=indexes
 
 Important note: the dashboard no longer uses mock/default/hardcoded business data. It now derives dashboard metrics from live Splunk polling or DB records created from live polling. The previous `LOGICAL_DAILY_GB = 92` constant has been removed — daily-GB is now calculated as SUM(GB_idx_st_s) / DISTINCT(date) from your own lookup rows.
 
-Please validate with your Splunk instance:
-1. Clone the repo and checkout the handover branch.
-2. Configure your Splunk URL/auth in the tenant config (Settings → Splunk Configuration).
-3. Run the install steps from INSTALL_TEJA.md.
-4. Trigger Refresh.
-5. Verify the dashboard indexes match your Splunk indexes — for example oswin, apptomcat, appapache, osnix, etc.
-6. Verify daily GB values match your live Splunk lookup calculation (SUM(GB_idx_st_s) / DISTINCT(date)).
-7. Confirm there is no mock data and no forced 92 GB anywhere.
+Steps:
+1. Clone the repo and checkout the handover branch (or main after merge).
+2. Follow INSTALL_TEJA.md end-to-end.
+3. Configure your Splunk URL/auth in Settings → Splunk Configuration.
+4. Trigger Refresh from the dashboard.
+5. Verify dashboard indexes match your `| metadata type=indexes` output (e.g. oswin, apptomcat, appapache, osnix, etc.).
+6. Verify daily-GB values match your live Splunk lookup calculation.
+7. Confirm no mock data and no forced 92 GB anywhere.
+
+Please report back with these 5 fields:
+1. OS (Mac/Windows)
+2. Installation issues, if any
+3. Dashboard URL reached successfully (yes/no)
+4. Splunk validation result (indexes match? GB calculation match?)
+5. Green/Red status (ready to merge / blockers found)
 
 Expected behavior:
-• If your live lookup rows calculate to 92 GB/day, dashboard shows 92 GB/day.
-• If your live lookup rows calculate to another value (80, 87, 159, anything), dashboard shows that actual calculated value.
-• If Splunk data is missing or inaccessible, the app fails visibly instead of showing fake/default values.
+• If your live lookup rows calculate to 92 GB/day → dashboard shows 92.
+• If they calculate to another value (80, 87, 159, anything) → dashboard shows that actual calculated value.
+• If Splunk is missing/inaccessible → app fails visibly, no fake/default values.
 
-Once you validate this on your instance, we can use the same flow to test another tenant Splunk instance before promoting this as the agent deployment baseline.
+Once you validate this, we can use the same flow on a second tenant Splunk to prove multi-tenant works without code changes, then promote this as the agent deployment baseline. A separate "one-script installer" PR is queued (P1-9 in BACKLOG_2026-06-24.md) to land after your validation so future client onboarding becomes truly layman-friendly.
 
-Branch: feature/2026-06-24-tejas-install-pipeline-fixes
+Branch: feature/2026-06-24-tejas-install-pipeline-fixes (or main after merge)
 Install guide: INSTALL_TEJA.md (at the repo root)
 Detailed Claude-walkthrough prompt: paste-block at the top of HANDOVER_FOR_TEJAS_SLACK.md
+```
+
+## Validation report template — paste into a reply
+
+Use this exact shape so we can triage fast:
+
+```
+Tejas validation report — datasensAI v1.0 handover
+
+1. OS: <Mac M-series | Mac Intel | Windows 11 | Windows 10>
+2. Installation issues: <none | describe>
+3. Dashboard URL reached: <yes — http://localhost:3002 | no — failed at step N>
+4. Splunk validation:
+   - Indexes match `| metadata type=indexes`: <yes / no — diff>
+   - GB calculation matches SUM(GB_idx_st_s) / DISTINCT(date): <yes — X.X GB/day / no — got Y vs expected Z>
+5. Status: <GREEN — ready to merge | RED — blockers below>
+
+Blockers (if RED):
+  - <one per line>
+
+Optional notes / surprises:
+  - <anything that wasn't clearly documented>
 ```
