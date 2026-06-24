@@ -265,8 +265,39 @@ HEALTH_CHECK_RETRIES=5
 function Start-Stack {
   Write-Step "Starting the app stack (postgres + web + worker)"
   Set-Location $TargetDir
-  docker compose --env-file .env -f docker/docker-compose.yml up -d --build
-  if ($LASTEXITCODE -ne 0) { Die "docker compose up failed. See output above." }
+
+  # Detect compose CLI — modern installs have `docker compose` (v2 plugin);
+  # older installs have only the legacy `docker-compose` binary. We use
+  # whichever is available so the installer works on both.
+  $script:ComposeCmd = $null
+  try {
+    docker compose version 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { $script:ComposeCmd = 'docker compose' }
+  } catch {}
+  if (-not $script:ComposeCmd) {
+    if (Have-Cmd 'docker-compose') {
+      $script:ComposeCmd = 'docker-compose'
+      Write-Ok "Using legacy docker-compose: $(docker-compose --version)"
+    } else {
+      Die "Neither 'docker compose' (v2 plugin) nor 'docker-compose' (legacy) is available. Reinstall Docker Desktop."
+    }
+  } else {
+    Write-Ok "Using modern compose plugin"
+  }
+
+  # Load .env into the current process so substitution works on every compose
+  # flavour, regardless of how --env-file is positioned.
+  Get-Content .\.env | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
+    $k, $v = $_ -split '=', 2
+    Set-Item -Path "env:$k" -Value $v
+  }
+
+  if ($script:ComposeCmd -eq 'docker compose') {
+    docker compose -f docker/docker-compose.yml up -d --build
+  } else {
+    docker-compose -f docker/docker-compose.yml up -d --build
+  }
+  if ($LASTEXITCODE -ne 0) { Die "compose up failed. See output above." }
   Write-Ok "Compose up complete"
 
   Write-Step "Waiting for the web container to become healthy"

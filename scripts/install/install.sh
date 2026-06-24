@@ -295,7 +295,31 @@ EOF
 start_stack() {
   step "Starting the app stack (postgres + web + worker)"
   cd "$TARGET_DIR"
-  docker compose --env-file .env -f docker/docker-compose.yml up -d --build
+
+  # Detect compose CLI — modern installs have `docker compose` (v2 plugin);
+  # older installs have only the legacy `docker-compose` binary (with dash).
+  # We use whichever is available so the installer works on both.
+  COMPOSE_CMD=""
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
+    ok "Using modern compose plugin: $(docker compose version --short 2>/dev/null)"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CMD="docker-compose"
+    ok "Using legacy docker-compose: $(docker-compose --version 2>/dev/null | head -1)"
+  else
+    die "Neither 'docker compose' (v2 plugin) nor 'docker-compose' (legacy) is available. Install Docker Desktop (which ships both) or run: brew install docker-compose"
+  fi
+
+  # Export .env vars so they substitute into docker-compose.yml regardless of
+  # which compose flavour we're using. Both flavours pick up CWD .env most of
+  # the time, but flag positioning for --env-file differs between versions —
+  # the env-export approach works on every version we've seen.
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+
+  $COMPOSE_CMD -f docker/docker-compose.yml up -d --build
   ok "Compose up complete"
 
   step "Waiting for the web container to become healthy"
