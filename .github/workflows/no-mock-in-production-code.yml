@@ -1,0 +1,89 @@
+name: Thamba Policy — no mock data in production code
+
+# Fails any PR (or push to main/develop) that introduces a sandbox-only host
+# name into the production runtime code (apps/ or packages/). This is the
+# third layer of defense:
+#
+#   1. Write-time:   apps/api/services/splunk-config-service.ts
+#                    (EnvironmentValidator rejects sandbox URLs at config save)
+#   2. Boot-time:    docker/entrypoint.sh
+#                    (refuses to start in production mode with a mock URL in env)
+#   3. CI-time:      THIS WORKFLOW
+#                    (fails the PR if a mock hostname slips into apps/ or packages/)
+#   4. Runtime:      apps/web/app/api/cache/route.ts:310-339
+#                    (per-tenant guard — fails the pipeline visibly if tenant URL is sandbox)
+#
+# Each layer would catch the regression independently; together they form a
+# belt-and-suspenders boundary between dev sandbox data and production data.
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+jobs:
+  no-mock-in-production-code:
+    name: Reject sandbox hosts in apps/ + packages/
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Scan production code for sandbox URL references
+        id: scan
+        run: |
+          set +e
+          # We match the URL form (splunk-mock:<port> or http(s)://splunk-mock),
+          # NOT the bare hostname "splunk-mock". The bare hostname is allowed
+          # in defense-in-depth allowlists (see apps/web/app/api/cache/route.ts
+          # SANDBOX_ONLY_HOSTS — the guard whose whole purpose is to know what
+          # a sandbox host looks like). The URL form (with port or scheme) means
+          # the code is actually USING the mock as a target, which is forbidden
+          # in production runtime paths.
+          #
+          # Scope: only apps/ + packages/ — production runtime code paths.
+          # Explicitly allowed: tools/sandbox/, docker/, seed-data/, tests,
+          # node_modules, build outputs.
+          echo "Scanning apps/ and packages/ for sandbox URL references..."
+          MATCHES=$(grep -rEn 'splunk-mock:[0-9]+|https?://splunk-mock' apps packages \
+                    --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' --include='*.sql' \
+                    2>/dev/null \
+                    | grep -v 'node_modules\|\.next\|\.test\.\|/tests/\|/__tests__/\|/__mocks__/')
+          if [ -n "$MATCHES" ]; then
+            echo ""
+            echo "❌ Thamba Policy violation: sandbox URL reference found in production code"
+            echo ""
+            echo "$MATCHES"
+            echo ""
+            echo "Fix: production code (apps/ + packages/) must not contain a"
+            echo "sandbox host as a URL (splunk-mock:<port> or http://splunk-mock/...)."
+            echo "If this is the dev sandbox mock, it belongs in tools/sandbox/ or"
+            echo "behind the docker-compose 'sandbox' profile. If this is a"
+            echo "customer-facing URL, it must be configurable per-tenant via"
+            echo "Settings → Splunk Connection, not hardcoded."
+            exit 1
+          fi
+          echo "✓ No sandbox URL references in production code"
+
+      - name: Scan for forced GB / decision-count constants (1stmile audit guard)
+        run: |
+          set +e
+          # The Thamba audit removed `LOGICAL_DAILY_GB = 92` from splunk-client.ts.
+          # This regex catches any future regression where someone reintroduces
+          # a hardcoded business GB target in the splunk-client path.
+          # 1stmile / 92-GB / 159.93-GB are the specific constants we never want
+          # to see typed as code values inside the production GB-derivation path.
+          echo "Scanning apps/api/services/splunk-client.ts for hardcoded GB targets..."
+          BAD=$(grep -En '^\s*const\s+\w*DAILY_GB\w*\s*=\s*[0-9]+(\.[0-9]+)?\s*;|LOGICAL_DAILY_GB|FORCED_GB_TOTAL' apps/api/services/splunk-client.ts 2>/dev/null || true)
+          if [ -n "$BAD" ]; then
+            echo "❌ Thamba Policy violation: hardcoded daily-GB constant in splunk-client"
+            echo ""
+            echo "$BAD"
+            echo ""
+            echo "Per-index daily-GB must be derived from the customer's lookup rows"
+            echo "(total_gb / dc(lookup_date)), not normalized to a code constant."
+            exit 1
+          fi
+          echo "✓ No hardcoded daily-GB constants in splunk-client"
