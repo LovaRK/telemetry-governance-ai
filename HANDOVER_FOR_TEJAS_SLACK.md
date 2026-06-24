@@ -11,8 +11,18 @@ Here is everything you need:
 
 REPO
 - GitHub: <fill in repo URL>
-- Branch: main  (latest deploy-ready code, includes 2026-06-24 fixes for pipeline-lease + token-refresh + 92 GB lookup)
+- Branch: main  (latest deploy-ready code, includes 2026-06-24 fixes for pipeline-lease + token-refresh + 1stmile lookup-row-derived volume)
 - Auth file with all install steps: INSTALL_TEJA.md (at the repo root)
+
+IMPORTANT — NO MORE HARDCODED 92 GB
+- A previous version of the code contained `LOGICAL_DAILY_GB = 92` which FORCED every customer's per-index GB to normalise to a 92 GB/day total, regardless of what their lookup actually contained. This was a Thamba Policy violation and has been REMOVED.
+- The dashboard now derives every per-index daily-GB value from the customer's own lookup rows using `SUM(GB_idx_st_s) / DISTINCT(date)`. Whatever the rows say is what shows up.
+- Concrete consequences for you:
+  * If your 1stmile lookup CSV is 2 days of data summing to 159.93 GB, your dashboard shows ~80 GB/day, not 92.
+  * If your CSV is 30 days summing to 2,760 GB, your dashboard shows ~92 GB/day.
+  * If your CSV is anything else, your dashboard shows that calculated value exactly.
+- "92 GB/day" is NOT an authoritative number anymore. It is only valid if your live Splunk lookup rows happen to calculate to 92.
+- If your Splunk is unreachable or has no data, the pipeline fails visibly (e.g. "Splunk returned 0 indexes. Check index permissions.") — there is no silent fallback to fake or default values.
 
 MY ENVIRONMENT
 - OS: <Mac M-series | Mac Intel | Windows 11 + WSL2>
@@ -62,8 +72,8 @@ KNOWN-GOOD CHECKPOINTS (so we both know we're on track)
 - After step 4: `docker compose ps` shows postgres + web + worker all running, none restarting
 - After step 5: I can log in and the dashboard shows "Awaiting first refresh"
 - After step 7: pipeline reaches "Completed" with a green ✅, no red ✕ on any stage
-- After step 8: psql shows N indexes matching my Splunk's `| metadata type=indexes`
-- After step 9: I understand the data path of every visible number on the dashboard
+- After step 8: psql shows N indexes matching my Splunk's `| metadata type=indexes`. The TOTAL daily-GB is whatever my lookup rows calculate to — do NOT expect exactly 92. If I want to see 92 specifically, I either need a lookup whose rows sum to exactly that, or the value is whatever my data implies.
+- After step 9: I understand the data path of every visible number on the dashboard, including that the daily-GB number is `SUM(GB_idx_st_s) / DISTINCT(date)` from my own lookup CSV, not a code constant
 
 Start with step 1. Read the install guide, then ask me any clarifying questions before running anything.
 
@@ -74,14 +84,53 @@ Start with step 1. Read the install guide, then ask me any clarifying questions 
 
 ## How the author tested this (for context, don't paste to Claude)
 
-The repo's author (Ram) ran this exact flow today on a Mac M-series:
-- Pipeline ran end-to-end against the sandbox Splunk mock; ~20-min run completed cleanly
-- Dashboard showed 91.9 GB daily ingest (Teja's authoritative 92 GB number, normalized from the 1stmile customer profile lookup)
-- Total spend $17k, ROI 73.7, GainScope 76.4%, Savings Potential $2k, 12 critical indexes
-- All today's fixes verified live: HEARTBEAT events flowing per batch; lease never expired; access token survived the 20-min run without a forced logout
+The repo's author (Ram) ran this exact flow today on a Mac M-series, both before and after a Thamba Policy audit:
 
-The same code path runs against any tenant's real Splunk — the only differences will be the index names (whatever `/services/data/indexes` returns on their instance) and the GB totals (theirs, not the mock's). No code changes needed.
+**Before audit (commit `000f480`)** — pipeline ran end-to-end against the sandbox; dashboard showed 91.9 GB. This number was forced by a hardcoded `LOGICAL_DAILY_GB = 92` constant in `apps/api/services/splunk-client.ts:273`, which scaled whatever the customer's lookup rows summed to to exactly 92. A Thamba Policy audit flagged this as a hardcoded business value injected by code, not derived from the customer's data — REQUIRED FIX.
+
+**After audit (commit `d45d01e`)** — the constant was removed. The query now returns `SUM(GB_idx_st_s) / DISTINCT(date)` per index, derived purely from the customer's own lookup rows. Same sandbox now shows **87.48 GB** (= sum of mock dailyAvgGb values across 20 indexes, untouched by any normalization). Per-index values match the mock inputs exactly (main: 12.4 → 12.4, security: 8.2 → 8.2, …).
+
+What this means for Tejas's instance:
+- His dashboard will show **whatever his Splunk lookup rows calculate to** — 80, 87, 92, 159, doesn't matter.
+- The "92 GB" number is no longer an authoritative target. It's only valid if his rows actually sum to that.
+- If he wants 92 GB on the dashboard, he uploads a lookup whose rows imply 92 GB/day. We do not fudge it in code.
+
+Other today's fixes carried into both commits: HEARTBEAT events flowing per batch, lease never expired, access token survived the ~20-min run without forced logout, pipeline reached "Completed" with green ✅ on all stages.
+
+The same code path runs against any tenant's real Splunk — the only differences will be the index names (whatever `/services/data/indexes` returns on their instance) and the GB totals (their data, not anyone's mock). No code changes needed.
 
 ## Files Tejas should NOT need to touch
 
 `tools/sandbox/splunk-mock-server.ts`, `seed-data/*`, anything under `scripts/env-prep/` (used only for the synthetic dev demo).
+
+---
+
+## The Slack message you actually send Tejas (paste this in DM)
+
+```
+Hi Tejas,
+
+I have prepared the telemetry-governance-ai setup branch for your local install and Splunk validation.
+
+Important note: the dashboard no longer uses mock/default/hardcoded business data. It now derives dashboard metrics from live Splunk polling or DB records created from live polling. The previous `LOGICAL_DAILY_GB = 92` constant has been removed — daily-GB is now calculated as SUM(GB_idx_st_s) / DISTINCT(date) from your own lookup rows.
+
+Please validate with your Splunk instance:
+1. Clone the repo and checkout the handover branch.
+2. Configure your Splunk URL/auth in the tenant config (Settings → Splunk Configuration).
+3. Run the install steps from INSTALL_TEJA.md.
+4. Trigger Refresh.
+5. Verify the dashboard indexes match your Splunk indexes — for example oswin, apptomcat, appapache, osnix, etc.
+6. Verify daily GB values match your live Splunk lookup calculation (SUM(GB_idx_st_s) / DISTINCT(date)).
+7. Confirm there is no mock data and no forced 92 GB anywhere.
+
+Expected behavior:
+• If your live lookup rows calculate to 92 GB/day, dashboard shows 92 GB/day.
+• If your live lookup rows calculate to another value (80, 87, 159, anything), dashboard shows that actual calculated value.
+• If Splunk data is missing or inaccessible, the app fails visibly instead of showing fake/default values.
+
+Once you validate this on your instance, we can use the same flow to test another tenant Splunk instance before promoting this as the agent deployment baseline.
+
+Branch: feature/2026-06-24-tejas-install-pipeline-fixes
+Install guide: INSTALL_TEJA.md (at the repo root)
+Detailed Claude-walkthrough prompt: paste-block at the top of HANDOVER_FOR_TEJAS_SLACK.md
+```
