@@ -216,21 +216,23 @@ function buildSearchResults(spl: string): object {
   const isAttackLookup  = /inputlookup\s+sourcetype_attack_mapping\.csv/i.test(spl);
   const isLanternLookup = /inputlookup\s+sourcetype_lantern_mapping\.csv/i.test(spl);
 
-  // 1stmile customer-profile volume lookup. The worker queries
+  // 1stmile customer-profile volume lookup. The worker now queries
   //   | inputlookup 1stmile_index_sourcetype_and_source_volume_lookupcsv
-  //   | stats sum(GB_idx_st_s) as raw_gb by index
-  // and then normalises the per-index raw_gb so the totals sum to the
-  // Teja-confirmed 92 GB/day logical baseline. We emit one row per mock
-  // index using its dailyAvgGb as raw_gb; the normalisation in
-  // splunk-client.getVolumeFromCustomerProfileLookup() scales these to 92 GB.
+  //   | eval lookup_date=strftime(_time, "%Y-%m-%d")
+  //   | stats sum(GB_idx_st_s) as total_gb dc(lookup_date) as date_count by index
+  // and divides total_gb / date_count itself — no business-value normalization.
+  // To stay consistent with that contract, the mock returns one row per index
+  // where total_gb already represents one day of ingest and date_count = 1, so
+  // the client sees dailyGb = mock dailyAvgGb (no inflation, no constant).
   const is1stmileVolumeLookup = /inputlookup\s+1stmile_index_sourcetype_and_source_volume_lookupcsv/i.test(spl);
   if (is1stmileVolumeLookup) {
     return {
       results: MOCK_INDEXES.map(idx => ({
         index: idx.name,
-        raw_gb: String(idx.dailyAvgGb),
+        total_gb: String(idx.dailyAvgGb),
+        date_count: '1',
       })),
-      fields: [{ name: 'index' }, { name: 'raw_gb' }],
+      fields: [{ name: 'index' }, { name: 'total_gb' }, { name: 'date_count' }],
     };
   }
 

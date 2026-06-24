@@ -59,7 +59,7 @@ export async function ensurePipelineLedgerSchema(): Promise<void> {
       run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
       stage VARCHAR(32) NOT NULL CHECK (stage IN ('SPLUNK_FETCH','SNAPSHOT_WRITE','KPI_AGGREGATION','AI_DECISIONS','GOVERNANCE_SYNC','PUBLISH')),
       attempt INT NOT NULL DEFAULT 1,
-      status VARCHAR(20) NOT NULL CHECK (status IN ('IN_PROGRESS','SUCCESS','FAILED')),
+      status VARCHAR(20) NOT NULL CHECK (status IN ('IN_PROGRESS','SUCCESS','FAILED','HEARTBEAT')),
       started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       completed_at TIMESTAMPTZ,
       records_processed INT NOT NULL DEFAULT 0,
