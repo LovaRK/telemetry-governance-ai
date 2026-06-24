@@ -110,34 +110,37 @@ The same code path runs against any tenant's real Splunk — the only difference
 ```
 Hi Tejas,
 
-Please validate the current branch using INSTALL_TEJA.md on your machine. Once the application is up and running, point it to your Splunk instance and verify that the telemetry values match the output of:
+Please validate the current branch using INSTALL_TEJA.md on your machine, pointed at YOUR real production Splunk (not the 1stmile demo set).
 
-   | metadata type=indexes
-
-Important note: the dashboard no longer uses mock/default/hardcoded business data. It now derives dashboard metrics from live Splunk polling or DB records created from live polling. The previous `LOGICAL_DAILY_GB = 92` constant has been removed — daily-GB is now calculated as SUM(GB_idx_st_s) / DISTINCT(date) from your own lookup rows.
+Important context: the dashboard auto-discovers whatever indexes your Splunk has via /services/data/indexes — it does NOT need 1stmile data, env-prep scripts, or any seed data to work. Just install + point at your Splunk + Refresh.
 
 Steps:
 1. Clone the repo and checkout the handover branch (or main after merge).
-2. Follow INSTALL_TEJA.md end-to-end.
-3. Configure your Splunk URL/auth in Settings → Splunk Configuration.
+2. Follow INSTALL_TEJA.md end-to-end (Steps 1–4). Skip Step 4's optional env-prep section — that's for demo-only environments, NOT for your real-Splunk validation.
+3. Configure YOUR Splunk URL + token in Settings → Splunk Configuration.
 4. Trigger Refresh from the dashboard.
-5. Verify dashboard indexes match your `| metadata type=indexes` output (e.g. oswin, apptomcat, appapache, osnix, etc.).
-6. Verify daily-GB values match your live Splunk lookup calculation.
-7. Confirm no mock data and no forced 92 GB anywhere.
+5. Verify dashboard indexes match the output of `| metadata type=indexes` on your Splunk Search head — whatever indexes your prod has (could be anything; not 1stmile).
+6. Verify each index's daily-GB matches your Splunk's actual ingest. Without the 1stmile lookup uploaded, the worker computes daily-GB as max(license_usage 24h ingest, currentDBSizeMB / retentionDays, sampled raw bytes) — so for a healthy Enterprise-licensed Splunk it'll match your `license_usage.log` 24h sum within rounding.
+7. Confirm no mock data and no hardcoded numbers anywhere.
 
 Please report back with these 5 fields:
 1. OS (Mac/Windows)
 2. Installation issues, if any
 3. Dashboard URL reached successfully (yes/no)
-4. Splunk validation result (indexes match? GB calculation match?)
+4. Splunk validation result:
+   - Indexes shown match `| metadata type=indexes`: yes/no — diff
+   - Daily-GB shown matches your `index=_internal source=*license_usage.log earliest=-24h | stats sum(b) by idx`: yes/no — variance
 5. Green/Red status (ready to merge / blockers found)
 
 Expected behavior:
-• If your live lookup rows calculate to 92 GB/day → dashboard shows 92.
-• If they calculate to another value (80, 87, 159, anything) → dashboard shows that actual calculated value.
-• If Splunk is missing/inaccessible → app fails visibly, no fake/default values.
+• Dashboard shows YOUR real prod indexes — could be any names, any count.
+• Daily-GB matches your Splunk's real ingest within rounding.
+• If your Splunk is unreachable or your token is wrong → app fails visibly with a clear error in the UI, no fake/default values.
+• Pipeline run takes 20-25 min total on Ollama gemma2:9b; no forced logout during the run; no "lease expired" or "idle timeout" errors.
 
-Once you validate this, we can use the same flow on a second tenant Splunk to prove multi-tenant works without code changes, then promote this as the agent deployment baseline. A separate "one-script installer" PR is queued (P1-9 in BACKLOG_2026-06-24.md) to land after your validation so future client onboarding becomes truly layman-friendly.
+Once you validate this, we can test a second tenant Splunk in parallel to prove multi-tenant isolation, then promote this as the agent deployment baseline.
+
+A separate "double-click installer" PR is queued for after your validation (P1-9 in BACKLOG_2026-06-24.md) — Mac .command file + Windows .bat wrapper around the shell installer. That's the layman-friendly path for future clients; you're testing the manual path first to prove the application correctness.
 
 Branch: feature/2026-06-24-tejas-install-pipeline-fixes (or main after merge)
 Install guide: INSTALL_TEJA.md (at the repo root)
@@ -149,19 +152,22 @@ Detailed Claude-walkthrough prompt: paste-block at the top of HANDOVER_FOR_TEJAS
 Use this exact shape so we can triage fast:
 
 ```
-Tejas validation report — datasensAI v1.0 handover
+Tejas validation report — datasensAI v1.0 handover (real-prod Splunk)
 
 1. OS: <Mac M-series | Mac Intel | Windows 11 | Windows 10>
 2. Installation issues: <none | describe>
 3. Dashboard URL reached: <yes — http://localhost:3002 | no — failed at step N>
-4. Splunk validation:
-   - Indexes match `| metadata type=indexes`: <yes / no — diff>
-   - GB calculation matches SUM(GB_idx_st_s) / DISTINCT(date): <yes — X.X GB/day / no — got Y vs expected Z>
+4. Splunk validation against MY real prod Splunk (NOT 1stmile demo):
+   - Indexes shown match `| metadata type=indexes` on my Splunk: <yes / no — diff>
+   - Index count: dashboard shows N=__, my Splunk reports N=__
+   - Daily-GB matches my license_usage 24h sum (`index=_internal source=*license_usage.log earliest=-24h | stats sum(b) by idx`): <yes — within X% / no — got Y vs expected Z>
+   - Pipeline run completed: <yes / no — failed stage: __>
+   - No forced logout during the 20-25 min run: <yes / no>
 5. Status: <GREEN — ready to merge | RED — blockers below>
 
 Blockers (if RED):
   - <one per line>
 
 Optional notes / surprises:
-  - <anything that wasn't clearly documented>
+  - <anything that wasn't clearly documented in INSTALL_TEJA.md>
 ```

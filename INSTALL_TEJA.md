@@ -93,16 +93,34 @@ Open **http://localhost:3002** and log in with the admin credentials from `.env`
    Splunk metadata → deterministic scoring → AI narrative → certification.
 3. KPIs populate in ~1–3 minutes (LLM narrative runs in the background).
 
-### Optional: prep a demo Splunk environment
+### Optional: prep a demo Splunk environment (DEMO/DEV ONLY)
 
-If you want the same synthetic environment used for development, see
-`scripts/env-prep/README.md`:
+> **⚠️ Skip this entire section if you're pointing the dashboard at a real
+> production Splunk.** Your prod Splunk already has indexes and data; the
+> worker auto-discovers them via `/services/data/indexes`. You do not need
+> to upload 1stmile lookups or run env-prep for the dashboard to work.
+>
+> This section exists for the case where you want to populate a *fresh,
+> empty Splunk* with the same 1stmile-shaped synthetic environment we use
+> in dev — useful for demos and proof-of-concept walkthroughs against a
+> throwaway Splunk instance. **Do not run env-prep against a production
+> Splunk** — it will create/wipe the `datasense_demo` app, create demo
+> indexes, and inject synthetic events.
+
+If you understand the above and want the dev/demo environment in your own
+fresh Splunk, see `scripts/env-prep/README.md`:
 
 ```bash
 export SPLUNK_URL=https://<host>:8089 SPLUNK_USER=<admin> SPLUNK_PASSWORD=<pw>
-node scripts/env-prep/run-all.mjs --dry-run   # preview
-node scripts/env-prep/run-all.mjs             # build it
+node scripts/env-prep/run-all.mjs --dry-run   # preview, change nothing
+node scripts/env-prep/run-all.mjs             # actually create demo data
 ```
+
+The script: (1) creates demo indexes (oswin, apptomcat, appapache…),
+(2) injects ~0.25 GB of synthetic events proportional to the 1stmile
+profile, (3) uploads the 1stmile volume CSV as a Splunk lookup the
+worker can query for normalised daily-GB values, (4) creates saved
+searches, macros, and ad-hoc usage to simulate analyst activity.
 
 ---
 
