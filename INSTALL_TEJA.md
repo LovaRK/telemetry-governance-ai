@@ -21,7 +21,11 @@ your own Splunk. Full background lives in `README.md` and
 ```bash
 git clone <repo-url> datasensai
 cd datasensai
-git checkout dev/dashboard-improvements   # the latest development branch
+
+# Until the Tejas-handover PR is merged, use the feature branch:
+git checkout feature/2026-06-24-tejas-install-pipeline-fixes
+# After merge, use main instead:
+#   git checkout main && git pull
 
 cp .env.example .env
 ```
@@ -172,7 +176,7 @@ If you previously hit any of these symptoms, pull `main` and rebuild the
 | Port 3002/5433 in use | change `WEB_PORT` / `POSTGRES_PORT` in `.env` |
 | Pipeline fails at AI Decisions stage | Verify Ollama running: `curl http://localhost:11434/api/tags`. If on Anthropic, check API key in **Settings → AI Provider**. |
 | Dashboard shows old values after Refresh | Hard-reload the browser (Cmd/Ctrl + Shift + R). If still stale, check the latest published run: `SELECT run_id, snapshot_id, published, started_at FROM pipeline_runs ORDER BY started_at DESC LIMIT 3;` |
-| Bounced to /login mid-Refresh | Hard reload + log back in (requires today's `dev/dashboard-improvements` HEAD; older builds had a token-refresh race) |
+| Bounced to /login mid-Refresh | Hard reload + log back in (requires the `feature/2026-06-24-tejas-install-pipeline-fixes` branch — or `main` once merged; older builds had a token-refresh race) |
 
 See `KNOWN_ISSUES.md` for current limitations and `ROLLBACK_PLAN.md` if a
 change misbehaves.

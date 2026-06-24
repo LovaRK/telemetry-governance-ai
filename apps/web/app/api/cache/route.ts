@@ -306,6 +306,41 @@ export const POST = createRoute(async (request: NextRequest) => {
     await setCacheError(cacheKey, 'Missing Splunk API URL');
     throw new Error('Missing Splunk API URL');
   }
+
+  // Defense in depth: in production mode, reject sandbox-only hostnames
+  // even if they made it into tenants.splunk_url (e.g. a dev DB restored
+  // onto a prod install). Without this guard, a stale dev row pointing at
+  // splunk-mock would silently use mock data — a Thamba Policy violation.
+  // EnvironmentValidator enforces this at write time; this is the read-time
+  // mirror so persisted state can't bypass it.
+  const isSandbox = (process.env.APP_ENV || '').toLowerCase() === 'sandbox';
+  if (!isSandbox) {
+    const SANDBOX_ONLY_HOSTS = ['splunk-mock', 'localhost', '127.0.0.1', '0.0.0.0', 'host.docker.internal'];
+    let host = '';
+    try {
+      host = new URL(splunkBase).hostname.toLowerCase();
+    } catch {
+      host = splunkBase.toLowerCase();
+    }
+    const sandboxHostHit = SANDBOX_ONLY_HOSTS.find(
+      (h) => host === h || host.endsWith(`.${h}`)
+    );
+    if (sandboxHostHit) {
+      const msg = `Refusing to query sandbox host "${host}" in production mode. ` +
+        `Tenant ${tenantId} has splunk_url=${splunkBase} which is allowed only when APP_ENV=sandbox. ` +
+        `Reconfigure in Settings → Splunk Connection with the real Splunk URL, or set APP_ENV=sandbox if this is intentional.`;
+      await appendStageEvent({
+        runId, stage: 'SPLUNK_FETCH', status: 'FAILED',
+        errorType: 'UNKNOWN', errorCode: 'FAILED_SPLUNK_CONFIG',
+        errorMessage: msg,
+        metadata: { requestId, tenantId, host, sandboxHostHit },
+      });
+      await markRunFailed(runId, msg);
+      await setCacheError(cacheKey, msg);
+      throw new Error(msg);
+    }
+  }
+
   const restClient = new SplunkClient({
     mcpUrl: splunkBase,
     token: restAuthHeader,
