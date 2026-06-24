@@ -227,6 +227,7 @@ async function processJob(job: any): Promise<void> {
       });
     }, 15000);
 
+    const batchStartedAt = Date.now();
     try {
       const batchController = new AbortController();
       const batchTimeout = setTimeout(() => batchController.abort(), WORKER_BATCH_TIMEOUT_MS);
@@ -284,6 +285,31 @@ async function processJob(job: any): Promise<void> {
       // Save checkpoint so we can resume if worker restarts
       await checkpointJob(job.jobId, i + 1, progress);
       await updateJobProgress(job.jobId, progress);
+
+      // HEARTBEAT: dedicated status keeps lastStageAt current without polluting
+      // IN_PROGRESS/SUCCESS/FAILED history. Carries timing data for Ollama diagnostics.
+      if (runId) {
+        const batchCompletedAt = Date.now();
+        void appendStageEvent({
+          runId,
+          stage: 'AI_DECISIONS',
+          status: 'HEARTBEAT',
+          requestId,
+          recordsProcessed: totalDecisions,
+          metadata: {
+            jobId: job.jobId,
+            batch: i + 1,
+            totalBatches: batches.length,
+            decisionsWritten: totalDecisions,
+            batchStartedAt: new Date(batchStartedAt).toISOString(),
+            batchCompletedAt: new Date(batchCompletedAt).toISOString(),
+            durationMs: batchCompletedAt - batchStartedAt,
+            requestId,
+          },
+        }).catch((e) => {
+          console.warn('[Worker] Batch heartbeat stage event warning:', e instanceof Error ? e.message : String(e));
+        });
+      }
 
       console.log(`[Worker] Batch ${i + 1}/${batches.length} complete — ${totalDecisions} total decisions written`);
     } catch (err) {
@@ -1075,7 +1101,7 @@ async function main() {
 
   // Recover stale jobs from previous crashed/restarted worker sessions.
   try {
-    const recovered = await recoverStaleJobs(parseInt(process.env.WORKER_STALE_JOB_MINUTES || '5', 10));
+    const recovered = await recoverStaleJobs(parseInt(process.env.WORKER_STALE_JOB_MINUTES || '30', 10));
     if (recovered > 0) {
       console.warn(`[Worker] Recovered ${recovered} stale running/partial job(s) as failed`);
     }
@@ -1088,7 +1114,7 @@ async function main() {
       WHERE status = 'RUNNING'
         AND started_at < NOW() - (COALESCE($1::text, '5') || ' minutes')::interval
       RETURNING run_id
-    `, [process.env.WORKER_STALE_RUN_MINUTES || '5']);
+    `, [process.env.WORKER_STALE_RUN_MINUTES || '30']);
     if ((staleRuns.rows || []).length > 0) {
       console.warn(`[Worker] Recovered ${staleRuns.rows.length} stale running pipeline run(s) as failed`);
     }
@@ -1101,7 +1127,7 @@ async function main() {
     try {
       // Continuous lease recovery so orphaned RUNNING jobs are reclaimed even after worker restarts.
       try {
-        await recoverStaleJobs(parseInt(process.env.WORKER_STALE_JOB_MINUTES || '5', 10));
+        await recoverStaleJobs(parseInt(process.env.WORKER_STALE_JOB_MINUTES || '30', 10));
       } catch (e) {
         console.warn('[Worker] Periodic stale job recovery warning:', e instanceof Error ? e.message : String(e));
       }

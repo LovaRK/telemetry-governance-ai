@@ -35,6 +35,36 @@ function getContextHeaders(): Record<string, string> {
   return headers;
 }
 
+// Single-flight refresh: every 401 handler awaits the same refresh promise so
+// only ONE /api/auth/refresh call goes out at a time. Without this guard,
+// parallel fetches (cache-status poll + job-stream SSE + executive-summary)
+// all hit 401 the instant the 15-min access token expires, each independently
+// calls /refresh, the first rotates the refresh cookie, and every subsequent
+// call fails with the now-revoked token → forced redirect to /login mid-run.
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    try {
+      const r = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+      if (!r.ok) return null;
+      const body = await r.json();
+      const newToken: string | undefined = body?.data?.accessToken || body?.accessToken;
+      if (!newToken) return null;
+      localStorage.setItem('access_token', newToken);
+      return newToken;
+    } catch {
+      return null;
+    } finally {
+      // Release the gate on a microtask so any 401 that lost the race to enter
+      // this function still finds the in-flight promise and shares its result.
+      setTimeout(() => { refreshInFlight = null; }, 0);
+    }
+  })();
+  return refreshInFlight;
+}
+
 // Authenticated fetch — auto-attaches Bearer token + context headers, auto-refreshes on 401
 export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
@@ -51,17 +81,10 @@ export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<
 
   let res = await fetch(input, { ...init, headers });
 
-  // Auto-refresh on 401
+  // Auto-refresh on 401 (single-flight; concurrent 401s share one refresh)
   if (res.status === 401 && token) {
-    const refreshRes = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
-    if (refreshRes.ok) {
-      const refreshBody = await refreshRes.json();
-      const accessToken = refreshBody?.data?.accessToken || refreshBody?.accessToken;
-      if (!accessToken) {
-        throw new Error('Refresh succeeded but no access token returned');
-      }
-      localStorage.setItem('access_token', accessToken);
-
+    const accessToken = await refreshAccessToken();
+    if (accessToken) {
       const retryHeaders = new Headers(init?.headers);
       retryHeaders.set('Authorization', `Bearer ${accessToken}`);
       Object.entries(contextHeaders).forEach(([key, value]) => {
@@ -72,7 +95,7 @@ export async function apiFetch(input: RequestInfo, init?: RequestInit): Promise<
       }
       res = await fetch(input, { ...init, headers: retryHeaders });
     } else {
-      // Refresh failed — redirect to login
+      // Refresh genuinely failed (not just a race) — clear and redirect
       localStorage.removeItem('access_token');
       localStorage.removeItem('auth_context');
       if (typeof window !== 'undefined') window.location.href = '/login';

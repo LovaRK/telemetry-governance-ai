@@ -259,40 +259,36 @@ export class SplunkClient implements SplunkDataSource {
   /**
    * Lookup-first volume path for the 1stmile customer profile.
    *
-   * Reads `1stmile_index_sourcetype_and_source_volume_lookupcsv` (uploaded by
-   * env-prep step 05b) and normalises the per-index GB so they sum to the
-   * Teja-confirmed logical daily ingest of 92 GB/day.  Returns an empty map
-   * when the lookup is absent (graceful fallback to physical measurements).
+   * Returns the per-index daily-average GB derived from the customer's own
+   * lookup rows: total GB / distinct dates in the lookup. No hardcoded
+   * normalization target — if the customer's lookup covers 2 days summing
+   * to 159.93 GB, this returns ~80 GB/day; if it covers 30 days, this
+   * returns the corresponding 30-day daily average. The value reflects
+   * whatever the customer's data says, not a magic constant.
    *
-   * This separates *physical dev Splunk data* (0.25 GB injected sample) from
-   * *business ingest profile* (92 GB/day logical baseline), so dashboard KPIs
-   * and ROI/savings calculations reflect the real 1stmile environment scale.
+   * Returns an empty map when the lookup is absent (graceful fallback to
+   * physical Splunk measurements via currentDBSizeMB/retentionDays).
    */
   private async getVolumeFromCustomerProfileLookup(): Promise<Map<string, number>> {
     const LOOKUP_NAME = '1stmile_index_sourcetype_and_source_volume_lookupcsv';
-    const LOGICAL_DAILY_GB = 92; // Teja-confirmed 1stmile daily ingest
 
+    // Group by index AND distinct date. dc(date) tells us how many calendar
+    // days the lookup spans, so total_gb / date_count is the true daily average
+    // implied by the rows — no business value injected by code.
     const rows = await this.runSearchJob(
-      `| inputlookup ${LOOKUP_NAME} | stats sum(GB_idx_st_s) as raw_gb by index`
+      `| inputlookup ${LOOKUP_NAME} ` +
+      `| eval lookup_date=strftime(_time, "%Y-%m-%d") ` +
+      `| stats sum(GB_idx_st_s) as total_gb dc(lookup_date) as date_count by index`
     ).catch(() => []);
 
-    const rawByIndex = new Map<string, number>();
-    let csvTotal = 0;
-    for (const row of rows) {
-      const gb = parseFloat((row as any).raw_gb ?? '0');
-      const idx: string = (row as any).index ?? '';
-      if (idx && gb > 0) {
-        rawByIndex.set(idx, gb);
-        csvTotal += gb;
-      }
-    }
-
-    if (csvTotal === 0) return new Map();
-
-    const scaleFactor = LOGICAL_DAILY_GB / csvTotal;
     const out = new Map<string, number>();
-    for (const [idx, raw] of rawByIndex.entries()) {
-      out.set(idx, parseFloat((raw * scaleFactor).toFixed(4)));
+    for (const row of rows) {
+      const totalGb = parseFloat((row as any).total_gb ?? '0');
+      const dateCount = Math.max(1, parseInt((row as any).date_count ?? '1', 10));
+      const idx: string = (row as any).index ?? '';
+      if (!idx || !(totalGb > 0)) continue;
+      const dailyGb = totalGb / dateCount;
+      out.set(idx, parseFloat(dailyGb.toFixed(4)));
     }
     return out;
   }

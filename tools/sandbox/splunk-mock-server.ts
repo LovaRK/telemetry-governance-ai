@@ -215,6 +215,27 @@ function buildSearchResults(spl: string): object {
   // detection resolves whether scoring keys by index name or sourcetype.
   const isAttackLookup  = /inputlookup\s+sourcetype_attack_mapping\.csv/i.test(spl);
   const isLanternLookup = /inputlookup\s+sourcetype_lantern_mapping\.csv/i.test(spl);
+
+  // 1stmile customer-profile volume lookup. The worker now queries
+  //   | inputlookup 1stmile_index_sourcetype_and_source_volume_lookupcsv
+  //   | eval lookup_date=strftime(_time, "%Y-%m-%d")
+  //   | stats sum(GB_idx_st_s) as total_gb dc(lookup_date) as date_count by index
+  // and divides total_gb / date_count itself — no business-value normalization.
+  // To stay consistent with that contract, the mock returns one row per index
+  // where total_gb already represents one day of ingest and date_count = 1, so
+  // the client sees dailyGb = mock dailyAvgGb (no inflation, no constant).
+  const is1stmileVolumeLookup = /inputlookup\s+1stmile_index_sourcetype_and_source_volume_lookupcsv/i.test(spl);
+  if (is1stmileVolumeLookup) {
+    return {
+      results: MOCK_INDEXES.map(idx => ({
+        index: idx.name,
+        total_gb: String(idx.dailyAvgGb),
+        date_count: '1',
+      })),
+      fields: [{ name: 'index' }, { name: 'total_gb' }, { name: 'date_count' }],
+    };
+  }
+
   if (isAttackLookup || isLanternLookup) {
     const countKey = isAttackLookup ? 'technique_count' : 'lantern_usecase_count';
     const rows: Array<Record<string, string>> = [];

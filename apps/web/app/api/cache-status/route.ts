@@ -24,7 +24,7 @@ export const GET = createRoute(async (request: NextRequest) => {
   const tenantId = context.tenantId;
 
   // Lease/heartbeat ownership: normalize stale worker jobs before deriving lifecycle.
-  await recoverStaleJobs(5, context);
+  await recoverStaleJobs(30, context);
   // Check cache metadata status
   const cacheMetadata = await getCacheStatus('index_metrics');
   const latestRun = await getLatestPublishedRun(tenantId);
@@ -129,7 +129,8 @@ export const GET = createRoute(async (request: NextRequest) => {
     ? await query<{ max_stage_at: string | null }>(
         `SELECT MAX(started_at) AS max_stage_at
          FROM pipeline_stage_events
-         WHERE run_id = $1`,
+         WHERE run_id = $1
+           AND status IN ('IN_PROGRESS', 'SUCCESS', 'FAILED', 'HEARTBEAT')`,
         [runRow.run_id]
       )
     : { rows: [{ max_stage_at: null }] };

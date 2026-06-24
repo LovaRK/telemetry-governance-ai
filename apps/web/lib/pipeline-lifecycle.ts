@@ -34,7 +34,10 @@ export interface PipelineLifecycleState {
   endedAt?: string | null;
 }
 
-export const PIPELINE_IDLE_TIMEOUT_MS = Number(process.env.PIPELINE_IDLE_TIMEOUT_MS || 5 * 60 * 1000);
+// 20 min default — local Ollama (gemma2:9b) processes ~18 indexes at ~35s each = ~10 min.
+// The heartbeat in worker.ts resets this after every batch, so it only fires if a single
+// batch hangs. 20 min gives the model time to recover from a slow inference pass.
+export const PIPELINE_IDLE_TIMEOUT_MS = Number(process.env.PIPELINE_IDLE_TIMEOUT_MS || 20 * 60 * 1000);
 
 /**
  * Canonical lifecycle derivation rule.

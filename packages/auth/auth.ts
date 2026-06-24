@@ -4,7 +4,11 @@ import { query } from '@core/database/connection';
 import crypto from 'crypto';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'datasensai-dev-secret-change-in-production';
-const ACCESS_TOKEN_TTL = '15m';
+// Raised from 15m → 1h: a pipeline run can take 20+ minutes; a 15-min access
+// token forced a refresh mid-run, where a single rotated-cookie race could
+// log every parallel fetcher out. Single-flight refresh in api-client.ts
+// covers the race; a longer TTL means refresh happens less often.
+const ACCESS_TOKEN_TTL = '1h';
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export interface JWTPayload {

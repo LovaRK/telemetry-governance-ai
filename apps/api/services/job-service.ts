@@ -122,7 +122,7 @@ export async function claimNextJob(): Promise<JobRecord | null> {
       SET status = 'running',
           started_at = NOW(),
           heartbeat_at = NOW(),
-          lease_expires_at = NOW() + INTERVAL '5 minutes',
+          lease_expires_at = NOW() + INTERVAL '25 minutes',
           worker_id = $2
       WHERE id = $1
     `, [job.id, process.env.WORKER_ID || 'worker']);
@@ -136,7 +136,7 @@ export async function updateJobProgress(jobId: string, progress: JobProgress): P
     SET status = 'partial',
         progress = $1,
         heartbeat_at = NOW(),
-        lease_expires_at = NOW() + INTERVAL '5 minutes'
+        lease_expires_at = NOW() + INTERVAL '25 minutes'
     WHERE job_id = $2
   `, [JSON.stringify(progress), jobId]);
 }
@@ -148,7 +148,7 @@ export async function checkpointJob(jobId: string, checkpoint: number, progress:
     SET progress = $1,
         payload = jsonb_set(payload, '{checkpoint}', $2::jsonb),
         heartbeat_at = NOW(),
-        lease_expires_at = NOW() + INTERVAL '5 minutes'
+        lease_expires_at = NOW() + INTERVAL '25 minutes'
     WHERE job_id = $3
   `, [JSON.stringify(progress), checkpoint.toString(), jobId]);
 }
@@ -204,7 +204,7 @@ export async function setJobExecutionMetrics(jobId: string, metrics: {
 }
 
 /** Recover stale non-terminal jobs after worker restart/crash. */
-export async function recoverStaleJobs(maxAgeMinutes: number = 5, context?: RequestContext): Promise<number> {
+export async function recoverStaleJobs(maxAgeMinutes: number = 30, context?: RequestContext): Promise<number> {
   const hasTenantScope = !!context?.tenantId;
   const tenantPredicate = hasTenantScope ? `AND jq.payload->>'tenantId' = $2` : ``;
   const affectedRunTenantJoin = hasTenantScope ? `AND pr_scope.tenant_id::text = $2` : ``;
@@ -227,7 +227,10 @@ export async function recoverStaleJobs(maxAgeMinutes: number = 5, context?: Requ
       WHERE jq.status IN ('pending','running','partial')
         AND (
           (jq.lease_expires_at IS NOT NULL AND jq.lease_expires_at < NOW())
-          OR COALESCE(jq.started_at, jq.created_at) < NOW() - ($1::text || ' minutes')::interval
+          -- Only age-check running/partial jobs (they should have heartbeats).
+          -- Pending jobs are legitimately waiting for the worker to finish the current batch run;
+          -- killing them after 5 min causes false failures when a 25-min Ollama run is in progress.
+          OR (jq.status IN ('running','partial') AND COALESCE(jq.heartbeat_at, jq.started_at, jq.created_at) < NOW() - ($1::text || ' minutes')::interval)
         )
         ${tenantPredicate}
       RETURNING jq.job_id, jq.payload
