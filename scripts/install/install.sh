@@ -184,10 +184,16 @@ s_precheck() {
   esac
   ok "Operating system: $OS $(uname -m)"
 
-  # Ensure log dir exists before any other logging
-  mkdir -p "$LOG_DIR" 2>/dev/null || true
-  LOG_FILE="$LOG_DIR/install-$(date +%Y%m%d-%H%M%S).log"
-  touch "$LOG_FILE" 2>/dev/null || LOG_FILE="/tmp/datasensai-install.log"
+  # Use a safe temp log location until the repo directory is cloned.
+  # Do NOT create $TARGET_DIR/install-logs/ here — that would make $TARGET_DIR
+  # non-empty and cause "git clone: destination already exists" in s_repo.
+  if [ -z "$LOG_FILE" ]; then
+    local early_log_dir="$HOME/.datasensai-install-logs"
+    mkdir -p "$early_log_dir" 2>/dev/null || early_log_dir="/tmp"
+    LOG_FILE="$early_log_dir/install-$(date +%Y%m%d-%H%M%S).log"
+    LOG_DIR="$early_log_dir"
+    touch "$LOG_FILE" 2>/dev/null || LOG_FILE="/tmp/datasensai-install.log"
+  fi
   _log_raw "datasensAI installer v$INSTALLER_VERSION started $(date -u)"
   _log_raw "OS: $OS $(uname -m)"
   ok "Log file: $LOG_FILE"
@@ -348,22 +354,67 @@ s_port_check() {
 s_repo() {
   step "Setting up datasensAI files"
 
+  # ── Check if this installer script is already inside the repo ──────────
+  # (handles the case where the user runs install.sh directly from the repo
+  # rather than from the extracted installer ZIP)
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || script_dir=""
+  if [ -n "$script_dir" ]; then
+    local detected_root
+    detected_root=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || echo "")
+    if [ -n "$detected_root" ] && [ -f "$detected_root/docker/docker-compose.yml" ]; then
+      if [ "$detected_root" != "$TARGET_DIR" ]; then
+        info "Detected: running from inside repo at $detected_root"
+        info "Using this checkout instead of cloning."
+        TARGET_DIR="$detected_root"
+      fi
+    fi
+  fi
+
   if [ -d "$TARGET_DIR/.git" ]; then
     info "Existing repo found at $TARGET_DIR — updating to latest..."
     git -C "$TARGET_DIR" fetch --quiet origin 2>/dev/null || warn "Could not fetch latest from GitHub. Continuing with current version."
     git -C "$TARGET_DIR" checkout --quiet "$BRANCH" 2>/dev/null || true
     git -C "$TARGET_DIR" pull --quiet origin "$BRANCH" 2>/dev/null || warn "Could not pull latest. Continuing with current version."
-    ok "Code updated to latest from main"
+    ok "Using existing checkout at $TARGET_DIR"
   else
+    # Remove partial TARGET_DIR if we created it (e.g. the install-logs dir
+    # was created during precheck). git clone requires an empty or absent dir.
+    if [ -d "$TARGET_DIR" ] && [ ! -d "$TARGET_DIR/.git" ]; then
+      local dir_contents
+      dir_contents=$(ls -A "$TARGET_DIR" 2>/dev/null)
+      if [ -z "$dir_contents" ]; then
+        rmdir "$TARGET_DIR" 2>/dev/null || true
+      fi
+      # If it only has our own early log dir inside it, that means nothing
+      # was there before us — safe to remove and let git clone create it fresh.
+    fi
+
     info "Downloading datasensAI from GitHub..."
     info "(This needs internet access and takes 10–30 seconds)"
-    git clone --depth 50 --branch "$BRANCH" "$REPO_URL" "$TARGET_DIR" 2>/dev/null \
-      || die_with_support "Could not download datasensAI from GitHub. Check your internet connection and try again."
+    local clone_out
+    clone_out=$(git clone --depth 50 --branch "$BRANCH" "$REPO_URL" "$TARGET_DIR" 2>&1)
+    local clone_rc=$?
+    _log_raw "git clone output: $clone_out"
+    if [ $clone_rc -ne 0 ]; then
+      if echo "$clone_out" | grep -q "already exists and is not an empty directory"; then
+        die_with_support \
+          "$TARGET_DIR already exists. Run the installer again and choose 'Repair install', or delete $TARGET_DIR and re-run."
+      fi
+      die_with_support "Could not download datasensAI from GitHub. Check your internet connection and try again."
+    fi
     ok "Downloaded to $TARGET_DIR"
   fi
 
-  # Ensure log dir still valid after repo clone
-  mkdir -p "$LOG_DIR" 2>/dev/null || true
+  # Move early logs into the repo's canonical log directory
+  local repo_log_dir="$TARGET_DIR/install-logs"
+  mkdir -p "$repo_log_dir" 2>/dev/null || true
+  if [ -f "$LOG_FILE" ] && [ "$(dirname "$LOG_FILE")" != "$repo_log_dir" ]; then
+    local new_log="$repo_log_dir/$(basename "$LOG_FILE")"
+    cp "$LOG_FILE" "$new_log" 2>/dev/null && LOG_FILE="$new_log" || true
+  fi
+  LOG_DIR="$repo_log_dir"
+  _log_raw "Log moved to $LOG_FILE"
 }
 
 # [6] Config generation
@@ -1013,11 +1064,13 @@ show_mode_menu() {
 #  MAIN
 # ══════════════════════════════════════════════════════════════════════════
 main() {
-  # Set up minimal log dir early (before TARGET_DIR may exist)
-  mkdir -p "$TARGET_DIR/install-logs" 2>/dev/null || mkdir -p "$HOME/.datasensai-logs" 2>/dev/null || true
-  LOG_FILE="${LOG_DIR:-$HOME/.datasensai-logs}/install-$(date +%Y%m%d-%H%M%S).log"
+  # Use a safe temp log location that does NOT create $TARGET_DIR.
+  # s_repo will move the log into $TARGET_DIR/install-logs/ after the clone.
+  local early_log_dir="$HOME/.datasensai-install-logs"
+  mkdir -p "$early_log_dir" 2>/dev/null || early_log_dir="/tmp"
+  LOG_FILE="$early_log_dir/install-$(date +%Y%m%d-%H%M%S).log"
   touch "$LOG_FILE" 2>/dev/null || LOG_FILE="/tmp/datasensai-install.log"
-  LOG_DIR="$(dirname "$LOG_FILE")"
+  LOG_DIR="$early_log_dir"
 
   show_welcome
 
