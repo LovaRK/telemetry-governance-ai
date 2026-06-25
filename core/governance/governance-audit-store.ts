@@ -107,7 +107,7 @@ async function persistToDB(event: GovernanceAuditEvent): Promise<void> {
   try {
     // Lazy-require database module to avoid circular deps at module load time
     // Matches the pattern used in governance-integrity.ts and governance-metrics.ts
-    const dbModule = require('../database/db-client');
+    const dbModule = require('../database/connection');
     const pool = dbModule.getPool?.() || dbModule.pool || dbModule.default;
 
     if (!pool) {
