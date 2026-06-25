@@ -83,6 +83,44 @@ else check_warn "Skipping container checks (Docker not running)"; fi
 
 if curl -fsS "http://localhost:${WEB_PORT}/api/health" >/dev/null 2>&1; then
   check_pass "Dashboard responding on http://localhost:${WEB_PORT}"
+
+  # Migration completeness
+  health_json=$(curl -fsS "http://localhost:${WEB_PORT}/api/health" 2>/dev/null)
+  if echo "$health_json" | grep -q '"valid":true'; then
+    check_pass "Schema health: valid"
+    actual_mig=$(echo "$health_json" | grep -Eo '"latestMigration":[0-9]+' | grep -Eo '[0-9]+')
+    [ -n "$actual_mig" ] && check_pass "Latest migration applied: $actual_mig" \
+      || check_warn "Could not read latestMigration from health endpoint"
+  else
+    check_fail "Schema health: INVALID — run doctor again after repair"
+  fi
+
+  # Login verification
+  if [ -f "$TARGET_DIR/.env" ]; then
+    admin_email=$(grep "^ADMIN_EMAIL=" "$TARGET_DIR/.env" | cut -d= -f2- | head -1)
+    admin_pw=$(grep "^ADMIN_PASSWORD=" "$TARGET_DIR/.env" | cut -d= -f2- | head -1)
+    if [ -n "$admin_email" ] && [ -n "$admin_pw" ]; then
+      login_resp=$(curl -fsS -X POST "http://localhost:${WEB_PORT}/api/auth/login" \
+        -H "Content-Type: application/json" \
+        -d "{\"email\":\"$admin_email\",\"password\":\"$admin_pw\"}" \
+        --max-time 10 2>/dev/null)
+      if echo "$login_resp" | grep -q '"accessToken"'; then
+        check_pass "Login API verified — credentials work ($admin_email)"
+      else
+        check_fail "Login API FAILED for $admin_email — run: ./install.sh → Repair"
+      fi
+    else
+      check_warn "Could not read credentials from .env for login check"
+    fi
+  fi
+
+  # Credentials file
+  cred_file="$TARGET_DIR/credentials.txt"
+  if [ -f "$cred_file" ]; then
+    check_pass "Credentials file: $cred_file"
+  else
+    check_warn "Credentials file not found — will be created after a successful install"
+  fi
 else check_fail "Dashboard NOT responding on http://localhost:${WEB_PORT}"; fi
 
 section "Splunk (tenant config in DB)"
@@ -110,9 +148,11 @@ if [ "$FAIL" -gt 0 ]; then
   cat <<'EOF'
 Common fixes:
   • Docker daemon not running        → open Docker Desktop, wait for the whale icon, re-run doctor
-  • Containers not running           → cd $TARGET_DIR && docker compose -f docker/docker-compose.yml up -d
-  • .env missing                     → run ./install.sh (it generates one)
-  • Dashboard not responding         → docker compose -f docker/docker-compose.yml logs web | tail -50
+  • Containers not running           → run ./install.sh → "Start existing app"
+  • .env missing                     → run ./install.sh → "Fresh install"
+  • Login API FAILED                 → run ./install.sh → "Repair install" (auto-fixes credentials)
+  • Schema invalid / migration gap   → run ./install.sh → "Repair install"
+  • Dashboard not responding         → docker logs docker-web-1 | tail -50
   • Splunk URL unset                 → log in, Settings → Splunk Connection
 EOF
   exit 1

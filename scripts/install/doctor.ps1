@@ -83,8 +83,39 @@ if (Have docker) {
   } catch { CheckWarn "Skipping container checks (Docker not running)" }
 }
 
-try { (Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:$WebPort/api/health" -TimeoutSec 2) | Out-Null
+try {
+  $healthResp = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:$WebPort/api/health" -TimeoutSec 10
   CheckPass "Dashboard responding on http://localhost:$WebPort"
+
+  # Schema / migration check
+  $healthJson = $healthResp.Content
+  if ($healthJson -match '"valid":true') {
+    CheckPass "Schema health: valid"
+    $migMatch = [regex]::Match($healthJson, '"latestMigration":(\d+)')
+    if ($migMatch.Success) { CheckPass "Latest migration applied: $($migMatch.Groups[1].Value)" }
+    else { CheckWarn "Could not read latestMigration from health endpoint" }
+  } else { CheckFail "Schema health: INVALID — run .\install.ps1 -> Repair" }
+
+  # Login verification
+  if (Test-Path "$TargetDir\.env") {
+    $envContent = Get-Content "$TargetDir\.env"
+    $adminEmail = ($envContent | Where-Object { $_ -match '^ADMIN_EMAIL=(.+)' } | Select-Object -First 1) -replace '^ADMIN_EMAIL=',''
+    $adminPw    = ($envContent | Where-Object { $_ -match '^ADMIN_PASSWORD=(.+)' } | Select-Object -First 1) -replace '^ADMIN_PASSWORD=',''
+    if ($adminEmail -and $adminPw) {
+      $body = "{`"email`":`"$adminEmail`",`"password`":`"$adminPw`"}"
+      try {
+        $loginResp = Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:$WebPort/api/auth/login" `
+          -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 10
+        if ($loginResp.Content -match '"accessToken"') { CheckPass "Login API verified — credentials work ($adminEmail)" }
+        else { CheckFail "Login API returned unexpected response for $adminEmail" }
+      } catch { CheckFail "Login API FAILED for $adminEmail — run .\install.ps1 -> Repair" }
+    } else { CheckWarn "Could not read credentials from .env for login check" }
+  }
+
+  # Credentials file
+  if (Test-Path "$TargetDir\credentials.txt") { CheckPass "Credentials file: $TargetDir\credentials.txt" }
+  else { CheckWarn "Credentials file not found — will be created after a successful install" }
+
 } catch { CheckFail "Dashboard NOT responding on http://localhost:$WebPort" }
 
 Section "Splunk (tenant config in DB)"

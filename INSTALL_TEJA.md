@@ -1,83 +1,77 @@
 # datasensAI — Install & Run (Teja)
 
 Self-contained quickstart for running datasensAI on your own laptop against
-your own Splunk. Full background lives in `README.md` and
-`INSTALLATION_GUIDE.md`; this is the fast path.
+your own Splunk.
+
+**v1.3.0 installer:** double-click to get a guided menu. No terminal needed.
+The installer auto-generates credentials, verifies login before reporting
+success, and saves a `credentials.txt` file.
 
 ---
 
 ## 0. Prerequisites
 
-- **Docker Desktop** (Mac/Windows) or Docker Engine + compose (Linux)
-- **Node.js 18+** (only needed to run the helper scripts, not the app itself)
-- A reachable **Splunk Enterprise** instance you can point at (management
-  port 8089). A Splunk *Free* license or an expired trial will index data but
-  **blocks search-time commands**, so scores come back zero — use Enterprise.
+- A reachable **Splunk Enterprise** instance (management port 8089). A Splunk
+  *Free* license or an expired trial blocks search-time commands, so scores
+  come back zero — use Enterprise.
+- 20 GB free disk, 8 GB RAM (16 GB recommended for the AI model)
+- The installer handles everything else (Docker, Homebrew, Ollama, etc.)
 
 ---
 
-## 1. Clone & configure
+## 1. Get the installer
 
 ```bash
-git clone <repo-url> datasensai
+git clone https://github.com/LovaRK/telemetry-governance-ai.git datasensai
 cd datasensai
-
 git checkout main && git pull
-
-cp .env.example .env
 ```
-
-Edit `.env` and set, at minimum:
-
-```bash
-ADMIN_EMAIL=you@yourco.com
-ADMIN_PASSWORD=<a strong password>
-
-# generate each fresh:
-#   openssl rand -hex 32
-SPLUNK_SECRET_ENCRYPTION_KEY=<64 hex chars>
-GOVERNANCE_BOOTSTRAP_KEY=<64 hex chars>
-```
-
-Leave the `NEXT_PUBLIC_SPLUNK_*` lines blank — you'll enter your Splunk
-connection in the UI.
 
 ---
 
-## 2. Choose an LLM path
+## 2. Run the installer
 
-**Path A — fully local (default, recommended).** Nothing leaves your machine.
+**Mac:** double-click `scripts/install/Install datasensAI.command` in Finder.
+Or in a terminal:
 
 ```bash
-# install Ollama (https://ollama.com), then:
-ollama pull gemma2:9b
-curl http://localhost:11434/api/tags     # should list gemma2:9b
+cd scripts/install && chmod +x install.sh && ./install.sh
 ```
 
-The containers reach your host Ollama via `host.docker.internal` (the compose
-file already maps this for Linux via `extra_hosts`).
+**Windows:** double-click `scripts\install\Install datasensAI.bat`.
+It triggers UAC (click Yes) and opens the menu.
 
-**Path B — Anthropic fallback.** Only if your laptop can't run gemma2:9b. Set
-`ANTHROPIC_API_KEY` in `.env`, then after first login go to **Settings → AI
-Provider** and explicitly select Anthropic. There is **no silent fallback** —
-local stays primary until you opt in.
+The installer shows a menu:
+
+```
+1) Fresh install      ← choose this on first run
+2) Start existing
+3) Repair install
+4) Reset/reinstall
+5) Export support logs
+6) Stop app
+7) Uninstall
+```
+
+Choose **1 — Fresh install**. The installer will:
+- Install Docker, Homebrew, Ollama if missing
+- Auto-generate secure admin credentials (no password typing needed)
+- Download the AI model (~5 GB, takes 10-30 min)
+- Start all containers and run database migrations
+- **Verify login via the API before showing "complete"**
+- Save your credentials to `~/datasensai/credentials.txt`
+- Open the browser automatically
 
 ---
 
-## 3. Start
+## 3. After install: connect your Splunk
 
-```bash
-docker compose --env-file .env -f docker/docker-compose.yml up -d
-```
-
-On first boot the web container runs migrations and creates your admin user.
-Watch it come up:
-
-```bash
-docker compose --env-file .env -f docker/docker-compose.yml logs -f web | grep -E "Migration|Admin Init|ready"
-```
-
-Open **http://localhost:3002** and log in with the admin credentials from `.env`.
+1. Log in with credentials from `~/datasensai/credentials.txt`
+2. **Settings → Splunk Connection** — enter your Splunk URL (`https://<host>:8089`)
+3. Enter auth (username + password, or a Splunk token)
+4. Click **Test Connection** until green, then Save
+5. Back on the dashboard, click **Refresh**
+   (first pipeline run: 20-25 min — AI analysis runs in background)
 
 ---
 
@@ -182,16 +176,28 @@ If you previously hit any of these symptoms, pull `main` and rebuild the
 
 ## Troubleshooting
 
+Run the doctor first:
+
+```bash
+# Mac/Linux
+~/datasensai/scripts/install/doctor.sh
+
+# Windows (Admin PowerShell)
+%USERPROFILE%\datasensai\scripts\install\doctor.ps1
+```
+
 | Symptom | Fix |
 |---|---|
-| `Must set GOVERNANCE_BOOTSTRAP_KEY` / `ADMIN_PASSWORD` on `up` | fill those in `.env` (they're required) |
+| Can't find credentials / forgot password | Check `~/datasensai/credentials.txt` (Mac) or `%USERPROFILE%\datasensai\credentials.txt` (Windows). If missing, run the installer → **Repair install** — it auto-resets the admin password. |
+| Installer says "Login API FAILED" | Run installer → **Repair install** — it resets the password via bcrypt in the DB then re-verifies. |
 | All scores 0 after a refresh | Splunk license is Free/expired — needs Enterprise; or no events in the last 24h |
-| Worker keeps restarting | Postgres not healthy yet, or no active model pointer — check `docker compose logs worker` |
-| `host.docker.internal` unreachable (Linux) | already mapped via `extra_hosts`; ensure Ollama listens on `0.0.0.0:11434` |
-| Port 3002/5433 in use | change `WEB_PORT` / `POSTGRES_PORT` in `.env` |
-| Pipeline fails at AI Decisions stage | Verify Ollama running: `curl http://localhost:11434/api/tags`. If on Anthropic, check API key in **Settings → AI Provider**. |
-| Dashboard shows old values after Refresh | Hard-reload the browser (Cmd/Ctrl + Shift + R). If still stale, check the latest published run: `SELECT run_id, snapshot_id, published, started_at FROM pipeline_runs ORDER BY started_at DESC LIMIT 3;` |
-| Bounced to /login mid-Refresh | Hard reload + log back in. Fixed in v1.2.0 (`main`) — older builds had a token-refresh race condition. |
+| Worker keeps restarting | Postgres not healthy yet — wait 2 min and check `docker logs docker-worker-1` |
+| `host.docker.internal` unreachable (Linux) | Already mapped via `extra_hosts`; ensure Ollama listens on `0.0.0.0:11434` |
+| Port 3002/5433 in use | Change `WEB_PORT` / `POSTGRES_PORT` in `.env` then run installer → **Repair install** |
+| Pipeline fails at AI Decisions stage | Run `curl http://localhost:11434/api/tags`. If Ollama is down, run `ollama serve`. If using Anthropic, check API key in **Settings → AI Provider**. |
+| Dashboard shows old values after Refresh | Hard-reload the browser (Cmd/Ctrl + Shift + R). |
+| Bounced to /login mid-Refresh | Hard reload + log back in. Fixed in v1.2.0 (main). |
+| Something else broken | Run `scripts/install/export-logs.sh` (Mac) or `export-logs.ps1` (Windows) and share the ZIP. |
 
 See `KNOWN_ISSUES.md` for current limitations and `ROLLBACK_PLAN.md` if a
 change misbehaves.
