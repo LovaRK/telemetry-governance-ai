@@ -38,6 +38,7 @@ backups/
 *.patch
 *.sql
 !apps/api/migrations/*.sql
+!infrastructure/migrations/*.sql
 *.exp
 
 # Old generated docs (use docs/ for curated documentation only)
