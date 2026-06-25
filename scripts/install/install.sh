@@ -261,17 +261,62 @@ s_dependency_check() {
 }
 
 # [3] Docker check
+# On Mac, Docker Desktop is installed at /Applications/Docker.app. The CLI binary
+# at /usr/local/bin/docker is a symlink to inside that bundle. We must verify the
+# bundle is actually present — brew's "installed" status alone is not enough,
+# because the .app can be deleted by cleaners (CleanMyMac etc.) leaving brew with
+# a stale receipt that makes 'brew install' a no-op.
+docker_app_present_mac() {
+  [ -d "/Applications/Docker.app" ] && [ -x "/Applications/Docker.app/Contents/MacOS/Docker" ]
+}
+
+# Force-reinstall Docker Desktop on Mac when the app bundle is missing.
+# Cleans brew's stale receipt first so 'brew install' actually does the work.
+reinstall_docker_mac() {
+  info "Cleaning stale Homebrew receipt for docker-desktop..."
+  brew uninstall --cask --force docker-desktop 2>&1 | tail -3 || true
+  info "Installing Docker Desktop fresh (this needs your Mac password)..."
+  info "  >>> When you see 'Password:' below, TYPE IT IMMEDIATELY <<<"
+  info "  >>> If you wait, the install will silently skip and fail. <<<"
+  printf "\n"
+  brew install --cask docker-desktop 2>&1 | tail -20 \
+    || die_with_support "Docker Desktop install failed. Install manually: https://www.docker.com/products/docker-desktop"
+}
+
 s_docker_check() {
   step "Checking Docker"
 
-  if ! have_cmd docker; then
-    warn "Docker Desktop not found."
-    if [ "$OS" = "mac" ]; then
-      info "Installing Docker Desktop via Homebrew..."
-      info "(This may take a few minutes and will ask for your password)"
-      brew install --cask docker \
-        || die_with_support "Docker Desktop install failed. Install manually: https://www.docker.com/products/docker-desktop"
-    else
+  if [ "$OS" = "mac" ]; then
+    # Mac: check both the CLI AND the .app bundle.
+    # If have_cmd reports docker but the .app is missing, we have a broken symlink
+    # from an old install — treat as not installed and reinstall.
+    if ! docker_app_present_mac; then
+      warn "Docker Desktop not found (or the app was removed)."
+      if brew list --cask docker-desktop >/dev/null 2>&1; then
+        warn "Homebrew thinks docker-desktop is installed, but /Applications/Docker.app is missing."
+        warn "This usually means a cleaner (CleanMyMac etc.) removed it. Forcing a fresh install."
+      else
+        info "Installing Docker Desktop via Homebrew..."
+      fi
+      reinstall_docker_mac
+      # Verify after install
+      if ! docker_app_present_mac; then
+        die_with_support \
+"Docker Desktop install completed but /Applications/Docker.app is still missing.
+This means the brew install silently failed (likely because the password prompt
+timed out). Run this in your Terminal, type your password IMMEDIATELY when asked:
+
+  brew reinstall --cask docker-desktop
+
+Then re-run this installer."
+      fi
+      # Rehash so the new symlink is visible to this shell
+      hash -r 2>/dev/null || true
+    fi
+  else
+    # Linux: just check the CLI
+    if ! have_cmd docker; then
+      warn "Docker Engine not found."
       info "Installing Docker Engine..."
       curl -fsSL https://get.docker.com | sudo sh \
         || die_with_support "Docker Engine install failed. See: https://docs.docker.com/engine/install/"
@@ -281,6 +326,19 @@ s_docker_check() {
 
   if ! have_docker_running; then
     if [ "$OS" = "mac" ]; then
+      # Sanity check: app must exist before we try to open it. If a cleaner
+      # removed it between install and start, fail fast with a clear message
+      # instead of waiting 8 minutes for nothing.
+      if ! docker_app_present_mac; then
+        die_with_support \
+"Docker Desktop is not installed at /Applications/Docker.app.
+Run this in Terminal, type your password IMMEDIATELY when prompted:
+
+  brew reinstall --cask docker-desktop
+
+Then open Docker.app once, wait for the whale icon in the menu bar,
+then re-run this installer."
+      fi
       info "Opening Docker Desktop..."
       open -a Docker 2>/dev/null || true
       printf "\n"
@@ -292,6 +350,19 @@ s_docker_check() {
       while ! have_docker_running; do
         tries=$((tries + 1))
         local elapsed=$((tries * 2))
+        # Every 60s: re-verify the .app still exists. If a cleaner deleted it
+        # mid-wait, fail immediately instead of timing out.
+        if [ $((elapsed % 60)) -eq 0 ] && ! docker_app_present_mac; then
+          printf "\n"
+          die_with_support \
+"Docker.app vanished from /Applications during startup. Something on your Mac
+(likely CleanMyMac or similar) is removing it. Quit that tool, then run:
+
+  brew reinstall --cask docker-desktop
+  open -a Docker
+
+Then re-run this installer."
+        fi
         # Print a progress notice every 30 seconds
         if [ $((elapsed - last_notice)) -ge 30 ]; then
           last_notice=$elapsed
