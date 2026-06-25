@@ -266,8 +266,12 @@ s_dependency_check() {
 # bundle is actually present — brew's "installed" status alone is not enough,
 # because the .app can be deleted by cleaners (CleanMyMac etc.) leaving brew with
 # a stale receipt that makes 'brew install' a no-op.
+#
+# We check for Info.plist (every valid .app bundle has one). Do NOT check for an
+# executable named "Docker" — Docker Desktop's actual executable is "Docker Desktop"
+# with a space (and it lives in a nested sub-app at Contents/MacOS/Docker Desktop.app).
 docker_app_present_mac() {
-  [ -d "/Applications/Docker.app" ] && [ -x "/Applications/Docker.app/Contents/MacOS/Docker" ]
+  [ -d "/Applications/Docker.app" ] && [ -f "/Applications/Docker.app/Contents/Info.plist" ]
 }
 
 # Force-reinstall Docker Desktop on Mac when the app bundle is missing.
