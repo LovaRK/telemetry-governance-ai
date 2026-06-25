@@ -280,16 +280,46 @@ s_docker_check() {
   fi
 
   if ! have_docker_running; then
-    info "Docker is installed but not running. Starting Docker Desktop..."
     if [ "$OS" = "mac" ]; then
+      info "Opening Docker Desktop..."
       open -a Docker 2>/dev/null || true
-      info "Waiting for Docker to start (up to 3 minutes)..."
+      printf "\n"
+      printf "  ${BOLD}Docker Desktop is starting.${NC}\n"
+      printf "  On first boot this takes 3-10 minutes — please be patient.\n"
+      printf "  Watch the menu bar: when the whale icon stops animating, Docker is ready.\n\n"
       local tries=0
+      local last_notice=0
       while ! have_docker_running; do
         tries=$((tries + 1))
-        [ "$tries" -gt 90 ] && die_with_support \
-          "Docker did not start after 3 minutes. Open Docker Desktop from Applications and wait for the whale icon to appear in the menu bar, then re-run the installer."
-        printf "  Waiting for Docker%s\r" "$(printf '.%.0s' $(seq 1 $((tries % 4))))"
+        local elapsed=$((tries * 2))
+        # Print a progress notice every 30 seconds
+        if [ $((elapsed - last_notice)) -ge 30 ]; then
+          last_notice=$elapsed
+          if [ "$elapsed" -lt 120 ]; then
+            printf "  Still starting Docker (%ds)...\r" "$elapsed"
+          elif [ "$elapsed" -lt 300 ]; then
+            printf "  Docker starting — first boot is slow (%ds elapsed)...\r" "$elapsed"
+          else
+            printf "  Still waiting for Docker (%ds) — if the whale icon shows, check it's not paused...\r" "$elapsed"
+          fi
+        fi
+        # At 2 min: friendly nudge
+        if [ "$elapsed" -eq 120 ]; then
+          printf "\n  Tip: Click the Docker whale icon in the menu bar to see its status.\n"
+        fi
+        # At 8 min: ask user to confirm
+        if [ "$tries" -gt 240 ]; then
+          printf "\n"
+          printf "  Docker has not responded after 8 minutes.\n"
+          printf "  Is the whale icon steady (not animating) in your menu bar? [y/N]: "
+          local ans
+          read -r ans
+          if [ "$ans" = "y" ] || [ "$ans" = "Y" ]; then
+            have_docker_running && break
+            die_with_support "Docker appears running in the menu bar but the daemon is not responding. Try restarting Docker Desktop, then re-run the installer."
+          fi
+          die_with_support "Docker Desktop did not start. Open Docker from /Applications/Docker.app, wait for the whale icon to be steady, then re-run the installer."
+        fi
         sleep 2
       done
       printf "\n"
