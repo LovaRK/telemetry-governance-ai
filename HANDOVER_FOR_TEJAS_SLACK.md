@@ -1,3 +1,10 @@
+> 🚨 **DO NOT SEND TO TEJAS — HANDOVER PAUSED (2026-06-25)**
+>
+> Three fresh-install P0 bugs were found during the project owner's Mac test on 2026-06-24.
+> v1.1.0 cannot be shipped until P0-FRESHINSTALL-1/2/3 in `BACKLOG_2026-06-24.md`
+> are fixed and a clean fresh-install passes on both Mac and Windows.
+> See `BACKLOG_2026-06-24.md` for details and fix branches.
+
 ---
 
 **SLACK / CLAUDE PASTE BLOCK** — paste everything between the two `===` lines into Claude on Tejas's Mac (or `claude` CLI on Windows). Self-contained — no prior context needed.
