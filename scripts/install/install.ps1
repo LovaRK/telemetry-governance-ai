@@ -16,7 +16,7 @@
 # ============================================================================
 [CmdletBinding()]
 param(
-  [string]$RepoUrl      = 'https://github.com/LovaRK/telemetry-governance-ai.git',
+  [string]$RepoUrl      = 'https://github.com/BitsIO-Ram/telemetry-governance-ai.git',
   [string]$Branch       = 'main',
   [string]$TargetDir    = "$env:USERPROFILE\datasensai",
   [string]$LlmModel     = 'gemma2:9b',

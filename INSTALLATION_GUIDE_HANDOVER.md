@@ -1,7 +1,7 @@
 # datasensAI — Installation Guide (Handover)
 
-**Version:** 1.0.0  
-**Date:** June 21, 2026  
+**Version:** Kodak validation branch (`fix/layman-friendly-installer`)  
+**Date:** June 26, 2026  
 **Audience:** Anyone installing datasensAI on a Mac or Windows laptop for the first time.  
 **Goal:** After following these steps, you will have a working datasensAI dashboard populated with live data from your own Splunk instance.
 
@@ -160,12 +160,12 @@ ollama list
 Open Terminal (Mac) or Command Prompt (Windows) and run:
 
 ```bash
-git clone https://github.com/LovaRK/telemetry-governance-ai.git datasensai
+git clone https://github.com/BitsIO-Ram/telemetry-governance-ai.git datasensai
 cd datasensai
-git checkout v1.0.0
+git checkout fix/layman-friendly-installer
 ```
 
-This downloads the application code and switches to the verified release version (v1.0.0).
+This downloads the application code and switches to the latest validated Kodak handoff branch.
 
 ---
 

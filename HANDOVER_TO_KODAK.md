@@ -116,20 +116,21 @@ Current credentials are DEV ONLY and must not be used in production.
 ## 📍 Current Branch & Git Status
 
 ```
+Repository: https://github.com/BitsIO-Ram/telemetry-governance-ai.git
 Branch: fix/layman-friendly-installer
 Base: main
-Commits ahead: 7 critical fixes
+Pinned validation commit: db5b6f6
 ```
 
-### Recent Commits (in order):
+### Recent Validation Commits (most recent first):
 ```
+db5b6f6 docs: lock final handoff decisions for Kodak/Codex
+4ccf6d5 chore: regenerate events with GB fix (run_id 004)
+06fd558 fix: distribute GB values proportionally across sampled events
+e09f526 docs: complete handover document for Kodak team
 7bc2b8a docs: explain pipeline batch timeout issue and fix
 98b87f2 fix: increase batch timeout from 4 min to 10 min + better logging
 343017b docs: add handover documentation for Teja (install + data source)
-3e39052 fix: remove st field truncation + sourcetype duplication in HEC envelope
-eb03ed2 fix(load_events): production safety — live HEC check, license gate, hard-fail duplicates
-24a9122 fix(load_events): hard-fail duplicate check + HEC batching
-2e00989 fix: ensure dsdemo_prefix applied in all index creation/reset scripts
 ```
 
 **Do NOT merge until Kodak completes validation checklist below.**

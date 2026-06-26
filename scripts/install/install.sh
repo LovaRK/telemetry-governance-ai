@@ -16,7 +16,7 @@
 set -uo pipefail
 
 # ── Constants ──────────────────────────────────────────────────────────────
-REPO_URL="${REPO_URL:-https://github.com/LovaRK/telemetry-governance-ai.git}"
+REPO_URL="${REPO_URL:-https://github.com/BitsIO-Ram/telemetry-governance-ai.git}"
 BRANCH="${BRANCH:-main}"
 TARGET_DIR="${TARGET_DIR:-$HOME/datasensai}"
 WEB_PORT="${WEB_PORT:-3002}"

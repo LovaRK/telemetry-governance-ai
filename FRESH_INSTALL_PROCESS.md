@@ -90,7 +90,7 @@ Now you're a "fresh user" — no Docker, no Ollama, no repo.
 #   6. Answer the prompts as they come up
 
 # Option 2 — terminal (if you want a transcript of every line for debugging)
-git clone https://github.com/LovaRK/telemetry-governance-ai.git ~/installer-test
+git clone https://github.com/BitsIO-Ram/telemetry-governance-ai.git ~/installer-test
 cd ~/installer-test/scripts/install
 time ./install.sh 2>&1 | tee ~/Desktop/install-log-mac.txt
 ```
@@ -209,7 +209,7 @@ Test-Path $env:USERPROFILE\datasensai               # should be False
 
 # Option 2 — PowerShell (if you want a transcript)
 #   Right-click PowerShell -> Run as Administrator
-git clone https://github.com/LovaRK/telemetry-governance-ai.git $env:USERPROFILE\installer-test
+git clone https://github.com/BitsIO-Ram/telemetry-governance-ai.git $env:USERPROFILE\installer-test
 cd $env:USERPROFILE\installer-test\scripts\install
 $start = Get-Date
 .\install.ps1 *>&1 | Tee-Object -FilePath $env:USERPROFILE\Desktop\install-log-windows.txt

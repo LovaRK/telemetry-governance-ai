@@ -1,8 +1,10 @@
 # ⚡ KODAK QUICK START — Locked Handoff Summary
 
 **Pull from:** `fix/layman-friendly-installer` branch  
+**Repository:** `https://github.com/BitsIO-Ram/telemetry-governance-ai.git`  
+**Pinned validation commit:** `db5b6f6`  
 **Start date:** June 26, 2026  
-**Status:** 9 commits ready, run_id 004 data generated, ready for validation
+**Status:** run_id 004 data generated, ready for validation
 
 ---
 
@@ -10,10 +12,10 @@
 
 ### 1. Pull the Code
 ```bash
-git clone https://github.com/LovaRK/telemetry-governance-ai.git
+git clone https://github.com/BitsIO-Ram/telemetry-governance-ai.git
 cd telemetry-governance-ai
 git checkout fix/layman-friendly-installer
-git log --oneline | head -9  # Verify 9 commits present
+git rev-parse --short HEAD   # Expect db5b6f6 or a reviewed descendant
 ```
 
 ### 2. Read the Handoff Doc

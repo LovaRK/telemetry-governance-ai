@@ -10,8 +10,8 @@ Hey Claude, I'm installing the datasensAI dashboard on this laptop and need you 
 Here is everything you need:
 
 REPO
-- GitHub: <fill in repo URL>
-- Branch: main  (latest deploy-ready code, includes 2026-06-24 fixes for pipeline-lease + token-refresh + 1stmile lookup-row-derived volume)
+- GitHub: https://github.com/BitsIO-Ram/telemetry-governance-ai.git
+- Branch: fix/layman-friendly-installer  (latest validated Kodak handoff branch)
 - Auth file with all install steps: INSTALL_TEJA.md (at the repo root)
 
 IMPORTANT — NO MORE HARDCODED 92 GB
@@ -33,7 +33,7 @@ MY ENVIRONMENT
 
 WHAT I WANT YOU TO DO
 
-1. Clone the repo, check out main, and read INSTALL_TEJA.md end-to-end before touching anything. Tell me if anything looks off for my OS.
+1. Clone the repo, check out fix/layman-friendly-installer, and read INSTALL_TEJA.md end-to-end before touching anything. Tell me if anything looks off for my OS.
 
 2. Walk me through the .env file. Generate fresh SPLUNK_SECRET_ENCRYPTION_KEY and GOVERNANCE_BOOTSTRAP_KEY with `openssl rand -hex 32` (do NOT reuse the dev values from the repo). Set ADMIN_EMAIL + ADMIN_PASSWORD to something I pick.
 
@@ -142,7 +142,7 @@ Once you validate this, we can test a second tenant Splunk in parallel to prove 
 
 A separate "double-click installer" PR is queued for after your validation (P1-9 in BACKLOG_2026-06-24.md) — Mac .command file + Windows .bat wrapper around the shell installer. That's the layman-friendly path for future clients; you're testing the manual path first to prove the application correctness.
 
-Branch: feature/2026-06-24-tejas-install-pipeline-fixes (or main after merge)
+Branch: fix/layman-friendly-installer (merge to main only after your validation)
 Install guide: INSTALL_TEJA.md (at the repo root)
 Detailed Claude-walkthrough prompt: paste-block at the top of HANDOVER_FOR_TEJAS_SLACK.md
 ```
