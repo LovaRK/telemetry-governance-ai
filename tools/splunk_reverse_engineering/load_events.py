@@ -278,9 +278,57 @@ def main():
                         help='Loading method')
     parser.add_argument('--sample', type=int, default=0,
                         help='Show N sample HEC payloads')
+    parser.add_argument('--hec-health-check', action='store_true',
+                        help='Check HEC endpoint health and token')
+    parser.add_argument('--check-duplicate-run', action='store_true',
+                        help='Check if this run_id already exists')
     args = parser.parse_args()
 
     dry_run = not args.force
+
+    # HEC health check (preflight only)
+    if args.hec_health_check:
+        print("HEC Preflight Check")
+        print("=" * 60)
+        hec_url = os.environ.get('SPLUNK_HEC_URL')
+        hec_token = os.environ.get('SPLUNK_HEC_TOKEN')
+
+        if hec_url:
+            print(f"✓ SPLUNK_HEC_URL: {hec_url}")
+        else:
+            print(f"✗ SPLUNK_HEC_URL not set")
+
+        if hec_token:
+            token_len = len(hec_token)
+            print(f"✓ SPLUNK_HEC_TOKEN: present ({token_len} chars)")
+            if token_len < 20:
+                print(f"  ⚠ Warning: token seems short (typical: 40+ chars)")
+        else:
+            print(f"✗ SPLUNK_HEC_TOKEN not set")
+
+        if hec_url and hec_token and len(hec_token) >= 20:
+            print(f"\n✓ HEC ready for use")
+        else:
+            print(f"\n✗ HEC not fully configured")
+
+        return 0
+
+    # Duplicate run check (preflight only)
+    if args.check_duplicate_run:
+        print("Duplicate Run ID Check")
+        print("=" * 60)
+        run_id = os.environ.get('DATASENSAI_RUN_ID')
+        if not run_id:
+            print("ERROR: DATASENSAI_RUN_ID not set")
+            return 1
+
+        print(f"Checking existing run_id: {run_id}")
+        if check_pre_load_duplicate(run_id, dry_run=False):
+            print(f"✓ Safe to load: no existing events for this run_id")
+            return 0
+        else:
+            print(f"✗ Cannot load: run_id already exists")
+            return 1
 
     print("Loading synthetic events (with production safety checks)...")
     print()

@@ -82,7 +82,7 @@ def main():
     # Demo indexes to delete
     demo_indexes = ['datasensai_internal_sim', 'datasensai_audit_sim']
 
-    # Customer indexes from expected_summary.json
+    # Customer indexes from expected_summary.json (with dsdemo_ prefix)
     base_dir = Path(__file__).parent
     summary_path = base_dir / 'output' / 'expected_summary.json'
 
@@ -91,7 +91,9 @@ def main():
         import json
         with open(summary_path) as f:
             summary = json.load(f)
-            customer_indexes = summary.get('all_indexes', [])
+            original_indexes = summary.get('all_indexes', [])
+            # Apply dsdemo_ prefix for safety
+            customer_indexes = [f"dsdemo_{idx.replace('-', '_').replace(' ', '_')}" for idx in original_indexes]
 
     all_indexes = demo_indexes + customer_indexes
 

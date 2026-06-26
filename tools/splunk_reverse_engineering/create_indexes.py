@@ -20,7 +20,11 @@ from typing import List, Dict, Set
 import argparse
 
 def get_customer_indexes() -> Set[str]:
-    """Read customer indexes from expected_summary.json."""
+    """Read customer indexes from expected_summary.json and return dsdemo_-prefixed names.
+
+    SAFETY: Physical demo indexes are prefixed with dsdemo_ to prevent accidental
+    deletion or collision with real/customer indexes on shared Splunk instances.
+    """
     base_dir = Path(__file__).parent
     summary_path = base_dir / 'output' / 'expected_summary.json'
 
@@ -32,7 +36,17 @@ def get_customer_indexes() -> Set[str]:
     with open(summary_path) as f:
         summary = json.load(f)
 
-    return set(summary.get('all_indexes', []))
+    # Get original customer index names and prefix them for demo safety
+    original_indexes = set(summary.get('all_indexes', []))
+
+    # Sanitize names: replace hyphens with underscores for Splunk compatibility
+    prefixed_indexes = set()
+    for idx in original_indexes:
+        # Sanitize: replace hyphens/special chars with underscores
+        sanitized = idx.replace('-', '_').replace(' ', '_')
+        prefixed_indexes.add(f"dsdemo_{sanitized}")
+
+    return prefixed_indexes
 
 def check_guardrails() -> None:
     """Enforce production safety guardrails."""
