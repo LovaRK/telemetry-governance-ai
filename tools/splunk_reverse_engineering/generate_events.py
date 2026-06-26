@@ -114,6 +114,9 @@ def generate_customer_events(rows: list, output_file: str, run_id: str) -> int:
 
                 # Generate 3-5 sampled events per row to preserve metadata
                 num_events = random.randint(3, 5)
+                # Divide GB/bytes across sampled events (don't duplicate)
+                gb_per_event = gb / num_events
+                bytes_per_event = bytes_val / num_events
                 for j in range(num_events):
                     event = {
                         'index': index,
@@ -121,8 +124,8 @@ def generate_customer_events(rows: list, output_file: str, run_id: str) -> int:
                         'source': source,
                         'host': f"{index}-host-{random.randint(1, 10)}",
                         '_time': time_str,
-                        'GB_idx_st_s': gb,
-                        'bytes_idx_st_s': bytes_val,
+                        'GB_idx_st_s': gb_per_event,
+                        'bytes_idx_st_s': bytes_per_event,
                         'datasensai_original_run_id': row.get('run_id', 'unknown'),
                         'datasensai_run_id': run_id,  # CRITICAL: for run_id-based filtering
                         'datasensai_synthetic': True,
