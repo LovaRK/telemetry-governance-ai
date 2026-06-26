@@ -1,9 +1,115 @@
-# 🎯 Complete Handover to Kodak — Production Status
+# 🎯 LOCKED HANDOFF to Kodak/Codex — FINAL DECISIONS
 
 **Date:** June 26, 2026  
 **Handoff From:** Development (Claude + User)  
-**Handoff To:** Kodak (Continuation Team)  
-**Status:** **CRITICAL FIXES IN PROGRESS** — Do not deviate from this plan
+**Handoff To:** Kodak/Codex (Code Development Team)  
+**Status:** **READY FOR IMMEDIATE WORK** — All decisions locked, no further changes
+
+---
+
+## 🔴 LOCKED FINAL DECISIONS (DO NOT CHANGE)
+
+### Primary Splunk Instance (LOCKED)
+```
+Splunk Dev Instance:
+  Web UI:           https://144.202.48.85:8000
+  Management API:   https://144.202.48.85:8089
+  HEC (via tunnel): https://localhost:8088 → 144.202.48.85:8088
+
+SSH Tunnel Command:
+  ssh -L 8088:localhost:8088 root@144.202.48.85
+
+LOCKED: Use 144.202.48.85 only. Do not introduce another instance unless unavailable.
+```
+
+### Active Validation Run ID (LOCKED)
+```
+CURRENT_RUN_ID = 1stmile-demo-20260626-004
+
+BLOCKED RUN IDS (do not use):
+  ✗ 001 (early partial load)
+  ✗ 002 (debug/test load)
+  ✗ 003 (pre-fix load)
+
+RULE: Never reload the same run_id unless intentionally resetting demo indexes.
+If a load fails, increment to next run_id: 005, 006, etc.
+```
+
+### GB Baseline (LOCKED)
+```
+EXPECTED_DAILY_GB = 159.93 GB/day (from 1stmile_lookup.csv)
+
+Acceptable tolerance:
+  Tight:    159.93 ± 0.01 GB
+  Loose:    159.93 ± 0.5 GB
+
+NOTE: Earlier "92 GB" was a historical reference, NOT the validation baseline.
+      Use 159.93 GB as the ONLY baseline for Kodak's validation.
+```
+
+### Must-Pass Validation (P0 — STOP IF FAILS)
+```
+1. ✓ Total GB Parity
+   Expected: ~159.93 GB/day for run_id 004
+   Action: If fails, stop work and investigate
+
+2. ✓ Index Safety
+   run_id 004 data ONLY in:
+     - datasensai_internal_sim
+     - datasensai_audit_sim
+     - dsdemo_* (all 19)
+   NO raw customer index usage
+   Action: If raw indexes have data, stop work and investigate
+
+3. ✓ Runtime Source Correctness
+   Agent/dashboard MUST query Splunk via MCP/REST/SPL
+   MUST NOT read 1stmile_lookup.csv or use inputlookup
+   Action: If CSV found in runtime path, stop work and fix
+```
+
+### HEC Connection (LOCKED)
+```
+Current state:
+  8088 blocked externally by Vultr firewall
+  SSH tunnel is the working solution
+
+Kodak should configure:
+  export SPLUNK_HEC_URL='https://localhost:8088/services/collector'
+
+Management API (always remote):
+  export SPLUNK_HOST=144.202.48.85
+  export SPLUNK_PORT=8089
+
+If Vultr firewall later opens 8088:
+  export SPLUNK_HEC_URL='https://144.202.48.85:8088/services/collector'
+```
+
+### Data Corruption Prevention (LOCKED)
+```
+CRITICAL RULE:
+  Do NOT reuse run_ids 001, 002, 003
+  Use 004 as current baseline
+  Use 005, 006, 007+ for future loads
+
+If load fails midway:
+  NEVER retry the same DATASENSAI_RUN_ID
+  Always increment: 004 → 005 → 006
+
+Regenerate events with new run_id:
+  export DATASENSAI_RUN_ID=1stmile-demo-20260626-005
+  python3 tools/splunk_reverse_engineering/generate_events.py
+  python3 tools/splunk_reverse_engineering/load_events.py --force
+```
+
+### Security (LOCKED)
+```
+BEFORE sharing with Teja or production:
+  [ ] Rotate SPLUNK_PASSWORD (currently Rama@1988)
+  [ ] Rotate HEC_TOKEN (currently 8cd86654-a388-4211-8ae9-35d71d0a5037)
+  [ ] Regenerate SSH credentials if exposed
+
+Current credentials are DEV ONLY and must not be used in production.
+```
 
 ---
 
