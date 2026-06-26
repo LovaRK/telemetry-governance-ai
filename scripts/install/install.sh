@@ -351,6 +351,7 @@ then re-run this installer."
       printf "  Watch the menu bar: when the whale icon stops animating, Docker is ready.\n\n"
       local tries=0
       local last_notice=0
+      local docker_restart_attempted=0
       while ! have_docker_running; do
         tries=$((tries + 1))
         local elapsed=$((tries * 2))
@@ -382,18 +383,61 @@ Then re-run this installer."
         if [ "$elapsed" -eq 120 ]; then
           printf "\n  Tip: Click the Docker whale icon in the menu bar to see its status.\n"
         fi
-        # At 8 min: ask user to confirm
-        if [ "$tries" -gt 240 ]; then
+        # At 10 min: ask user to confirm and perform one automatic recovery attempt
+        if [ "$tries" -gt 300 ]; then
           printf "\n"
-          printf "  Docker has not responded after 8 minutes.\n"
+          printf "  Docker has not responded after 10 minutes.\n"
           printf "  Is the whale icon steady (not animating) in your menu bar? [y/N]: "
           local ans
           read -r ans
           if [ "$ans" = "y" ] || [ "$ans" = "Y" ]; then
             have_docker_running && break
-            die_with_support "Docker appears running in the menu bar but the daemon is not responding. Try restarting Docker Desktop, then re-run the installer."
+            if [ "$docker_restart_attempted" -eq 0 ]; then
+              docker_restart_attempted=1
+              printf "  Docker app is open but the backend is not responding yet.\n"
+              printf "  Attempting one automatic Docker Desktop restart...\n"
+              osascript -e 'quit app "Docker"' >/dev/null 2>&1 || true
+              sleep 10
+              open -a Docker 2>/dev/null || true
+              printf "  Restarted Docker Desktop. Waiting again for the daemon...\n"
+              tries=0
+              last_notice=0
+              continue
+            fi
+            die_with_support \
+"Docker Desktop is visible in the menu bar but the backend is still not responding after an automatic restart.
+
+Run these commands manually:
+
+  osascript -e 'quit app \"Docker\"'
+  sleep 10
+  open -a Docker
+
+Then wait until the whale icon is steady and verify with:
+
+  docker version
+  docker info
+
+Once both work, re-run this installer."
           fi
-          die_with_support "Docker Desktop did not start. Open Docker from /Applications/Docker.app, wait for the whale icon to be steady, then re-run the installer."
+          die_with_support \
+"Docker Desktop did not finish starting within 10 minutes.
+
+Leave Docker opening in the background, or run:
+
+  open -a Docker
+
+If it still hangs, restart it:
+
+  osascript -e 'quit app \"Docker\"'
+  sleep 10
+  open -a Docker
+
+Then re-run this installer after:
+
+  docker version
+
+shows both Client and Server."
         fi
         sleep 2
       done

@@ -68,6 +68,31 @@ docker --version
 
 You should see something like: `Docker version 27.x.x` — any version 20+ is fine.
 
+**Important for first launch:** Docker Desktop can take 5-10 minutes to fully
+start the very first time. Do not cancel immediately if it looks slow. Keep the
+Terminal open, watch the Docker whale icon in the menu bar, and wait until it
+shows Docker is running. If it is still not ready after about 10-12 minutes,
+run:
+
+```bash
+docker version
+```
+
+If you only see `Client:` and not `Server:`, Docker is still starting.
+
+If it seems stuck, try:
+
+```bash
+open -a Docker
+# if still stuck after a few more minutes
+osascript -e 'quit app "Docker"'
+open -a Docker
+```
+
+The Mac installer also performs one automatic Docker restart before failing, so
+manual restart is only needed if Docker still does not bring up the backend
+after that recovery step.
+
 ### Step 2.2: Install Git
 
 Git is used to download the application code.
@@ -122,6 +147,18 @@ Open **Command Prompt** (search for "cmd" in Start Menu) or **PowerShell**, then
 ```cmd
 docker --version
 ```
+
+**Important for first launch:** on Windows, Docker Desktop can also take several
+minutes on first boot. Wait for the whale icon in the system tray to settle.
+If it is still not ready after about 10-12 minutes, run:
+
+```cmd
+docker version
+```
+
+If only the `Client:` section appears, Docker is still starting. If it remains
+stuck, open Docker Desktop again from the Start Menu or fully quit and relaunch
+it.
 
 ### Step 3.2: Install Git
 
@@ -246,6 +283,7 @@ docker compose --env-file .env -f docker/docker-compose.yml up -d
 2. First build takes 3–5 minutes (subsequent starts are faster)
 3. The web container runs database migrations automatically on first boot
 4. Your admin user is created from the credentials in `.env`
+5. If Docker Desktop itself was just installed, it may still be warming up in the background before this command succeeds
 
 **Watch the startup progress:**
 
@@ -411,6 +449,7 @@ After the pipeline completes, the dashboard should show populated data. Here's w
 |---------|-------|----------|
 | `Must set GOVERNANCE_BOOTSTRAP_KEY` error when starting | Missing value in `.env` | Run `openssl rand -hex 32` and paste the result next to `GOVERNANCE_BOOTSTRAP_KEY=` in your `.env` file |
 | `Must set ADMIN_PASSWORD` error | Missing value in `.env` | Set `ADMIN_PASSWORD=YourPassword` in `.env` |
+| Installer or startup appears stuck at Docker | First Docker Desktop boot can take 5-10 minutes. Keep the terminal open, check the whale icon, and run `docker version` in a second terminal to confirm whether the daemon is still starting. |
 | All scores show as 0 | Splunk license is Free/expired | datasensAI requires Splunk Enterprise with an active license. Free and expired trial licenses block search commands. |
 | "Pipeline failed" error | Splunk connection issue or Ollama not running | Check: (1) Is Ollama running? (2) Is Splunk reachable? Run `docker compose logs worker` to see the error. |
 | Worker keeps restarting | Postgres not ready or Ollama not reachable | Run `docker compose logs worker` — look for connection errors. Make sure Ollama is running on your host. |

@@ -224,12 +224,27 @@ function Step-DockerCheck() {
     Write-Info "Starting Docker Desktop..."
     $dockerExe = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
     if (Test-Path $dockerExe) { Start-Process $dockerExe -ErrorAction SilentlyContinue }
+    Write-Host "  Docker Desktop is starting."
+    Write-Host "  On first boot this can take 5-10 minutes — please be patient."
+    Write-Host "  Watch the Docker whale icon in the system tray; when it stops animating, Docker is ready."
     Write-Host "  Waiting for Docker Desktop to start..." -NoNewline
     $tries = 0
     while (-not (Have-DockerRunning)) {
       $tries++
-      if ($tries -gt 90) {
-        Die-WithSupport "Docker did not start after 3 minutes. Open Docker Desktop from Start menu and wait for the whale icon in the system tray, then re-run."
+      $elapsed = $tries * 2
+      if (($elapsed % 30) -eq 0) {
+        Write-Host ""
+        if ($elapsed -lt 120) {
+          Write-Host "  Still starting Docker ($elapsed s elapsed)..."
+        } elseif ($elapsed -lt 300) {
+          Write-Host "  Docker first boot is still in progress ($elapsed s elapsed)..."
+        } else {
+          Write-Host "  Still waiting for Docker ($elapsed s elapsed). Check the whale icon and allow any setup prompts."
+        }
+        Write-Host "  Waiting for Docker Desktop to start..." -NoNewline
+      }
+      if ($tries -gt 300) {
+        Die-WithSupport "Docker did not start after 10 minutes. Open Docker Desktop from the Start menu, wait for the whale icon to settle, then re-run. If it still hangs, fully quit Docker Desktop and start it again."
       }
       Write-Host "." -NoNewline
       Start-Sleep 2

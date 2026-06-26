@@ -62,6 +62,52 @@ Choose **1 — Fresh install**. The installer will:
 - Save your credentials to `~/datasensai/credentials.txt`
 - Open the browser automatically
 
+### If Docker looks stuck during first install
+
+On a fresh Docker Desktop install, the first launch is often the slowest step.
+It is normal for the installer to wait several minutes while Docker finishes its
+background setup.
+
+What to do:
+
+1. Leave the installer terminal open
+2. Check the Docker whale icon:
+   - **Mac:** menu bar, top-right
+   - **Windows:** system tray, bottom-right
+3. Allow any macOS/Windows permission dialogs or Docker setup prompts
+4. Wait until Docker shows it is fully running
+
+Only treat it as stuck if it has been more than 10-12 minutes.
+
+Verification command in a second terminal:
+
+```bash
+docker version
+```
+
+Healthy result: both a `Client:` section and a `Server:` section appear.
+
+If only `Client:` appears, Docker is still starting.
+
+If it is truly stuck:
+
+**Mac**
+```bash
+open -a Docker
+# if still stuck after a few minutes:
+osascript -e 'quit app "Docker"'
+open -a Docker
+```
+
+The installer now attempts one automatic Docker restart on Mac before it gives
+up, so only do the manual restart if the installer still stops after that
+recovery attempt.
+
+**Windows**
+- Open Docker Desktop from the Start Menu
+- If it still hangs, fully quit Docker Desktop and open it again
+- Then re-run the installer
+
 ---
 
 ## 3. After install: connect your Splunk
@@ -190,6 +236,7 @@ Run the doctor first:
 |---|---|
 | Can't find credentials / forgot password | Check `~/datasensai/credentials.txt` (Mac) or `%USERPROFILE%\datasensai\credentials.txt` (Windows). If missing, run the installer → **Repair install** — it auto-resets the admin password. |
 | Installer says "Login API FAILED" | Run installer → **Repair install** — it resets the password via bcrypt in the DB then re-verifies. |
+| Installer appears stuck at Docker startup | On first Docker Desktop boot, wait up to 10-12 min. Check the whale icon and run `docker version` in a second terminal; if only `Client:` appears, Docker is still starting. |
 | All scores 0 after a refresh | Splunk license is Free/expired — needs Enterprise; or no events in the last 24h |
 | Worker keeps restarting | Postgres not healthy yet — wait 2 min and check `docker logs docker-worker-1` |
 | `host.docker.internal` unreachable (Linux) | Already mapped via `extra_hosts`; ensure Ollama listens on `0.0.0.0:11434` |
