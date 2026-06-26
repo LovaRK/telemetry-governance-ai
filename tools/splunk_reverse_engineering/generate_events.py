@@ -142,6 +142,9 @@ def generate_internal_volume_events(rows: list, output_file: str, run_id: str) -
     """Generate internal volume metadata events.
 
     CRITICAL: Include datasensai_run_id to prevent duplicate-load corruption.
+
+    SAFETY: Store customer index in idx/customer_index fields, not as physical index.
+    Physical index is datasensai_internal_sim (demo-only).
     """
     event_count = 0
     volume_by_idx_st = defaultdict(float)
@@ -149,21 +152,23 @@ def generate_internal_volume_events(rows: list, output_file: str, run_id: str) -
     with open(output_file, 'w') as f:
         for row in rows:
             try:
-                index = row.get('index', '').strip()
+                customer_index = row.get('index', '').strip()  # Original customer index name
                 sourcetype = row.get('sourcetype', '').strip()
                 source = row.get('source', '').strip()
                 gb = float(row.get('GB_idx_st_s', 0))
                 bytes_val = float(row.get('bytes_idx_st_s', 0))
                 time_str = row.get('_time', '')
 
-                if not index or gb == 0:
+                if not customer_index or gb == 0:
                     continue
 
                 # Create metadata event (one per unique index/sourcetype/source combo)
+                # NOTE: This will be loaded into datasensai_internal_sim (physical index)
+                # But customer index is stored in fields for logical operations
                 event = {
                     '_time': time_str,
-                    'index': index,
-                    'idx': index,  # short form
+                    'idx': customer_index,  # Logical customer index
+                    'customer_index': customer_index,  # Explicit customer index field
                     'sourcetype': sourcetype,
                     'st': sourcetype[:20],  # abbreviated
                     'source': source,

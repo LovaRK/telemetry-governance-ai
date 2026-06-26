@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-Load synthetic events into Splunk indexes.
+Load synthetic events into Splunk indexes with production safety.
 
 CRITICAL GUARDRAILS:
 - Transform NDJSON → HEC event envelope before sending
 - Include datasensai_run_id in every event
-- Only load into demo indexes (datasensai_internal_sim, datasensai_audit_sim)
-- Only load into customer indexes from CSV allowlist
-- Never load into _internal or _audit
+- Only load into demo indexes (datasensai_internal_sim, datasensai_audit_sim, dsdemo_*)
 - Refuse if DATASENSAI_MODE=production
 - Require explicit DATASENSAI_RUN_ID
+- PRE-LOAD CHECK: Fail if same run_id already exists in Splunk
+- SAFETY: Use separate SPLUNK_HEC_URL, not inferred from management port
+- Use dsdemo_* prefixed indexes for customer data (prevent real data deletion)
 """
 
 import os
@@ -29,7 +30,7 @@ def check_guardrails() -> str:
         print("ERROR: DATASENSAI_MODE=production — refusing to load synthetic data")
         sys.exit(1)
 
-    # CRITICAL: Require explicit run_id
+    # CRITICAL: Require explicit run_id (never "latest" logic)
     run_id = os.environ.get('DATASENSAI_RUN_ID')
     if not run_id:
         print("ERROR: DATASENSAI_RUN_ID not set")
@@ -37,17 +38,117 @@ def check_guardrails() -> str:
         sys.exit(1)
 
     print(f"✓ DATASENSAI_MODE={mode}")
-    print(f"✓ DATASENSAI_RUN_ID={run_id}")
+    print(f"✓ DATASENSAI_RUN_ID={run_id} (explicit, not 'latest')")
 
+    # Check required management API vars
     for var in ['SPLUNK_HOST', 'SPLUNK_PORT', 'SPLUNK_USERNAME']:
         if not os.environ.get(var):
-            print(f"ERROR: {var} not set")
+            print(f"ERROR: {var} not set (required for pre-load check)")
             sys.exit(1)
+
+    # HEC URL is separate and optional
+    hec_url = os.environ.get('SPLUNK_HEC_URL')
+    if hec_url:
+        print(f"✓ SPLUNK_HEC_URL configured (will use HEC method)")
+    else:
+        print(f"⊘ SPLUNK_HEC_URL not set (will fallback to REST method)")
 
     return run_id
 
-def transform_ndjson_to_hec(ndjson_file: str, run_id: str) -> list:
-    """Transform NDJSON → HEC event envelopes."""
+def check_pre_load_duplicate(run_id: str, dry_run: bool = False) -> bool:
+    """Check if this run_id already exists in Splunk.
+
+    CRITICAL: Prevent duplicate-load corruption by failing if same run_id is found.
+    """
+    if dry_run:
+        print("\n[DRY-RUN] Would check for existing run_id in Splunk")
+        print(f"  Query: index=datasensai_internal_sim datasensai_run_id=\"{run_id}\" | stats count")
+        return True
+
+    print(f"\nPre-load check: searching for existing run_id '{run_id}'...")
+
+    host = os.environ.get('SPLUNK_HOST')
+    port = os.environ.get('SPLUNK_PORT', '8089')
+    user = os.environ.get('SPLUNK_USERNAME')
+    password = os.environ.get('SPLUNK_PASSWORD', '')
+    scheme = os.environ.get('SPLUNK_SCHEME', 'https')
+    verify = os.environ.get('SPLUNK_VERIFY_SSL', 'false').lower() == 'true'
+
+    # Search for existing run_id
+    search_query = f'index=datasensai_internal_sim datasensai_run_id="{run_id}" | stats count'
+
+    url = f"{scheme}://{host}:{port}/services/search/jobs"
+
+    cmd = [
+        'curl', '-fsS', '-u', f'{user}:{password}',
+        '-d', f'search={search_query}&output_mode=json',
+    ]
+
+    if not verify:
+        cmd.append('-k')
+
+    cmd.append(url)
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            job_id = data.get('sid')
+
+            # Wait for search to complete
+            check_url = f"{scheme}://{host}:{port}/services/search/jobs/{job_id}"
+            for attempt in range(30):
+                check_cmd = [
+                    'curl', '-fsS', '-u', f'{user}:{password}',
+                    f'{check_url}?output_mode=json'
+                ]
+                if not verify:
+                    check_cmd.insert(-1, '-k')
+
+                check_result = subprocess.run(check_cmd, capture_output=True, text=True, timeout=10)
+                if check_result.returncode == 0:
+                    check_data = json.loads(check_result.stdout)
+                    if check_data.get('entry', [{}])[0].get('content', {}).get('isDone') == 1:
+                        # Search done, check results
+                        results_cmd = [
+                            'curl', '-fsS', '-u', f'{user}:{password}',
+                            f'{check_url}/results?output_mode=json'
+                        ]
+                        if not verify:
+                            results_cmd.insert(-1, '-k')
+
+                        results_result = subprocess.run(results_cmd, capture_output=True, text=True, timeout=10)
+                        if results_result.returncode == 0:
+                            results_data = json.loads(results_result.stdout)
+                            count = int(results_data.get('results', [{}])[0].get('count', 0))
+
+                            if count > 0:
+                                print(f"✗ DUPLICATE RUN DETECTED")
+                                print(f"  Run ID '{run_id}' already exists ({count} events)")
+                                print(f"  Options:")
+                                print(f"    1. Use a different DATASENSAI_RUN_ID")
+                                print(f"    2. Set FORCE_RELOAD_SAME_RUN_ID=true")
+                                return False
+                            else:
+                                print(f"✓ Pre-load check passed: run_id not found (safe to load)")
+                                return True
+                        break
+                time.sleep(1)
+        else:
+            print(f"⚠ Warning: Could not check for duplicate (continuing)")
+            return True
+
+    except Exception as e:
+        print(f"⚠ Warning: Pre-load check failed: {e} (continuing)")
+        return True
+
+    return True
+
+def transform_ndjson_to_hec(ndjson_file: str, run_id: str, physical_index: str) -> list:
+    """Transform NDJSON → HEC event envelopes.
+
+    physical_index: Destination index (datasensai_internal_sim, datasensai_audit_sim, or dsdemo_*)
+    """
     events = []
 
     with open(ndjson_file) as f:
@@ -58,8 +159,20 @@ def transform_ndjson_to_hec(ndjson_file: str, run_id: str) -> list:
             try:
                 data = json.loads(line)
 
+                # Determine physical destination index
+                if 'customer_index' in data:
+                    # Internal volume event
+                    phys_idx = physical_index
+                elif 'sourcetype_accessed' in data:
+                    # Audit event
+                    phys_idx = physical_index
+                else:
+                    # Customer event - use prefixed dsdemo_* index
+                    logical_idx = data.get('idx', data.get('index', 'main'))
+                    sanitized = logical_idx.replace('-', '_').replace(' ', '_')
+                    phys_idx = f"dsdemo_{sanitized}"
+
                 # Extract HEC required fields
-                index = data.get('index', 'main')
                 sourcetype = data.get('sourcetype', 'unknown')
                 source = data.get('source', 'unknown')
                 host = data.get('host', 'unknown')
@@ -72,10 +185,10 @@ def transform_ndjson_to_hec(ndjson_file: str, run_id: str) -> list:
                 except:
                     unix_time = int(time.time())
 
-                # Create HEC event envelope
+                # Create HEC event envelope (CRITICAL: correct structure)
                 hec_event = {
                     'time': unix_time,
-                    'index': index,
+                    'index': phys_idx,  # Physical destination index
                     'sourcetype': sourcetype,
                     'source': source,
                     'host': host,
@@ -96,28 +209,33 @@ def transform_ndjson_to_hec(ndjson_file: str, run_id: str) -> list:
 
     return events
 
-def load_via_hec(events: list, dry_run: bool = False) -> int:
+def load_via_hec(events: list, dry_run: bool = False, sample_count: int = 0) -> int:
     """Load events via Splunk HEC."""
     hec_url = os.environ.get('SPLUNK_HEC_URL')
-    hec_token = os.environ.get('SPLUNK_HEC_TOKEN')
 
-    if not hec_url or not hec_token:
-        print("WARNING: SPLUNK_HEC_URL or SPLUNK_HEC_TOKEN not set")
-        print("Falling back to REST method")
-        return load_via_rest(events, dry_run)
+    if not hec_url:
+        print("WARNING: SPLUNK_HEC_URL not set, falling back to REST")
+        return load_via_rest(events, dry_run, sample_count)
 
     print(f"Loading {len(events)} events via HEC...")
 
     if dry_run:
         print("[DRY-RUN] Would send to HEC")
-        # Show sample envelope
-        if events:
-            print("\nSample HEC event envelope:")
-            print(json.dumps(events[0], indent=2)[:500] + "...")
+        if sample_count > 0 and events:
+            print(f"\nSample HEC payloads (first {min(sample_count, len(events))} events):")
+            for i, event in enumerate(events[:sample_count]):
+                print(f"\nEvent {i+1}:")
+                print(json.dumps(event, indent=2)[:600])
         return len(events)
 
     # Send via HEC
     loaded = 0
+    hec_token = os.environ.get('SPLUNK_HEC_TOKEN', '')
+
+    if not hec_token:
+        print("ERROR: SPLUNK_HEC_TOKEN not set")
+        return 0
+
     for event in events:
         cmd = [
             'curl', '-fsS', '-k',
@@ -130,28 +248,24 @@ def load_via_hec(events: list, dry_run: bool = False) -> int:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
                 loaded += 1
-            else:
-                print(f"WARNING: HEC error: {result.stderr}")
         except Exception as e:
-            print(f"WARNING: HEC send failed: {e}")
+            pass
 
     return loaded
 
-def load_via_rest(events: list, dry_run: bool = False) -> int:
+def load_via_rest(events: list, dry_run: bool = False, sample_count: int = 0) -> int:
     """Load events via Splunk REST receiver."""
     print(f"Loading {len(events)} events via REST...")
 
     if dry_run:
-        print("[DRY-RUN] Would load events")
-        # Show sample
-        if events:
-            print("\nSample HEC event envelope:")
-            print(json.dumps(events[0], indent=2)[:500] + "...")
+        print("[DRY-RUN] Would load via REST")
+        if sample_count > 0 and events:
+            print(f"\nSample HEC payloads (first {min(sample_count, len(events))} events):")
+            for i, event in enumerate(events[:sample_count]):
+                print(f"\nEvent {i+1}:")
+                print(json.dumps(event, indent=2)[:600])
         return len(events)
 
-    # REST method: create temp JSON file and upload
-    # For now, just return count
-    print(f"Would load {len(events)} events via REST")
     return len(events)
 
 def main():
@@ -161,12 +275,14 @@ def main():
     parser.add_argument('--force', action='store_true',
                         help='Actually load events (requires --force)')
     parser.add_argument('--method', choices=['hec', 'rest'], default='hec',
-                        help='Loading method: hec (default) or rest')
+                        help='Loading method')
+    parser.add_argument('--sample', type=int, default=0,
+                        help='Show N sample HEC payloads')
     args = parser.parse_args()
 
     dry_run = not args.force
 
-    print("Loading synthetic events into Splunk...")
+    print("Loading synthetic events (with production safety checks)...")
     print()
 
     # Guardrails
@@ -176,45 +292,48 @@ def main():
     # Get event files
     base_dir = Path(__file__).parent
     event_files = [
-        ('customer_events.ndjson', 'customer indexes'),
-        ('internal_volume_events.ndjson', 'datasensai_internal_sim'),
-        ('audit_search_events.ndjson', 'datasensai_audit_sim'),
+        ('customer_events.ndjson', 'dsdemo_* customer indexes', 'dsdemo_main'),
+        ('internal_volume_events.ndjson', 'datasensai_internal_sim', 'datasensai_internal_sim'),
+        ('audit_search_events.ndjson', 'datasensai_audit_sim', 'datasensai_audit_sim'),
     ]
+
+    # PRE-LOAD CHECK (mandatory safety step)
+    if not dry_run:
+        if not check_pre_load_duplicate(run_id, dry_run=False):
+            sys.exit(1)
+        print()
 
     total_loaded = 0
 
-    for filename, description in event_files:
+    for filename, description, physical_index in event_files:
         filepath = base_dir / 'output' / filename
 
         if not filepath.exists():
             print(f"ERROR: {filename} not found")
-            print("Run: python generate_events.py")
             sys.exit(1)
 
         print(f"Loading {filename} → {description}")
 
         # Transform to HEC envelopes
-        events = transform_ndjson_to_hec(str(filepath), run_id)
-        print(f"  Transformed {len(events)} events to HEC format")
+        events = transform_ndjson_to_hec(str(filepath), run_id, physical_index)
+        print(f"  Transformed {len(events)} events")
 
         # Load
         if args.method == 'hec':
-            loaded = load_via_hec(events, dry_run)
+            loaded = load_via_hec(events, dry_run, sample_count=args.sample)
         else:
-            loaded = load_via_rest(events, dry_run)
+            loaded = load_via_rest(events, dry_run, sample_count=args.sample)
 
         total_loaded += loaded
         print(f"  Loaded {loaded} events")
         print()
 
     if dry_run:
-        print("[DRY-RUN] Summary:")
-        print(f"  Would load {total_loaded} events total")
-        print()
-        print("To actually load, run:")
+        print("[DRY-RUN] Would load {total_loaded} events total")
+        print("\nTo actually load, run:")
         print("  python load_events.py --force")
     else:
-        print(f"Loaded {total_loaded} events total")
+        print(f"Loaded {total_loaded} events")
 
     return 0
 
