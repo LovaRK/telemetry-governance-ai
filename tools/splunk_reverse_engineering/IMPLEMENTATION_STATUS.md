@@ -68,6 +68,159 @@ Customer event:
 
 ---
 
+## Critical Production Fixes (BEFORE IMPLEMENTATION)
+
+⚠️ **These must be baked into Phase 2 scripts:**
+
+### 1. **DATASENSAI_RUN_ID** (Core to avoid data corruption)
+Every generated event MUST include:
+```json
+{
+  "datasensai_run_id": "1stmile-demo-20260626-001",
+  "datasensai_synthetic": true,
+  "...": "other fields"
+}
+```
+
+All validation/dashboard/demo SPL must filter by run_id:
+```spl
+datasensai_synthetic=true datasensai_run_id="1stmile-demo-20260626-001"
+```
+
+Without this, a second load doubles your total GB (159.93 → 319.86), breaking validation.
+
+### 2. **Macro Design** (Correct SPL expansion)
+❌ WRONG:
+```spl
+`datasensai_internal_index()` | stats sum(`datasensai_volume_field()`)
+```
+
+✅ RIGHT:
+```spl
+`datasensai_volume_search` | stats sum(`datasensai_volume_field()`)
+```
+
+Macros MUST expand to valid SPL search fragments:
+
+**Demo mode:**
+```conf
+datasensai_volume_search = search index=datasensai_internal_sim datasensai_synthetic=true
+datasensai_audit_search = search index=datasensai_audit_sim datasensai_synthetic=true action=search
+datasensai_customer_search = search (index=oswin OR index=apptomcat OR ... ) datasensai_synthetic=true
+datasensai_volume_field = GB_idx_st_s
+```
+
+**Production mode:**
+```conf
+datasensai_volume_search = search index=_internal source=*license_usage.log type=Usage
+datasensai_audit_search = search index=_audit action=search
+datasensai_customer_search = search (customer index patterns)
+datasensai_volume_field = gb
+```
+
+### 3. **HEC Loading Format** (Correct Splunk envelope)
+❌ WRONG (flat NDJSON to HEC):
+```json
+{"index": "oswin", "sourcetype": "abc", "raw_message": "..."}
+```
+
+✅ RIGHT (HEC event envelope):
+```json
+{
+  "time": 1719100800,
+  "index": "oswin",
+  "sourcetype": "XmlWinEventLog:Security",
+  "source": "WinEventLog:Security",
+  "host": "demo-host-001",
+  "event": {
+    "raw_message": "Synthetic Windows security event",
+    "GB_idx_st_s": 1.23,
+    "bytes_idx_st_s": 1320702443,
+    "datasensai_synthetic": true,
+    "datasensai_run_id": "1stmile-demo-20260626-001"
+  }
+}
+```
+
+**load_events.py must transform NDJSON → HEC envelope before sending.**
+
+### 4. **Reset Strategy** (No safe event deletion in Splunk)
+❌ WRONG: Try to `| delete` events (doesn't reclaim space, requires special capability)
+
+✅ RIGHT: Use run_id isolation or index recreation
+
+Strategy A (preferred for demo):
+- Generate unique DATASENSAI_RUN_ID per load
+- All queries filter by that run_id
+- For "reset": just generate a new run_id and load fresh data
+- Old run_id data stays but is ignored by queries
+
+Strategy B (for hard reset):
+- Delete and recreate only demo-created indexes
+- Never delete/touch _internal, _audit, or unknown indexes
+- Requires CONFIRM_RESET_DATASENSAI_DEMO=true
+
+### 5. **Customer Index Allowlist** (Avoid index=*)
+❌ WRONG:
+```spl
+index=* | ...
+```
+(Matches Splunk system indexes, unrelated data, old indexes)
+
+✅ RIGHT:
+```spl
+(index=oswin OR index=apptomcat OR index=appapache OR ...) | ...
+```
+
+Create macro:
+```conf
+datasensai_customer_search = search (index=oswin OR index=apptomcat OR ... ) datasensai_synthetic=true datasensai_run_id=$run_id$
+```
+
+### 6. **Validation Must Use run_id** (Prevent duplicate corruption)
+❌ WRONG:
+```spl
+index=datasensai_internal_sim | stats sum(GB_idx_st_s) as total_gb
+```
+(Returns 159.93 GB on first load, 319.86 GB on second load — test fails silently)
+
+✅ RIGHT:
+```spl
+index=datasensai_internal_sim datasensai_synthetic=true datasensai_run_id="1stmile-demo-20260626-001"
+| stats sum(GB_idx_st_s) as total_gb
+```
+(Always returns 159.93 GB regardless of load count)
+
+### 7. **Utilization Must Include Zero-Search Sourcetypes** (Left-join pattern)
+❌ WRONG:
+```spl
+index=datasensai_audit_sim | stats count by sourcetype_accessed
+```
+(Missing sourcetypes that were never searched)
+
+✅ RIGHT:
+```spl
+index=datasensai_internal_sim datasensai_run_id="$run_id$"
+| stats sum(GB_idx_st_s) as daily_gb by index sourcetype
+| join type=left index sourcetype [
+    search index=datasensai_audit_sim datasensai_run_id="$run_id$" action=search
+    | stats count as search_count latest(_time) as last_search_time by index_accessed sourcetype_accessed
+    | rename index_accessed as index sourcetype_accessed as sourcetype
+]
+| fillnull value=0 search_count
+| eval utilization_score=case(
+    search_count=0, 0,
+    search_count<5, 25,
+    search_count<15, 60,
+    true(), 100
+)
+| sort - daily_gb
+```
+
+This surfaces "high volume / zero searches" as optimization opportunities.
+
+---
+
 ## What Needs to Be Built (TODO)
 
 ### 5. **Remaining Python Scripts** (Priority: HIGH)

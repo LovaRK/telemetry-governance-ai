@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<form version="1.1">
+  <label>datasensAI Telemetry Value Dashboard</label>
+  <description>Demo environment: synthetic data from 1stmile CSV. All queries filter by datasensai_run_id.</description>
+
+  <fieldset submitButton="true">
+    <input type="text" token="datasensai_run_id">
+      <label>Run ID</label>
+      <default>1stmile-demo-20260626-001</default>
+      <prefix>datasensai_run_id="</prefix>
+      <suffix>"</suffix>
+    </input>
+  </fieldset>
+
+  <row>
+    <panel>
+      <title>Total Daily GB</title>
+      <single>
+        <search>
+          <query>
+            `datasensai_volume_search` $datasensai_run_id$
+            | stats sum(`datasensai_volume_field()`) as total_gb
+            | eval total_gb=round(total_gb, 2)
+          </query>
+          <earliest>-30d</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="underLabel">GB/day</option>
+      </single>
+    </panel>
+
+    <panel>
+      <title>Index Count</title>
+      <single>
+        <search>
+          <query>
+            `datasensai_volume_search` $datasensai_run_id$
+            | stats count(distinct index) as index_count
+          </query>
+          <earliest>-30d</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="underLabel">Indexes</option>
+      </single>
+    </panel>
+
+    <panel>
+      <title>Sourcetype Count</title>
+      <single>
+        <search>
+          <query>
+            `datasensai_volume_search` $datasensai_run_id$
+            | stats count(distinct sourcetype) as sourcetype_count
+          </query>
+          <earliest>-30d</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="underLabel">Sourcetypes</option>
+      </single>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Top 10 Indexes by Volume</title>
+      <table>
+        <search>
+          <query>
+            `datasensai_volume_search` $datasensai_run_id$
+            | stats sum(`datasensai_volume_field()`) as daily_gb by index
+            | eval daily_gb=round(daily_gb, 2)
+            | sort - daily_gb
+            | head 10
+          </query>
+          <earliest>-30d</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">cell</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Top 10 Sourcetypes by Volume</title>
+      <table>
+        <search>
+          <query>
+            `datasensai_volume_search` $datasensai_run_id$
+            | stats sum(`datasensai_volume_field()`) as daily_gb by sourcetype
+            | eval daily_gb=round(daily_gb, 2)
+            | sort - daily_gb
+            | head 10
+          </query>
+          <earliest>-30d</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">cell</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>High Volume Low Search Coverage (Optimization Candidates)</title>
+      <table>
+        <search>
+          <query>
+            `datasensai_volume_search` $datasensai_run_id$
+            | stats sum(`datasensai_volume_field()`) as daily_gb by sourcetype
+            | join type=left sourcetype [
+                search `datasensai_audit_search` $datasensai_run_id$
+                | stats count as search_count by sourcetype_accessed
+                | rename sourcetype_accessed as sourcetype
+            ]
+            | fillnull value=0 search_count
+            | where daily_gb > 0.5 AND search_count &lt; 5
+            | eval daily_gb=round(daily_gb, 2)
+            | sort - daily_gb
+          </query>
+          <earliest>-30d</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">cell</option>
+      </table>
+    </panel>
+  </row>
+
+  <row>
+    <panel>
+      <title>Search Utilization Distribution</title>
+      <chart>
+        <search>
+          <query>
+            `datasensai_volume_search` $datasensai_run_id$
+            | stats sum(`datasensai_volume_field()`) as daily_gb by sourcetype
+            | join type=left sourcetype [
+                search `datasensai_audit_search` $datasensai_run_id$
+                | stats count as search_count by sourcetype_accessed
+                | rename sourcetype_accessed as sourcetype
+            ]
+            | fillnull value=0 search_count
+            | eval utilization_category=case(
+                search_count=0, "Never Searched",
+                search_count&lt;5, "Rarely Searched",
+                search_count&lt;15, "Occasionally Searched",
+                true(), "Frequently Searched"
+            )
+            | stats count(distinct sourcetype) as sourcetype_count, sum(daily_gb) as total_gb by utilization_category
+          </query>
+          <earliest>-30d</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.axisTitleX.text">Utilization Category</option>
+        <option name="charting.axisTitleY.text">Count / GB</option>
+      </chart>
+    </panel>
+  </row>
+
+</form>

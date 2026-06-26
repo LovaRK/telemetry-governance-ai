@@ -6,6 +6,7 @@ Purpose:
 - Read the CSV
 - For each row, generate realistic log events
 - Preserve index/sourcetype/source/volume metadata
+- Add DATASENSAI_RUN_ID to all events (prevents duplicate load corruption)
 - Create three NDJSON files:
   1. customer_events.ndjson - actual logs from customer indexes
   2. internal_volume_events.ndjson - volume metadata (simulates _internal)
@@ -14,6 +15,12 @@ Purpose:
 Volume preservation:
 - Sample events but keep volume metadata accurate
 - Each event includes GB_idx_st_s and bytes_idx_st_s from the CSV
+- All events marked datasensai_synthetic=true and datasensai_run_id=<unique-id>
+
+CRITICAL: Without datasensai_run_id filtering, duplicate loads corrupt validation:
+  - First load:  159.93 GB ✓
+  - Second load: 319.86 GB ✗ (test fails silently)
+  - With run_id: always 159.93 GB ✓
 """
 
 import csv
@@ -24,6 +31,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import random
 import hashlib
+import os
 
 # Message templates by sourcetype category
 MESSAGE_TEMPLATES = {
@@ -83,8 +91,11 @@ def get_message_template(sourcetype: str) -> str:
     else:
         return random.choice(MESSAGE_TEMPLATES['generic'])
 
-def generate_customer_events(rows: list, output_file: str) -> int:
-    """Generate customer log events from CSV rows."""
+def generate_customer_events(rows: list, output_file: str, run_id: str) -> int:
+    """Generate customer log events from CSV rows.
+
+    CRITICAL: Add datasensai_run_id to every event to prevent duplicate-load corruption.
+    """
     event_count = 0
     seen_volumes = defaultdict(float)
 
@@ -113,6 +124,7 @@ def generate_customer_events(rows: list, output_file: str) -> int:
                         'GB_idx_st_s': gb,
                         'bytes_idx_st_s': bytes_val,
                         'datasensai_original_run_id': row.get('run_id', 'unknown'),
+                        'datasensai_run_id': run_id,  # CRITICAL: for run_id-based filtering
                         'datasensai_synthetic': True,
                         'event_sequence': j,
                         'raw_message': get_message_template(sourcetype),
@@ -231,6 +243,12 @@ def main():
     csv_path = base_dir / 'fixtures' / '1stmile_lookup.csv'
     output_dir = base_dir / 'output'
 
+    # Generate or use provided run_id
+    run_id = os.environ.get('DATASENSAI_RUN_ID', f'1stmile-demo-{datetime.now().strftime("%Y%m%d-%H%M%S")}')
+    print(f"Using DATASENSAI_RUN_ID: {run_id}")
+    print("(Override with: export DATASENSAI_RUN_ID=custom-id)")
+    print()
+
     # Read CSV
     print(f"Reading CSV: {csv_path}")
     rows = []
@@ -244,21 +262,26 @@ def main():
 
     print(f"  Loaded {len(rows)} rows")
 
-    # Generate events
+    # Generate events (inject run_id into each function)
     print("\nGenerating customer log events...")
     output_dir.mkdir(parents=True, exist_ok=True)
-    customer_count = generate_customer_events(rows, str(output_dir / 'customer_events.ndjson'))
+    customer_count = generate_customer_events(rows, str(output_dir / 'customer_events.ndjson'), run_id)
     print(f"  ✓ Generated {customer_count} customer events")
 
     print("Generating internal volume metadata events...")
-    internal_count = generate_internal_volume_events(rows, str(output_dir / 'internal_volume_events.ndjson'))
+    internal_count = generate_internal_volume_events(rows, str(output_dir / 'internal_volume_events.ndjson'), run_id)
     print(f"  ✓ Generated {internal_count} internal volume events")
 
     print("Generating audit/search activity events...")
-    audit_count = generate_audit_search_events(rows, str(output_dir / 'audit_search_events.ndjson'))
+    audit_count = generate_audit_search_events(rows, str(output_dir / 'audit_search_events.ndjson'), run_id)
     print(f"  ✓ Generated {audit_count} audit search events")
 
     print(f"\n✓ All events generated to {output_dir}/")
+    print(f"✓ Run ID embedded in all events: {run_id}")
+    print(f"✓ All events marked: datasensai_synthetic=true")
+    print()
+    print("Next: Use this run_id in validation queries:")
+    print(f"  index=datasensai_internal_sim datasensai_run_id=\"{run_id}\" datasensai_synthetic=true")
     return 0
 
 if __name__ == '__main__':
