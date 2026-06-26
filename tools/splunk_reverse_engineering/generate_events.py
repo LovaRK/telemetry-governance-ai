@@ -138,8 +138,11 @@ def generate_customer_events(rows: list, output_file: str, run_id: str) -> int:
 
     return event_count
 
-def generate_internal_volume_events(rows: list, output_file: str) -> int:
-    """Generate internal volume metadata events."""
+def generate_internal_volume_events(rows: list, output_file: str, run_id: str) -> int:
+    """Generate internal volume metadata events.
+
+    CRITICAL: Include datasensai_run_id to prevent duplicate-load corruption.
+    """
     event_count = 0
     volume_by_idx_st = defaultdict(float)
 
@@ -172,6 +175,7 @@ def generate_internal_volume_events(rows: list, output_file: str) -> int:
                     'GB_idx_st_s': gb,
                     'license_pool': 'default',
                     'series': 'vol',
+                    'datasensai_run_id': run_id,  # CRITICAL: for run_id-based filtering
                     'datasensai_synthetic': True,
                     'event_type': 'internal_volume_metadata',
                 }
@@ -184,13 +188,15 @@ def generate_internal_volume_events(rows: list, output_file: str) -> int:
 
     return event_count
 
-def generate_audit_search_events(rows: list, output_file: str) -> int:
+def generate_audit_search_events(rows: list, output_file: str, run_id: str) -> int:
     """Generate audit/search activity events.
 
     Purpose: Utilization scoring needs varied search patterns.
     - High-volume sourcetypes: more searches
     - Some high-volume: intentionally low searches (optimization opportunity)
     - Low-volume: few or zero searches
+
+    CRITICAL: Include datasensai_run_id to prevent duplicate-load corruption.
     """
     event_count = 0
 
@@ -230,6 +236,7 @@ def generate_audit_search_events(rows: list, output_file: str) -> int:
                     'result_count': random.randint(10, 10000),
                     'index_accessed': '',
                     'sourcetype_accessed': sourcetype,
+                    'datasensai_run_id': run_id,  # CRITICAL: for run_id-based filtering
                     'datasensai_synthetic': True,
                 }
                 f.write(json.dumps(event) + '\n')
