@@ -1,0 +1,321 @@
+{
+  "metadata": {
+    "file": "fixtures/1stmile_lookup.csv",
+    "parser_version": "1.0"
+  },
+  "counts": {
+    "total_rows": 3748,
+    "index_count": 19,
+    "sourcetype_count": 176,
+    "source_count": 3194
+  },
+  "volume": {
+    "total_daily_gb": 159.93,
+    "total_daily_bytes": 171722279050
+  },
+  "top_10_indexes": [
+    {
+      "index": "oswin",
+      "daily_gb": 78.25
+    },
+    {
+      "index": "apptomcat",
+      "daily_gb": 20.79
+    },
+    {
+      "index": "appapache",
+      "daily_gb": 16.65
+    },
+    {
+      "index": "osnix",
+      "daily_gb": 16.43
+    },
+    {
+      "index": "netfw",
+      "daily_gb": 11.42
+    },
+    {
+      "index": "wazuh-alerts",
+      "daily_gb": 8.16
+    },
+    {
+      "index": "appengine",
+      "daily_gb": 3.3
+    },
+    {
+      "index": "aws_logs",
+      "daily_gb": 2.97
+    },
+    {
+      "index": "itsi_im_metrics",
+      "daily_gb": 1.22
+    },
+    {
+      "index": "cim_modactions",
+      "daily_gb": 0.27
+    }
+  ],
+  "top_10_sourcetypes": [
+    {
+      "sourcetype": "WinRegistry",
+      "daily_gb": 71.14
+    },
+    {
+      "sourcetype": "tomcat:runtime:log",
+      "daily_gb": 19.69
+    },
+    {
+      "sourcetype": "app:FirstMileWeb",
+      "daily_gb": 14.15
+    },
+    {
+      "sourcetype": "fgt_traffic",
+      "daily_gb": 10.68
+    },
+    {
+      "sourcetype": "wazuh-alerts",
+      "daily_gb": 8.16
+    },
+    {
+      "sourcetype": "1stMILEWebServices-4",
+      "daily_gb": 7.94
+    },
+    {
+      "sourcetype": "engine:processors",
+      "daily_gb": 3.3
+    },
+    {
+      "sourcetype": "aws:firehose:text",
+      "daily_gb": 2.97
+    },
+    {
+      "sourcetype": "XmlWinEventLog",
+      "daily_gb": 2.63
+    },
+    {
+      "sourcetype": "XmlWinEventLog:Security",
+      "daily_gb": 2.24
+    }
+  ],
+  "top_10_sources": [
+    {
+      "source": "WinRegistry",
+      "daily_gb": 71.14
+    },
+    {
+      "source": "/var/log/FirstMileWeb/FirstMileWeb.log",
+      "daily_gb": 14.1
+    },
+    {
+      "source": "sc4s",
+      "daily_gb": 11.54
+    },
+    {
+      "source": "/var/log/tomcat7/RESTServices_FirstMileTextToApply.log",
+      "daily_gb": 9.85
+    },
+    {
+      "source": "/var/log/1stMILEWebServices/1stMILEWebServices.log",
+      "daily_gb": 8.96
+    }
+  ],
+  "all_indexes": [
+    "appapache",
+    "appengine",
+    "appgate",
+    "apptango",
+    "apptomcat",
+    "aws_logs",
+    "cim_modactions",
+    "epintel",
+    "infraops",
+    "itsi_im_metrics",
+    "main",
+    "netfw",
+    "netids",
+    "netops",
+    "omc_bli",
+    "omc_phx",
+    "osnix",
+    "oswin",
+    "wazuh-alerts"
+  ],
+  "all_sourcetypes": [
+    "1stMILEWebServices-3",
+    "1stMILEWebServices-4",
+    "1stMILEWebServices-too_small",
+    "2025_10_26-too_small",
+    "AllStateContractService-too_small",
+    "AllStateProcessor-too_small",
+    "AllStateRoadside-too_small",
+    "BNPLEmailSmsProcessor-too_small",
+    "BNPLProcessor-too_small",
+    "BNPLProcessor.log",
+    "BNPLProcessor.log-too_small",
+    "Fortiva-3",
+    "Fortiva-too_small",
+    "GEMYServices-too_small",
+    "MSAD:NT6:DNS",
+    "MSAD:NT6:Netlogon",
+    "PerfmonMetrics:CPU",
+    "PerfmonMetrics:LogicalDisk",
+    "PerfmonMetrics:Memory",
+    "PerfmonMetrics:PhysicalDisk",
+    "Script:InstalledApps",
+    "Script:ListeningPorts",
+    "Script:NetworkConfiguration",
+    "Script:TimesyncConfiguration",
+    "Script:TimesyncStatus",
+    "SmartyAddress-too_small",
+    "TTY-7",
+    "USPS-too_small",
+    "Voyager-too_small",
+    "WinHostMon",
+    "WinRegistry",
+    "WindowsUpdateLog",
+    "XmlWinEventLog",
+    "XmlWinEventLog:Application",
+    "XmlWinEventLog:DNS Server",
+    "XmlWinEventLog:Directory Service",
+    "XmlWinEventLog:Security",
+    "XmlWinEventLog:System",
+    "apache:access:combined",
+    "apache:error",
+    "app:FirstMileWeb",
+    "app:car:loyalty:sms:processor",
+    "app:firstdata",
+    "app:nodejs",
+    "app:tango",
+    "app:tcmp",
+    "app:vantiv:proxy",
+    "app:versatilecredit",
+    "auditd",
+    "aws:firehose:text",
+    "bandwidth",
+    "cacti-too_small",
+    "catalina",
+    "catalina-too_small",
+    "cisco:asa",
+    "cisco:ios",
+    "cpu",
+    "cpu_metric",
+    "cron-2",
+    "cron-too_small",
+    "darktrace",
+    "deepsecurity-firewall",
+    "deepsecurity-system_events",
+    "df",
+    "df_metric",
+    "dnf",
+    "dnf-10",
+    "dnf-11",
+    "dnf-12",
+    "dnf-14",
+    "dnf-4",
+    "dnf-5",
+    "dnf-6",
+    "dnf-7",
+    "dnf-too_small",
+    "dnf.librepo",
+    "dnf.librepo-2",
+    "dnf.librepo-3",
+    "dnf.librepo-4",
+    "dnf.librepo.log",
+    "dnf.log",
+    "dnf.rpm",
+    "dnf.rpm-2",
+    "dnf.rpm-3",
+    "engine:processors",
+    "f5:bigip:syslog",
+    "fgt_event",
+    "fgt_traffic",
+    "fgt_utm",
+    "fs-9846ab9d.stunnel-too_small",
+    "hadoop-too_small",
+    "hardware",
+    "hawkey-2",
+    "hawkey-too_small",
+    "hpe:procurve",
+    "httpevent",
+    "icinga",
+    "icinga-2",
+    "icinga-too_small",
+    "insights-client-2",
+    "insights-client-3",
+    "insights-client-too_small",
+    "interfaces",
+    "interfaces_metric",
+    "iostat",
+    "iostat_metric",
+    "json",
+    "juniper:junos:firewall",
+    "juniper:junos:idp",
+    "juniper:legacy",
+    "krb5_child-too_small",
+    "ksplice",
+    "lastlog",
+    "linux_audit",
+    "linux_secure",
+    "lsof",
+    "maillog-too_small",
+    "modular_alerts:notable",
+    "modular_alerts:risk",
+    "mount-watchdog",
+    "mount-watchdog-too_small",
+    "mount-watchdog.log",
+    "ms:iis:auto",
+    "ms:iis:webglobalmodule",
+    "netstat",
+    "nix:syslog",
+    "openPorts",
+    "oraclelinux7-x",
+    "pacemaker-2",
+    "pacemaker-6",
+    "package",
+    "pcsd",
+    "pcsd-2",
+    "postfix_syslog",
+    "powershell",
+    "protocol",
+    "ps",
+    "ps_metric",
+    "reposync",
+    "rhn_server_xmlrpc-2",
+    "rhn_taskomatic_daemon-too_small",
+    "rhsm-2",
+    "rhsm-3",
+    "rhsm-5",
+    "rhsm-too_small",
+    "rhsmcertd-too_small",
+    "sc4s:fallback",
+    "squid:access",
+    "sssd-too_small",
+    "sssd_blimp.local",
+    "sssd_blimp.local-4",
+    "sssd_blimp.local-6",
+    "sssd_blimp.local-too_small",
+    "sssd_kcm-too_small",
+    "sudo",
+    "syslog",
+    "time",
+    "tomcat:access:log",
+    "tomcat:runtime:log",
+    "top",
+    "tuned-too_small",
+    "uptrack",
+    "usersWithLoginPrivs",
+    "varlog",
+    "vmstat",
+    "vmstat_metric",
+    "vmware-vmsvc",
+    "vmware-vmsvc-root",
+    "vmware-vmsvc-root-too_small",
+    "vmware-vmtoolsd-root",
+    "vmware-vmtoolsd-root-2",
+    "vmware-vmtoolsd-root-too_small",
+    "vmware:vclog:stats",
+    "wazuh-alerts",
+    "who",
+    "win:bios"
+  ]
+}
