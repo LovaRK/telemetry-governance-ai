@@ -20,7 +20,7 @@ import { computeDeterministicSavings, type RetentionInput, type CompressionSavin
 
 const POLL_INTERVAL_MS = parseInt(process.env.WORKER_POLL_INTERVAL_MS || '5000', 10);
 const BATCH_SIZE = 1; // One index at a time — local Ollama memory constraint
-const WORKER_BATCH_TIMEOUT_MS = parseInt(process.env.WORKER_BATCH_TIMEOUT_MS || '240000', 10);
+const WORKER_BATCH_TIMEOUT_MS = parseInt(process.env.WORKER_BATCH_TIMEOUT_MS || '600000', 10); // 10 min per batch — Ollama may be slow
 const governanceService = new ModelGovernanceService(pool);
 
 async function sleep(ms: number) {
@@ -209,7 +209,8 @@ async function processJob(job: any): Promise<void> {
   // Resume from checkpoint (handles worker restart mid-job)
   for (let i = checkpoint; i < batches.length; i++) {
     const batch = batches[i];
-    console.log(`[Worker] Batch ${i + 1}/${batches.length}: analyzing ${batch.map(b => b.index).join(', ')}`);
+    const batchStartTime = new Date().toISOString();
+    console.log(`[Worker] Batch ${i + 1}/${batches.length}: analyzing ${batch.map(b => b.index).join(', ')} (timeout: ${WORKER_BATCH_TIMEOUT_MS / 1000}s)`);
     const batchMessage = `Analyzing ${batch[0]?.index}${batch[0]?.sourcetype ? ':' + batch[0].sourcetype : ''}`;
     const batchHeartbeatProgress = {
       batch: i + 1,
