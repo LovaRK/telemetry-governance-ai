@@ -10,7 +10,7 @@ Hey Claude, I'm installing the datasensAI dashboard on this laptop and need you 
 Here is everything you need:
 
 REPO
-- GitHub: https://github.com/BitsIO-Ram/telemetry-governance-ai.git
+- GitHub: https://github.com/LovaRK/telemetry-governance-ai.git
 - Branch: fix/layman-friendly-installer  (latest validated Kodak handoff branch)
 - Auth file with all install steps: INSTALL_TEJA.md (at the repo root)
 

@@ -116,7 +116,7 @@ Current credentials are DEV ONLY and must not be used in production.
 ## 📍 Current Branch & Git Status
 
 ```
-Repository: https://github.com/BitsIO-Ram/telemetry-governance-ai.git
+Repository: https://github.com/LovaRK/telemetry-governance-ai.git
 Branch: fix/layman-friendly-installer
 Base: main
 Pinned validation commit: db5b6f6

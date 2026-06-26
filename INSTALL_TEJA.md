@@ -22,7 +22,7 @@ success, and saves a `credentials.txt` file.
 ## 1. Get the installer
 
 ```bash
-git clone https://github.com/BitsIO-Ram/telemetry-governance-ai.git datasensai
+git clone https://github.com/LovaRK/telemetry-governance-ai.git datasensai
 cd datasensai
 git checkout fix/layman-friendly-installer && git pull
 ```
