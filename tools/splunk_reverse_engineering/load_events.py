@@ -318,17 +318,20 @@ def transform_ndjson_to_hec(ndjson_file: str, run_id: str, physical_index: str) 
                 except:
                     unix_time = int(time.time())
 
+                # Remove fields from event body that collide with HEC envelope
+                # metadata (sourcetype, source, host) to prevent multivalued fields
+                event_body = {k: v for k, v in data.items()
+                              if k not in ('sourcetype', 'source', 'host')}
+                event_body['datasensai_run_id'] = run_id
+                event_body['datasensai_synthetic'] = True
+
                 hec_event = {
                     'time': unix_time,
                     'index': phys_idx,
                     'sourcetype': sourcetype,
                     'source': source,
                     'host': host,
-                    'event': {
-                        **data,
-                        'datasensai_run_id': run_id,
-                        'datasensai_synthetic': True,
-                    }
+                    'event': event_body,
                 }
 
                 events.append(hec_event)

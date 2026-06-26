@@ -170,7 +170,7 @@ def generate_internal_volume_events(rows: list, output_file: str, run_id: str) -
                     'idx': customer_index,  # Logical customer index
                     'customer_index': customer_index,  # Explicit customer index field
                     'sourcetype': sourcetype,
-                    'st': sourcetype[:20],  # abbreviated
+                    'st': sourcetype,
                     'source': source,
                     'host': f"splunk-indexer-{random.randint(1, 3)}",
                     'b': bytes_val,  # bytes
