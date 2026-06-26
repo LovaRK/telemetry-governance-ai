@@ -135,12 +135,22 @@ def check_pre_load_duplicate(run_id: str, dry_run: bool = False) -> bool:
                         break
                 time.sleep(1)
         else:
-            print(f"⚠ Warning: Could not check for duplicate (continuing)")
-            return True
+            print(f"✗ ERROR: Could not check for duplicate run_id")
+            if os.environ.get('ALLOW_LOAD_WITHOUT_DUPLICATE_CHECK') == 'true':
+                print(f"  ALLOW_LOAD_WITHOUT_DUPLICATE_CHECK=true - continuing (dangerous)")
+                return True
+            else:
+                print(f"  Set ALLOW_LOAD_WITHOUT_DUPLICATE_CHECK=true to override")
+                sys.exit(1)
 
     except Exception as e:
-        print(f"⚠ Warning: Pre-load check failed: {e} (continuing)")
-        return True
+        print(f"✗ ERROR: Pre-load check failed: {e}")
+        if os.environ.get('ALLOW_LOAD_WITHOUT_DUPLICATE_CHECK') == 'true':
+            print(f"  ALLOW_LOAD_WITHOUT_DUPLICATE_CHECK=true - continuing (dangerous)")
+            return True
+        else:
+            print(f"  Set ALLOW_LOAD_WITHOUT_DUPLICATE_CHECK=true to override")
+            sys.exit(1)
 
     return True
 
@@ -210,14 +220,21 @@ def transform_ndjson_to_hec(ndjson_file: str, run_id: str, physical_index: str) 
     return events
 
 def load_via_hec(events: list, dry_run: bool = False, sample_count: int = 0) -> int:
-    """Load events via Splunk HEC."""
+    """Load events via Splunk HEC with batching.
+
+    CRITICAL: Batch events to avoid HEC timeout.
+    - Send 500 events per request
+    - Retry up to 3 times per batch
+    - Timeout 60s per request
+    - Print progress per batch
+    """
     hec_url = os.environ.get('SPLUNK_HEC_URL')
 
     if not hec_url:
         print("WARNING: SPLUNK_HEC_URL not set, falling back to REST")
         return load_via_rest(events, dry_run, sample_count)
 
-    print(f"Loading {len(events)} events via HEC...")
+    print(f"Loading {len(events)} events via HEC (batched: 500 per request)...")
 
     if dry_run:
         print("[DRY-RUN] Would send to HEC")
@@ -228,30 +245,66 @@ def load_via_hec(events: list, dry_run: bool = False, sample_count: int = 0) -> 
                 print(json.dumps(event, indent=2)[:600])
         return len(events)
 
-    # Send via HEC
-    loaded = 0
+    # Send via HEC with batching
     hec_token = os.environ.get('SPLUNK_HEC_TOKEN', '')
 
     if not hec_token:
         print("ERROR: SPLUNK_HEC_TOKEN not set")
         return 0
 
-    for event in events:
-        cmd = [
-            'curl', '-fsS', '-k',
-            '-H', f'Authorization: Splunk {hec_token}',
-            '-d', json.dumps(event),
-            hec_url
-        ]
+    batch_size = 500
+    total_loaded = 0
+    total_batches = (len(events) + batch_size - 1) // batch_size
 
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            if result.returncode == 0:
-                loaded += 1
-        except Exception as e:
-            pass
+    for batch_num in range(total_batches):
+        start_idx = batch_num * batch_size
+        end_idx = min(start_idx + batch_size, len(events))
+        batch = events[start_idx:end_idx]
 
-    return loaded
+        print(f"\n[Batch {batch_num + 1}/{total_batches}] Loading {len(batch)} events ({start_idx}-{end_idx})...")
+
+        # Retry logic: up to 3 attempts
+        batch_loaded = 0
+        for attempt in range(1, 4):
+            try:
+                # Send batch as newline-delimited JSON
+                batch_data = '\n'.join(json.dumps(event) for event in batch)
+
+                cmd = [
+                    'curl', '-fsS', '-k',
+                    '-H', f'Authorization: Splunk {hec_token}',
+                    '-d', batch_data,
+                    '--max-time', '60',  # 60s timeout per batch
+                    hec_url
+                ]
+
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=70)
+                if result.returncode == 0:
+                    batch_loaded = len(batch)
+                    print(f"  ✓ Batch {batch_num + 1} loaded: {batch_loaded} events")
+                    break
+                else:
+                    print(f"  ⚠ Attempt {attempt}: curl returned {result.returncode}")
+                    if attempt < 3:
+                        print(f"    Retrying batch...")
+            except subprocess.TimeoutExpired:
+                print(f"  ⚠ Attempt {attempt}: timeout (60s)")
+                if attempt < 3:
+                    print(f"    Retrying batch...")
+            except Exception as e:
+                print(f"  ⚠ Attempt {attempt}: {e}")
+                if attempt < 3:
+                    print(f"    Retrying batch...")
+
+        if batch_loaded == 0:
+            print(f"  ✗ Batch {batch_num + 1} FAILED after 3 retries")
+            print(f"  Stop: {len(batch)} events not loaded")
+            return total_loaded
+
+        total_loaded += batch_loaded
+
+    print(f"\n✓ All {total_loaded} events loaded successfully")
+    return total_loaded
 
 def load_via_rest(events: list, dry_run: bool = False, sample_count: int = 0) -> int:
     """Load events via Splunk REST receiver."""
