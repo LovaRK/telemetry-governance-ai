@@ -13,8 +13,9 @@ type RecommendationStatus = typeof VALID_STATUSES[number];
 // Body: { status, note?, escalateTo? }
 export const PATCH = createRoute(async (
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) => {
+  const { id } = await context.params;
   const actorUserId = request.headers.get('x-user-id');
   const actorRole   = request.headers.get('x-user-role');
   const tenantId    = request.headers.get('x-tenant-id');
@@ -30,7 +31,7 @@ export const PATCH = createRoute(async (
   const current = await query<any>(
     `SELECT id, status, index_name, snapshot_id, tenant_id
      FROM recommendation_actions WHERE id = $1`,
-    [params.id]
+    [id]
   );
 
   if (current.rows.length === 0) {
@@ -59,7 +60,7 @@ export const PATCH = createRoute(async (
     actorRole,
     note || null,
     escalateTo || null,
-    params.id,
+    id,
   ]);
 
   // Write immutable audit log entry
@@ -70,7 +71,7 @@ export const PATCH = createRoute(async (
       actor_user_id, actor_email, note
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
   `, [
-    params.id,
+    id,
     rec.snapshot_id,
     rec.index_name,
     rec.tenant_id || tenantId,
@@ -94,8 +95,9 @@ export const PATCH = createRoute(async (
 // GET /api/recommendations/[id] — fetch single recommendation with audit trail
 export const GET = createRoute(async (
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) => {
+  const { id } = await context.params;
   const [rec, audit] = await Promise.all([
     query<any>(
       `SELECT ra.*, d.tier, d.action as ai_action, d.confidence, d.recommendation,
@@ -103,13 +105,13 @@ export const GET = createRoute(async (
        FROM recommendation_actions ra
        LEFT JOIN agent_decisions d ON d.id = ra.decision_id
        WHERE ra.id = $1`,
-      [params.id]
+      [id]
     ),
     query<any>(
       `SELECT * FROM recommendation_audit_log
        WHERE action_id = $1
        ORDER BY created_at ASC`,
-      [params.id]
+      [id]
     ),
   ]);
 

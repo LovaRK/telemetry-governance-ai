@@ -19,9 +19,9 @@ import { getExecutionTimeline } from '@core/database/pipeline-events';
 
 export const GET = createRoute(async (
   request: NextRequest,
-  { params }: { params: { execution_id: string } }
+  context: { params: Promise<{ execution_id: string }> }
 ) => {
-  const { execution_id } = params;
+  const { execution_id } = await context.params;
 
   // Retrieve full event sequence from canonical ledger
   const events = await getExecutionTimeline(execution_id);

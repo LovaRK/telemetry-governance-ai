@@ -5,8 +5,9 @@ import { updateDecisionWithCalibration as updateDecisionWithCalibrationService }
 
 export const POST = createRoute(async (
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) => {
+  const { id } = await context.params;
   if (!process.env.DATABASE_URL) {
     throw new Error('Database not available');
   }
@@ -31,7 +32,7 @@ export const POST = createRoute(async (
   await transaction(async (client: any) => {
     await updateDecisionWithCalibrationService(
       client,
-      params.id,
+      id,
       factId,
       reviewAction,
       reviewedBy,
@@ -45,7 +46,7 @@ export const POST = createRoute(async (
     data: {
       mode: 'FULL_STACK',
       success: true,
-      message: `Decision ${params.id} ${action}ed with human calibration applied`,
+      message: `Decision ${id} ${action}ed with human calibration applied`,
       newStatus,
       reviewAction,
       timestamp: new Date().toISOString()

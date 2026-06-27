@@ -338,11 +338,15 @@ export default function GovernanceWorkflowPanel({ snapshotId }: Props) {
     if (expandedAudit === id) { setExpandedAudit(null); return; }
     setExpandedAudit(id);
     if (!auditData[id]) {
-      const res = await apiFetch(`/api/recommendations/${id}`);
-      if (res.ok) {
-        const body = await res.json();
-        const trail = body?.data?.auditTrail ?? body?.auditTrail ?? [];
-        setAuditData(prev => ({ ...prev, [id]: trail }));
+      try {
+        const res = await apiFetch(`/api/recommendations/${id}`);
+        if (res.ok) {
+          const body = await res.json();
+          const trail = body?.data?.auditTrail ?? body?.auditTrail ?? [];
+          setAuditData(prev => ({ ...prev, [id]: trail }));
+        }
+      } catch {
+        // Network error — audit trail stays empty; not critical
       }
     }
   };

@@ -47,13 +47,14 @@ const pool = new Pool({
  */
 export const GET = createRoute(async (
   request: NextRequest,
-  { params }: { params: { indexName: string } }
+  context: { params: Promise<{ indexName: string }> }
 ) => {
   if (!process.env.DATABASE_URL) {
     throw new Error('Database not configured');
   }
 
-  const indexName = decodeURIComponent(params.indexName);
+  const { indexName: encodedIndexName } = await context.params;
+  const indexName = decodeURIComponent(encodedIndexName);
   const searchParams = request.nextUrl.searchParams;
 
   // Parse time range
