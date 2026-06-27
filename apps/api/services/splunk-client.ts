@@ -270,7 +270,7 @@ export class SplunkClient implements SplunkDataSource {
    * physical Splunk measurements via currentDBSizeMB/retentionDays).
    */
   private async getVolumeFromCustomerProfileLookup(): Promise<Map<string, number>> {
-    const LOOKUP_NAME = '1stmile_index_sourcetype_and_source_volume_lookupcsv';
+    const LOOKUP_NAME = '1stmile_index_sourcetype_and_source_volume_lookupcsv.csv';
 
     // Group by index AND distinct date. dc(date) tells us how many calendar
     // days the lookup spans, so total_gb / date_count is the true daily average

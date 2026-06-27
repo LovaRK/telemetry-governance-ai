@@ -411,6 +411,25 @@ const MITRE_BASELINE: Record<string, number> = {
   '_internal':                0,
   '_audit':                   5,
   'splunk_web_access':        0,
+  // Index-name mappings (used when granularity=index and sourcetype=null)
+  'oswin':                    65,  // Windows event logs (XmlWinEventLog, WinEventLog)
+  'wazuh-alerts':             85,  // Wazuh SIEM — 800+ ATT&CK rules across 12 tactics
+  'aws_logs':                 75,  // AWS CloudTrail + GuardDuty — broad cloud coverage
+  'netfw':                    12,  // Network firewall traffic
+  'osnix':                    8,   // Linux syslog / auditd
+  'apptomcat':                5,   // Java/Tomcat application logs
+  'appapache':                5,   // Apache HTTP access/error logs
+  'appengine':                5,   // Application engine logs
+  'itsi_im_metrics':          2,   // IT infrastructure metrics (low security value)
+  'epintel':                  30,  // Threat intelligence feeds
+  'netops':                   8,   // Network operations logs
+  'netids':                   20,  // Network IDS/IPS alerts
+  'appgate':                  10,  // Zero-trust network access
+  'apptango':                 5,   // Application telemetry
+  'cim_modactions':           8,   // Splunk CIM model actions
+  'omc_phx':                  5,   // Operations management
+  'omc_bli':                  5,   // Operations management
+  'infraops':                 5,   // Infrastructure operations
 };
 
 /**
@@ -445,6 +464,21 @@ const LANTERN_BASELINE: Record<string, number> = {
   'tutorial':                 0,
   '_internal':                0,
   'splunk_web_access':        0,
+  // Index-name mappings (used when granularity=index and sourcetype=null)
+  'oswin':                    10,  // Windows events — broad Lantern coverage
+  'wazuh-alerts':             12,  // Wazuh SIEM — security + compliance use cases
+  'aws_logs':                 8,   // AWS CloudTrail + GuardDuty
+  'netfw':                    5,   // Firewall traffic
+  'osnix':                    3,   // Linux syslog
+  'apptomcat':                2,   // App server logs
+  'appapache':                2,   // Web server logs
+  'appengine':                2,   // App engine
+  'itsi_im_metrics':          3,   // ITSI metrics — infrastructure use cases
+  'epintel':                  6,   // Threat intelligence
+  'netops':                   3,   // Network operations
+  'netids':                   5,   // Network IDS
+  'appgate':                  4,   // Zero-trust access
+  'cim_modactions':           3,   // CIM model actions
 };
 
 /** Per-sourcetype technique/usecase counts pulled live from the customer's Splunk. */

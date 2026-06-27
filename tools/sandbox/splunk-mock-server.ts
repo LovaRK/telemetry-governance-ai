@@ -217,14 +217,14 @@ function buildSearchResults(spl: string): object {
   const isLanternLookup = /inputlookup\s+sourcetype_lantern_mapping\.csv/i.test(spl);
 
   // 1stmile customer-profile volume lookup. The worker now queries
-  //   | inputlookup 1stmile_index_sourcetype_and_source_volume_lookupcsv
+  //   | inputlookup 1stmile_index_sourcetype_and_source_volume_lookupcsv.csv
   //   | eval lookup_date=strftime(_time, "%Y-%m-%d")
   //   | stats sum(GB_idx_st_s) as total_gb dc(lookup_date) as date_count by index
   // and divides total_gb / date_count itself — no business-value normalization.
   // To stay consistent with that contract, the mock returns one row per index
   // where total_gb already represents one day of ingest and date_count = 1, so
   // the client sees dailyGb = mock dailyAvgGb (no inflation, no constant).
-  const is1stmileVolumeLookup = /inputlookup\s+1stmile_index_sourcetype_and_source_volume_lookupcsv/i.test(spl);
+  const is1stmileVolumeLookup = /inputlookup\s+1stmile_index_sourcetype_and_source_volume_lookupcsv(\.csv)?/i.test(spl);
   if (is1stmileVolumeLookup) {
     return {
       results: MOCK_INDEXES.map(idx => ({
