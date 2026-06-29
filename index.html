@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>datasensAI — Install</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ── HEADER ── -->
+  <header>
+    <div class="logo">
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="32" height="32" rx="8" fill="#6366f1"/>
+        <path d="M8 16 L14 10 L20 16 L26 10" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M8 22 L14 16 L20 22 L26 16" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+      </svg>
+      <span class="logo-text">datasensAI</span>
+    </div>
+    <div class="version-badge">v1.3.0</div>
+  </header>
+
+  <!-- ── HERO ── -->
+  <main>
+    <section class="hero">
+      <h1>Install datasensAI</h1>
+      <p class="subtitle">AI-powered Splunk telemetry intelligence — deployed locally in one click</p>
+
+      <!-- OS pill -->
+      <div class="os-pill" id="os-pill">
+        <span class="os-icon" id="os-icon">⚙️</span>
+        <span id="os-label">Detecting your OS…</span>
+      </div>
+    </section>
+
+    <!-- ── DOWNLOAD CARD ── -->
+    <section class="download-card" id="download-section">
+
+      <!-- Windows -->
+      <div class="platform-block" id="block-windows">
+        <div class="platform-header">
+          <svg class="os-logo" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0 12.5L36 7.5V43H0V12.5Z" fill="#00adef"/>
+            <path d="M40 7L88 0V43H40V7Z" fill="#00adef"/>
+            <path d="M0 47H36V82.5L0 77.5V47Z" fill="#00adef"/>
+            <path d="M40 47H88V88L40 81V47Z" fill="#00adef"/>
+          </svg>
+          <div>
+            <div class="platform-name">Windows</div>
+            <div class="platform-req">Windows 10 / 11 &nbsp;·&nbsp; 20 GB free &nbsp;·&nbsp; 8 GB RAM</div>
+          </div>
+        </div>
+
+        <a class="download-btn" id="btn-windows" href="#" download>
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          Download for Windows
+          <span class="file-label">.zip &nbsp;·&nbsp; ~36 KB</span>
+        </a>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Extract the ZIP</strong>
+              <span>Right-click the downloaded ZIP → <em>Extract All</em></span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Allow the file (one time)</strong>
+              <span>Right-click <code>Install datasensAI.bat</code> → <em>Properties</em> → tick <em>Unblock</em> → <em>Apply</em></span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Run as Administrator</strong>
+              <span>Right-click <code>Install datasensAI.bat</code> → <em>Run as administrator</em> → <em>Yes</em> → press <kbd>1</kbd> → <kbd>Enter</kbd></span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Wait ~20 minutes</strong>
+              <span>First install downloads Docker and the AI model (~5 GB). Your browser opens automatically when ready.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mac -->
+      <div class="platform-block hidden" id="block-mac">
+        <div class="platform-header">
+          <svg class="os-logo" viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M44 8C30 8 22 20 22 32C22 24 28 18 36 18C36 8 44 4 52 10C48 6 44 8 44 8Z" fill="#999"/>
+            <path d="M22 44C22 60 30 76 44 80C30 72 26 60 28 48C24 48 22 46 22 44Z" fill="#888"/>
+            <path d="M44 80C58 76 66 60 66 44C66 46 64 48 60 48C62 60 58 72 44 80Z" fill="#888"/>
+            <path d="M44 8C50 8 58 14 60 24C68 28 70 36 66 44C66 30 58 20 44 20C38 20 32 22 28 28C28 18 36 8 44 8Z" fill="#aaa"/>
+          </svg>
+          <div>
+            <div class="platform-name">macOS</div>
+            <div class="platform-req">macOS 12+ &nbsp;·&nbsp; 20 GB free &nbsp;·&nbsp; 8 GB RAM</div>
+          </div>
+        </div>
+
+        <a class="download-btn" id="btn-mac" href="#" download>
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          Download for Mac
+          <span class="file-label">.zip &nbsp;·&nbsp; ~36 KB</span>
+        </a>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Extract the ZIP</strong>
+              <span>Double-click the downloaded ZIP — Finder extracts it automatically</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Open the installer</strong>
+              <span>Right-click <code>Install datasensAI.command</code> → <em>Open</em> → <em>Open</em> again in the dialog</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Press 1 and Enter</strong>
+              <span>Choose <em>Fresh install</em> and follow any prompts (your Mac password may be needed once)</span>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">
+              <strong>Wait ~20 minutes</strong>
+              <span>First install downloads Docker and the AI model (~5 GB). Your browser opens automatically when ready.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Both (unknown OS) -->
+      <div class="platform-block hidden" id="block-both">
+        <p class="os-unknown-msg">Select your operating system:</p>
+        <div class="both-buttons">
+          <a class="download-btn secondary" id="btn-both-windows" href="#">
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            Windows
+          </a>
+          <a class="download-btn secondary" id="btn-both-mac" href="#">
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            Mac
+          </a>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ── WHAT'S INSTALLED ── -->
+    <section class="what-installed">
+      <h2>What gets installed</h2>
+      <div class="items-grid">
+        <div class="item">
+          <div class="item-icon">🐋</div>
+          <div><strong>Docker Desktop</strong><span>Runs the datasensAI services locally</span></div>
+        </div>
+        <div class="item">
+          <div class="item-icon">🤖</div>
+          <div><strong>Ollama + AI Model</strong><span>Local LLM for analysis (~5 GB, downloaded once)</span></div>
+        </div>
+        <div class="item">
+          <div class="item-icon">📊</div>
+          <div><strong>datasensAI Dashboard</strong><span>Opens in your browser at localhost:3002</span></div>
+        </div>
+        <div class="item">
+          <div class="item-icon">🔒</div>
+          <div><strong>Local only</strong><span>Nothing sent to the cloud — all data stays on your machine</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── TROUBLESHOOT ── -->
+    <section class="troubleshoot">
+      <h2>Troubleshooting</h2>
+      <div class="trouble-items">
+
+        <details>
+          <summary>Windows: "Smart App Control blocked this file"</summary>
+          <div class="detail-body">
+            <p>Right-click <code>Install datasensAI.bat</code> → <strong>Properties</strong> → at the bottom tick <strong>Unblock</strong> → <strong>Apply</strong> → <strong>OK</strong>. Then run as Administrator again.</p>
+            <p>Or paste this in an Administrator PowerShell:</p>
+            <pre>Unblock-File -Path ".\Install datasensAI.bat"</pre>
+          </div>
+        </details>
+
+        <details>
+          <summary>Windows: "Port 3002 already in use"</summary>
+          <div class="detail-body">
+            <p>A previous install left containers running. Run the installer again (as Administrator) and press <kbd>7</kbd> to Uninstall, then press <kbd>1</kbd> for a fresh install.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>Mac: "Apple cannot verify the developer"</summary>
+          <div class="detail-body">
+            <p>Right-click <code>Install datasensAI.command</code> → <strong>Open</strong> → click <strong>Open</strong> in the popup. You only need to do this once.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>Docker not starting</summary>
+          <div class="detail-body">
+            <p>The installer opens Docker automatically. If it stalls:</p>
+            <ol>
+              <li>Fully quit Docker Desktop from the system tray / menu bar</li>
+              <li>Reopen Docker Desktop manually and wait for the whale icon to stop animating</li>
+              <li>Run the installer again — it will resume from where it stopped</li>
+            </ol>
+          </div>
+        </details>
+
+        <details>
+          <summary>Something else went wrong — run the health check</summary>
+          <div class="detail-body">
+            <p><strong>Windows</strong> (Admin PowerShell):</p>
+            <pre>powershell %USERPROFILE%\datasensai\scripts\install\doctor.ps1</pre>
+            <p><strong>Mac</strong> (Terminal):</p>
+            <pre>bash ~/datasensai/scripts/install/doctor.sh</pre>
+            <p>The doctor script checks every component and prints exactly what is broken.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>Full uninstall — remove everything</summary>
+          <div class="detail-body">
+            <p>Inside the <code>tools/</code> folder of the ZIP:</p>
+            <ul>
+              <li><strong>Windows:</strong> Run <code>tools\uninstall_datasensAI_windows.ps1</code> as Administrator</li>
+              <li><strong>Mac:</strong> Open <code>tools/uninstall_datasensAI_mac.sh</code></li>
+            </ul>
+            <p>This removes datasensAI, Docker Desktop, and the Ollama model cache (~5 GB freed).</p>
+          </div>
+        </details>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── FOOTER ── -->
+  <footer>
+    <span>datasensAI v1.3.0 &nbsp;·&nbsp; BitsIO Inc.</span>
+    <span>Questions? <a href="mailto:support@bitsioinc.com">support@bitsioinc.com</a></span>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
