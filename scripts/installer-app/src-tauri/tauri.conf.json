@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "datasensAI Installer",
+  "version": "1.3.0",
+  "identifier": "com.bitsioinc.datasensai-installer",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl":       "http://localhost:5173"
+  },
+  "app": {
+    "windows": [
+      {
+        "label":           "main",
+        "title":           "datasensAI Installer",
+        "width":           680,
+        "height":          600,
+        "resizable":       false,
+        "center":          true,
+        "decorations":     true,
+        "alwaysOnTop":     false
+      }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active":       true,
+    "targets":      "all",
+    "icon":         ["icons/icon.png", "icons/icon.ico"],
+    "resources":    ["../../install/install.sh", "../../install/install.ps1", "../../install/doctor.sh", "../../install/doctor.ps1", "../../install/tools/*"],
+    "windows": {
+      "digestAlgorithm":   "sha256",
+      "certificateThumbprint": null,
+      "timestampUrl":      ""
+    },
+    "macOS": {
+      "entitlements":          null,
+      "exceptionDomain":       "",
+      "signingIdentity":       null,
+      "providerShortName":     null
+    }
+  }
+}

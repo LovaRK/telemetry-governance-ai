@@ -8,5 +8,11 @@
       "port": 3002,
       "autoPort": false
     }
+  ,{
+      "name": "download-page",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "scripts/download-page"],
+      "port": 8765
+    }
   ]
 }
