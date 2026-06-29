@@ -702,13 +702,42 @@ s_model_check() {
   fi
   ok "Ollama service running on :$OLLAMA_PORT"
 
-  # Pull model if missing
-  if ! ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qxF "$LLM_MODEL"; then
-    info "Downloading AI model: $LLM_MODEL"
-    info "This is a large download (~5 GB) and may take 10–30 minutes."
-    info "Progress will appear below. Please wait..."
-    ollama pull "$LLM_MODEL" || die_with_support \
-      "Model download failed. Check your internet connection. The model '$LLM_MODEL' is ~5 GB."
+  # Point the ollama CLI at the daemon we just verified.
+  export OLLAMA_HOST="127.0.0.1:$OLLAMA_PORT"
+
+  # Already present?
+  if ollama list 2>/dev/null | grep -qF "$LLM_MODEL"; then
+    ok "Model ready: $LLM_MODEL (already installed)"
+    return 0
+  fi
+
+  # Pull the model. Capture output (shown live + saved) so any real error is
+  # visible. Retry once, then verify by re-listing (don't trust exit code alone).
+  local pull_log
+  pull_log="$(dirname "$LOG_FILE")/ollama-pull.log"
+  info "Downloading AI model: $LLM_MODEL"
+  info "This is a large download (~5 GB) and may take 10-30 minutes."
+  info "Progress will appear below. Please wait..."
+
+  local attempt=0 present=0
+  while [ "$attempt" -lt 2 ] && [ "$present" -eq 0 ]; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -gt 1 ] && { warn "Retrying model download (attempt $attempt)..."; sleep 3; }
+    ollama pull "$LLM_MODEL" 2>&1 | tee "$pull_log" || true
+    if ollama list 2>/dev/null | grep -qF "$LLM_MODEL"; then present=1; fi
+  done
+
+  if [ "$present" -eq 0 ]; then
+    # Non-fatal: the dashboard, database and core app all work without the local
+    # model. Only on-device AI enrichment is degraded until the model is pulled.
+    _log_raw "ollama pull failed. See $pull_log"
+    warn "AI model '$LLM_MODEL' could not be downloaded right now -- continuing without it."
+    tail -n 4 "$pull_log" 2>/dev/null | sed 's/^/      /' || true
+    warn "  The app will still start and the dashboard will work."
+    warn "  To enable on-device AI later, run:  ollama pull $LLM_MODEL"
+    warn "  (Details saved to $pull_log)"
+    MODEL_MISSING=1
+    return 0
   fi
   ok "Model ready: $LLM_MODEL"
 }
@@ -971,6 +1000,11 @@ s_success() {
   printf "    5. Back on the dashboard, click Refresh\n"
   printf "       (The AI pipeline takes 20-25 min on first run)\n\n"
 
+  if [ "${MODEL_MISSING:-0}" -eq 1 ]; then
+    printf "  ${YELLOW}NOTE: the local AI model was not downloaded.${NC}\n"
+    printf "  ${YELLOW}    The dashboard works now. To enable on-device AI later, run:${NC}\n"
+    printf "  ${YELLOW}      ollama pull %s${NC}\n\n" "$LLM_MODEL"
+  fi
   printf "  ${BOLD}If anything looks wrong:${NC}\n"
   printf "    Run: %s/scripts/install/doctor.sh\n\n" "$TARGET_DIR"
 

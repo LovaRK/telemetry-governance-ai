@@ -457,21 +457,58 @@ function Step-ModelCheck() {
   }
   Write-Ok "Ollama running on :$OllamaPort"
 
-  # Pull model if needed. ollama writes status/progress to stderr; under EAP=Stop
-  # that becomes a terminating NativeCommandError in PS5.1. Suppress the escalation
-  # (without redirecting, so the user still sees download progress).
+  # Point the ollama CLI at the daemon we just verified. Without this, an elevated
+  # (Administrator) `ollama pull` may not find the user-started daemon, or may hit
+  # a localhost/::1 IPv6 mismatch, and fail instantly.
+  $env:OLLAMA_HOST = "127.0.0.1:$OllamaPort"
+
+  # Is the model already present? (Match against full list text -- robust to column formatting.)
   $savedEAPO = $ErrorActionPreference
   $ErrorActionPreference = 'SilentlyContinue'
-  $installed = ollama list 2>$null | Select-Object -Skip 1 | ForEach-Object { ($_ -split '\s+')[0] }
-  if ($installed -notcontains $LlmModel) {
-    Write-Info "Downloading AI model: $LlmModel (~5 GB — this may take 10-30 minutes)"
-    Write-Info "Progress appears below. Please wait..."
-    ollama pull $LlmModel
-    $pullRc = $LASTEXITCODE
+  $listText = (ollama list 2>$null | Out-String)
+  $ErrorActionPreference = $savedEAPO
+
+  if ($listText -match [regex]::Escape($LlmModel)) {
+    Write-Ok "Model ready: $LlmModel (already installed)"
+    return
+  }
+
+  # Pull the model. Capture output (shown live + saved) so any real error is
+  # visible in the log -- not hidden behind a generic message. Retry once for
+  # transient registry hiccups, then verify by re-listing (don't trust exit code alone).
+  $pullLog = Join-Path (Split-Path $Script:LogFile -Parent) "ollama-pull.log"
+  Write-Info "Downloading AI model: $LlmModel (~5 GB — this may take 10-30 minutes)"
+  Write-Info "Progress appears below. Please wait..."
+
+  $attempt = 0
+  $present = $false
+  while ($attempt -lt 2 -and -not $present) {
+    $attempt++
+    if ($attempt -gt 1) { Write-Warn "Retrying model download (attempt $attempt)..."; Start-Sleep 3 }
+
+    $savedEAPO = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    ollama pull $LlmModel 2>&1 | Tee-Object -FilePath $pullLog
+    # Verify the model actually landed, regardless of exit code quirks.
+    $listText = (ollama list 2>$null | Out-String)
     $ErrorActionPreference = $savedEAPO
-    if ($pullRc -ne 0) { Die-WithSupport "Model download failed. Check internet connection." }
-  } else {
-    $ErrorActionPreference = $savedEAPO
+    if ($listText -match [regex]::Escape($LlmModel)) { $present = $true }
+  }
+
+  if (-not $present) {
+    # Non-fatal: the dashboard, database and core app all work without the local
+    # model. Only on-device AI enrichment is degraded until the model is pulled.
+    # Don't throw away a long install over a model-download hiccup.
+    $err = (Get-Content $pullLog -Raw -ErrorAction SilentlyContinue)
+    Write-Log "ollama pull failed. Output: $err"
+    $lastLines = ($err -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -Last 4) -join "`n      "
+    Write-Warn "AI model '$LlmModel' could not be downloaded right now -- continuing without it."
+    if ($lastLines) { Write-Warn "  Ollama said:`n      $lastLines" }
+    Write-Warn "  The app will still start and the dashboard will work."
+    Write-Warn "  To enable on-device AI later, open a NEW window and run:  ollama pull $LlmModel"
+    Write-Warn "  (Details saved to $pullLog)"
+    $Script:ModelMissing = $true
+    return
   }
   Write-Ok "Model ready: $LlmModel"
 }
@@ -722,6 +759,12 @@ function Step-Success() {
   Write-Host "    4. Click Test Connection until green, then Save"
   Write-Host "    5. Back on dashboard, click Refresh (pipeline: 20-25 min first run)"
   Write-Host ""
+  if ($Script:ModelMissing) {
+    Write-Host "  NOTE: the local AI model was not downloaded." -ForegroundColor Yellow
+    Write-Host "    The dashboard works now. To enable on-device AI later, run:" -ForegroundColor Yellow
+    Write-Host "      ollama pull $LlmModel" -ForegroundColor Yellow
+    Write-Host ""
+  }
   Write-Host "  If anything looks wrong:" -ForegroundColor White
   Write-Host "    Run: $TargetDir\scripts\install\doctor.ps1"
   Write-Host ""
