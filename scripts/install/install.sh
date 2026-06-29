@@ -534,9 +534,15 @@ s_repo() {
       dir_contents=$(ls -A "$TARGET_DIR" 2>/dev/null)
       if [ -z "$dir_contents" ]; then
         rmdir "$TARGET_DIR" 2>/dev/null || true
+      else
+        # Folder has content but no .git — incomplete previous install, clean it up
+        info "Found incomplete previous installation — cleaning it up..."
+        for ctr in docker-postgres-1 docker-web-1 docker-worker-1 docker-splunk-mock-1; do
+          docker rm -f "$ctr" 2>/dev/null || true
+        done
+        rm -rf "$TARGET_DIR"
+        ok "Previous files removed"
       fi
-      # If it only has our own early log dir inside it, that means nothing
-      # was there before us — safe to remove and let git clone create it fresh.
     fi
 
     info "Downloading datasensAI from GitHub..."

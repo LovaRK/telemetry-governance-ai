@@ -300,6 +300,14 @@ function Step-Repo() {
     git -C $TargetDir pull --quiet origin $Branch 2>$null
     Write-Ok "Code updated to latest from main"
   } else {
+    if (Test-Path $TargetDir) {
+      Write-Info "Found incomplete previous installation -- cleaning it up..."
+      foreach ($ctr in 'docker-postgres-1','docker-web-1','docker-worker-1','docker-splunk-mock-1') {
+        docker rm -f $ctr 2>&1 | Out-Null
+      }
+      Remove-Item $TargetDir -Recurse -Force -ErrorAction SilentlyContinue
+      Write-Ok "Previous files removed"
+    }
     Write-Info "Downloading datasensAI from GitHub..."
     git clone --depth 50 --branch $Branch $RepoUrl $TargetDir 2>&1
     if ($LASTEXITCODE -ne 0) { Die-WithSupport "Could not download from GitHub. Check your internet connection." }
