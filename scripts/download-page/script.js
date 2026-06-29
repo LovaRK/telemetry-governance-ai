@@ -1,5 +1,3 @@
-// ── GitHub Release URLs — update these when you publish a new release ──
-// Format: https://github.com/LovaRK/telemetry-governance-ai/releases/download/v1.3.0/datasensAI-installer-v1.3.0.zip
 const RELEASE_BASE = 'https://github.com/LovaRK/telemetry-governance-ai/releases/download/v1.3.0';
 const DOWNLOADS = {
   windows: `${RELEASE_BASE}/datasensAI-installer-windows-v1.3.0.zip`,
