@@ -314,8 +314,12 @@ function Step-Repo() {
       Write-Ok "Previous files removed"
     }
     Write-Info "Downloading datasensAI from GitHub..."
-    git clone --depth 50 --branch $Branch $RepoUrl $TargetDir 2>&1
-    if ($LASTEXITCODE -ne 0) { Die-WithSupport "Could not download from GitHub. Check your internet connection." }
+    $savedEAP2 = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    git clone --depth 50 --branch $Branch $RepoUrl $TargetDir 2>$null
+    $cloneRc = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAP2
+    if ($cloneRc -ne 0) { Die-WithSupport "Could not download from GitHub. Check your internet connection." }
     Write-Ok "Downloaded to $TargetDir"
   }
   # Ensure log dir still valid
@@ -461,8 +465,12 @@ function Step-StackStart() {
   }
 
   Write-Info "Building and starting containers (first run: 2-5 minutes)..."
-  $out = Invoke-Compose up -d --build 2>&1
-  if ($LASTEXITCODE -ne 0) {
+  $savedEAP3 = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  $out = Invoke-Compose up -d --build 2>&1 | Out-String
+  $composeRc = $LASTEXITCODE
+  $ErrorActionPreference = $savedEAP3
+  if ($composeRc -ne 0) {
     Write-Log "compose up output: $out"
     if ($out -match 'port is already allocated|address already in use') {
       Die-WithSupport "A required port is already in use. Check Step [$($Script:CurrentStep)] port conflicts."
@@ -480,7 +488,9 @@ function Step-DbReady() {
     if ($status -match '(?i)healthy') { Write-Ok "Database ready"; return }
     $tries++
     if ($tries -gt 90) {
-      docker logs docker-postgres-1 --tail 20 2>&1 | Add-Content -Path $Script:LogFile -ErrorAction SilentlyContinue
+      $savedEAPL = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
+      docker logs docker-postgres-1 --tail 20 2>$null | Add-Content -Path $Script:LogFile -ErrorAction SilentlyContinue
+      $ErrorActionPreference = $savedEAPL
       Die-WithSupport "Database did not become healthy after 3 minutes. Check log file."
     }
     Write-Host "  Waiting for database ($($tries*2)s)..." -NoNewline
@@ -500,7 +510,9 @@ function Step-MigrationVerify() {
     } catch {}
     $tries++
     if ($tries -gt 150) {
-      docker logs docker-web-1 --tail 30 2>&1 | Add-Content -Path $Script:LogFile -ErrorAction SilentlyContinue
+      $savedEAPL = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
+      docker logs docker-web-1 --tail 30 2>$null | Add-Content -Path $Script:LogFile -ErrorAction SilentlyContinue
+      $ErrorActionPreference = $savedEAPL
       Die-WithSupport "App did not start after 5 minutes. See log file."
     }
     Write-Host "  Waiting for app to start ($($tries*2)s)..." -NoNewline
@@ -569,7 +581,9 @@ function Step-LoginVerify() {
     }
   }
 
-  docker logs docker-web-1 --tail 30 2>&1 | Add-Content -Path $Script:LogFile -ErrorAction SilentlyContinue
+  $savedEAPL = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
+  docker logs docker-web-1 --tail 30 2>$null | Add-Content -Path $Script:LogFile -ErrorAction SilentlyContinue
+  $ErrorActionPreference = $savedEAPL
   Die-WithSupport "Login verification failed even after credential repair. See log file."
 }
 
@@ -746,13 +760,15 @@ function Mode-ExportLogs() {
   }
 
   # Docker status
-  docker ps --format "table {{.Names}}`t{{.Status}}`t{{.Ports}}" 2>&1 | Set-Content "$bundleDir\docker-ps.txt"
-  docker info 2>&1 | Set-Content "$bundleDir\docker-info.txt"
+  $savedEAPE = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
+  docker ps --format "table {{.Names}}`t{{.Status}}`t{{.Ports}}" 2>$null | Set-Content "$bundleDir\docker-ps.txt"
+  docker info 2>$null | Set-Content "$bundleDir\docker-info.txt"
 
   # App logs
   foreach ($svc in @('postgres','web','worker')) {
-    docker logs "docker-${svc}-1" --tail 300 2>&1 | Set-Content "$bundleDir\logs-${svc}.txt"
+    docker logs "docker-${svc}-1" --tail 300 2>$null | Set-Content "$bundleDir\logs-${svc}.txt"
   }
+  $ErrorActionPreference = $savedEAPE
 
   # Health
   try { (Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:$WebPort/api/health" -TimeoutSec 5).Content | Set-Content "$bundleDir\api-health.json" }
