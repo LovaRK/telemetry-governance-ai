@@ -304,9 +304,12 @@ function Step-Repo() {
   } else {
     if (Test-Path $TargetDir) {
       Write-Info "Found incomplete previous installation -- cleaning it up..."
+      $savedEAP = $ErrorActionPreference
+      $ErrorActionPreference = 'SilentlyContinue'
       foreach ($ctr in 'docker-postgres-1','docker-web-1','docker-worker-1','docker-splunk-mock-1') {
-        docker rm -f $ctr *> $null
+        docker rm -f $ctr 2>$null
       }
+      $ErrorActionPreference = $savedEAP
       Remove-Item $TargetDir -Recurse -Force -ErrorAction SilentlyContinue
       Write-Ok "Previous files removed"
     }
