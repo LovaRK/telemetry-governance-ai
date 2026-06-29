@@ -85,10 +85,18 @@ function Have-DockerRunning() {
 function Invoke-Compose {
   param([Parameter(ValueFromRemainingArguments)][string[]]$Args)
   $f = "$TargetDir\docker\docker-compose.yml"
-  if ($Script:ComposeCmd -eq 'docker compose') {
-    & docker compose -f $f @Args
-  } else {
-    & docker-compose -f $f @Args
+  # docker compose writes progress to stderr; under EAP=Stop that becomes a
+  # terminating NativeCommandError in PS5.1. Suppress for the duration of the call.
+  $savedEAPC = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  try {
+    if ($Script:ComposeCmd -eq 'docker compose') {
+      & docker compose -f $f @Args
+    } else {
+      & docker-compose -f $f @Args
+    }
+  } finally {
+    $ErrorActionPreference = $savedEAPC
   }
 }
 
@@ -203,7 +211,9 @@ function Step-DependencyCheck() {
 
   if (-not (Have-Cmd git)) {
     Write-Info "Installing Git..."
+    $savedEAPW = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
     winget install --id Git.Git --silent --accept-package-agreements --accept-source-agreements
+    $ErrorActionPreference = $savedEAPW
     $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
     if (-not (Have-Cmd git)) { Die-WithSupport "Git install failed. Install manually from https://git-scm.com" }
   }
@@ -216,7 +226,9 @@ function Step-DockerCheck() {
   if (-not (Have-Cmd docker)) {
     Write-Info "Installing Docker Desktop..."
     Write-Info "(This triggers a UAC prompt and may take a few minutes)"
+    $savedEAPW = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
     winget install --id Docker.DockerDesktop --silent --accept-package-agreements --accept-source-agreements
+    $ErrorActionPreference = $savedEAPW
     $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
   }
 
@@ -421,7 +433,9 @@ function Step-ModelCheck() {
 
   if (-not (Have-Cmd ollama)) {
     Write-Info "Installing Ollama..."
+    $savedEAPW = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
     winget install --id Ollama.Ollama --silent --accept-package-agreements --accept-source-agreements
+    $ErrorActionPreference = $savedEAPW
     $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
     if (-not (Have-Cmd ollama)) { Die-WithSupport "Ollama install failed. Install manually from https://ollama.com" }
   }
@@ -443,13 +457,21 @@ function Step-ModelCheck() {
   }
   Write-Ok "Ollama running on :$OllamaPort"
 
-  # Pull model if needed
+  # Pull model if needed. ollama writes status/progress to stderr; under EAP=Stop
+  # that becomes a terminating NativeCommandError in PS5.1. Suppress the escalation
+  # (without redirecting, so the user still sees download progress).
+  $savedEAPO = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
   $installed = ollama list 2>$null | Select-Object -Skip 1 | ForEach-Object { ($_ -split '\s+')[0] }
   if ($installed -notcontains $LlmModel) {
     Write-Info "Downloading AI model: $LlmModel (~5 GB — this may take 10-30 minutes)"
     Write-Info "Progress appears below. Please wait..."
     ollama pull $LlmModel
-    if ($LASTEXITCODE -ne 0) { Die-WithSupport "Model download failed. Check internet connection." }
+    $pullRc = $LASTEXITCODE
+    $ErrorActionPreference = $savedEAPO
+    if ($pullRc -ne 0) { Die-WithSupport "Model download failed. Check internet connection." }
+  } else {
+    $ErrorActionPreference = $savedEAPO
   }
   Write-Ok "Model ready: $LlmModel"
 }
@@ -459,7 +481,7 @@ function Step-StackStart() {
   Set-Location $TargetDir -ErrorAction Stop
 
   # Load .env into current process
-  Get-Content .\.env | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
+  Get-Content .\.env -ErrorAction SilentlyContinue | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
     $k, $v = $_ -split '=', 2
     Set-Item -Path "env:$k" -Value "$v" -ErrorAction SilentlyContinue
   }
@@ -543,20 +565,25 @@ function Step-MigrationVerify() {
 function Step-AdminSeed() {
   Write-Step "Verifying admin account"
 
+  # psql can emit notices to stderr; under EAP=Stop that throws in PS5.1.
+  $savedEAPS = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
   $count = docker exec docker-postgres-1 psql -U telemetry -d telemetry_os -tAc `
     "SELECT COUNT(*) FROM users WHERE email='$($Script:AdminEmail)';" 2>$null
-  $count = $count.Trim()
+  $count = "$count".Trim()
 
   if ($count -eq '0' -or [string]::IsNullOrEmpty($count)) {
     Write-Info "Admin user not yet created — waiting 5 seconds..."
     Start-Sleep 5
     $count = docker exec docker-postgres-1 psql -U telemetry -d telemetry_os -tAc `
       "SELECT COUNT(*) FROM users WHERE email='$($Script:AdminEmail)';" 2>$null
-    $count = $count.Trim()
+    $count = "$count".Trim()
     if ($count -eq '0' -or [string]::IsNullOrEmpty($count)) {
+      $ErrorActionPreference = $savedEAPS
       Die-WithSupport "Admin user '$($Script:AdminEmail)' was not created. Check: docker logs docker-web-1"
     }
   }
+  $ErrorActionPreference = $savedEAPS
   Write-Ok "Admin user exists: $($Script:AdminEmail)"
 }
 
@@ -688,7 +715,7 @@ function Mode-Repair() {
 
   Write-Step "Restarting containers"
   Set-Location $TargetDir
-  Get-Content .\.env | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
+  Get-Content .\.env -ErrorAction SilentlyContinue | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
     $k, $v = $_ -split '=', 2
     Set-Item -Path "env:$k" -Value "$v" -ErrorAction SilentlyContinue
   }
@@ -723,7 +750,7 @@ function Mode-ResetReinstall() {
   Write-Step "Wiping existing installation"
   Set-Location $TargetDir -ErrorAction SilentlyContinue
   if ((Test-Path "$TargetDir\docker\docker-compose.yml") -and $Script:ComposeCmd) {
-    Get-Content .\.env 2>$null | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
+    Get-Content .\.env -ErrorAction SilentlyContinue | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
       $k, $v = $_ -split '=', 2
       Set-Item -Path "env:$k" -Value "$v" -ErrorAction SilentlyContinue
     }
@@ -813,7 +840,7 @@ function Mode-Stop() {
   if (-not (Test-Path "$TargetDir\docker\docker-compose.yml")) { Die-WithSupport "Installation not found at $TargetDir" }
   Step-DockerCheck
   Set-Location $TargetDir
-  Get-Content .\.env 2>$null | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
+  Get-Content .\.env -ErrorAction SilentlyContinue | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
     $k, $v = $_ -split '=', 2
     Set-Item -Path "env:$k" -Value "$v" -ErrorAction SilentlyContinue
   }
@@ -837,7 +864,7 @@ function Mode-Uninstall() {
   Step-DockerCheck
   if ((Test-Path "$TargetDir\docker\docker-compose.yml") -and $Script:ComposeCmd) {
     Set-Location $TargetDir
-    Get-Content .\.env 2>$null | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
+    Get-Content .\.env -ErrorAction SilentlyContinue | Where-Object { $_ -match '^[A-Za-z_][A-Za-z0-9_]*=' } | ForEach-Object {
       $k, $v = $_ -split '=', 2
       Set-Item -Path "env:$k" -Value "$v" -ErrorAction SilentlyContinue
     }
