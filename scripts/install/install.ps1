@@ -486,15 +486,56 @@ function Step-StackStart() {
     Set-Item -Path "env:$k" -Value "$v" -ErrorAction SilentlyContinue
   }
 
-  Write-Info "Building and starting containers (first run: 2-5 minutes)..."
+  # Use BuildKit for faster, clearer, line-by-line build output that works in a
+  # plain console window (no TTY redraws that look frozen when captured).
+  $env:DOCKER_BUILDKIT       = '1'
+  $env:COMPOSE_DOCKER_CLI_BUILD = '1'
+  $composeFile = "$TargetDir\docker\docker-compose.yml"
+  $buildLog    = Join-Path (Split-Path $Script:LogFile -Parent) "build-output.log"
+
+  # ── Phase 1: BUILD (streamed live so the user sees progress) ──────────────
+  # The very first build downloads base images and runs several npm installs.
+  # On Windows/WSL2 this legitimately takes 10-25 minutes. We stream output
+  # (instead of capturing it) so the window never looks frozen, and tee a copy
+  # to a log for support.
+  Write-Info "Building containers. The FIRST run downloads ~1.5 GB and can take"
+  Write-Info "10-25 minutes on Windows. Live progress appears below -- this is"
+  Write-Info "normal, please leave the window open and wait."
+  Write-Host ""
+
   $savedEAP3 = $ErrorActionPreference
   $ErrorActionPreference = 'SilentlyContinue'
-  $out = Invoke-Compose up -d --build 2>&1 | Out-String
-  $composeRc = $LASTEXITCODE
+  if ($Script:ComposeCmd -eq 'docker compose') {
+    & docker compose -f $composeFile build --progress=plain 2>&1 | Tee-Object -FilePath $buildLog
+  } else {
+    & docker-compose -f $composeFile build 2>&1 | Tee-Object -FilePath $buildLog
+  }
+  $buildRc = $LASTEXITCODE
   $ErrorActionPreference = $savedEAP3
-  if ($composeRc -ne 0) {
+
+  if ($buildRc -ne 0) {
+    $buildText = (Get-Content $buildLog -Raw -ErrorAction SilentlyContinue)
+    if ($buildText -match 'no space left on device') {
+      Die-WithSupport "Build failed: Docker ran out of disk space. Free up space in Docker Desktop (Settings > Resources) and retry."
+    }
+    if ($buildText -match 'failed to (fetch|solve|resolve)|TLS handshake|network|getaddrinfo|ETIMEDOUT') {
+      Die-WithSupport "Build failed while downloading. Check your internet connection / proxy and retry."
+    }
+    Die-WithSupport "Failed to build containers. See build log: $buildLog"
+  }
+  Write-Ok "Containers built"
+
+  # ── Phase 2: START (fast; containers come up detached) ────────────────────
+  Write-Info "Starting services..."
+  $savedEAP3 = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  $out = Invoke-Compose up -d 2>&1 | Out-String
+  $upRc = $LASTEXITCODE
+  $ErrorActionPreference = $savedEAP3
+  if ($upRc -ne 0) {
     Write-Log "compose up output: $out"
-    if ($out -match 'port is already allocated|address already in use') {
+    Add-Content -Path $buildLog -Value $out -ErrorAction SilentlyContinue
+    if ($out -match 'port is already allocated|address already in use|bind: ') {
       Die-WithSupport "A required port is already in use. Check Step [$($Script:CurrentStep)] port conflicts."
     }
     Die-WithSupport "Failed to start containers. See log file for details."

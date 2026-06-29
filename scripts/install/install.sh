@@ -724,14 +724,40 @@ s_stack_start() {
   . ./.env
   set +a
 
-  info "Building and starting containers (first run takes 2–5 minutes)..."
-  local build_out
-  build_out=$(compose up -d --build 2>&1) || {
-    _log_raw "compose up output: $build_out"
-    # Detect common errors
-    if echo "$build_out" | grep -q "port is already allocated\|address already in use"; then
+  # Use BuildKit for clearer, line-by-line build output.
+  export DOCKER_BUILDKIT=1
+  export COMPOSE_DOCKER_CLI_BUILD=1
+  local build_log
+  build_log="$(dirname "$LOG_FILE")/build-output.log"
+
+  # ── Phase 1: BUILD (streamed live so the window never looks frozen) ────────
+  # The first build downloads base images + runs several npm installs and can
+  # legitimately take 10-25 minutes. Stream progress instead of capturing it,
+  # and tee a copy to a log for support.
+  info "Building containers. The FIRST run downloads ~1.5 GB and can take"
+  info "10-25 minutes. Live progress appears below -- this is normal, please wait."
+  echo ""
+  if compose build --progress=plain 2>&1 | tee "$build_log"; then
+    ok "Containers built"
+  else
+    if grep -q "no space left on device" "$build_log" 2>/dev/null; then
+      die_with_support "Build failed: Docker ran out of disk space. Free space in Docker Desktop (Settings > Resources) and retry."
+    elif grep -Eq "failed to (fetch|solve|resolve)|TLS handshake|getaddrinfo|ETIMEDOUT" "$build_log" 2>/dev/null; then
+      die_with_support "Build failed while downloading. Check your internet connection and retry."
+    else
+      die_with_support "Failed to build containers. See build log: $build_log"
+    fi
+  fi
+
+  # ── Phase 2: START (fast; containers come up detached) ────────────────────
+  info "Starting services..."
+  local up_out
+  up_out=$(compose up -d 2>&1) || {
+    _log_raw "compose up output: $up_out"
+    echo "$up_out" >> "$build_log" 2>/dev/null || true
+    if echo "$up_out" | grep -q "port is already allocated\|address already in use\|bind: "; then
       die_with_support "A port needed by datasensAI is already in use. Check Step [4] port conflicts."
-    elif echo "$build_out" | grep -q "no such file or directory\|No such file"; then
+    elif echo "$up_out" | grep -q "no such file or directory\|No such file"; then
       die_with_support "Docker Compose file not found. Re-clone the repo or run Fresh install."
     else
       die_with_support "Failed to start containers. See log file for details."
