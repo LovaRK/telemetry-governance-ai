@@ -272,8 +272,10 @@ function Step-PortCheck() {
     $conn = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($conn) {
       $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
-      if ($proc.Name -match 'docker|vpnkit|com.docker') {
-        Write-Ok "Port $Port ($Name): in use by Docker (our containers) — OK"
+      if ($proc.Name -match 'docker|vpnkit|com\.docker|wslrelay') {
+        Write-Ok "Port $Port ($Name): in use by Docker/WSL (our services) -- OK"
+      } elseif ($Port -eq $OllamaPort -and $proc.Name -match 'ollama') {
+        Write-Ok "Port $Port ($Name): Ollama already running -- OK"
       } else {
         Write-Warn "Port $Port ($Name): in use by '$($proc.Name)' (PID $($conn.OwningProcess))"
         Write-Warn "  Stop that process, or change ${Name}=$Port in .env"
@@ -303,7 +305,7 @@ function Step-Repo() {
     if (Test-Path $TargetDir) {
       Write-Info "Found incomplete previous installation -- cleaning it up..."
       foreach ($ctr in 'docker-postgres-1','docker-web-1','docker-worker-1','docker-splunk-mock-1') {
-        docker rm -f $ctr 2>&1 | Out-Null
+        docker rm -f $ctr *> $null
       }
       Remove-Item $TargetDir -Recurse -Force -ErrorAction SilentlyContinue
       Write-Ok "Previous files removed"
