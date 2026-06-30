@@ -475,11 +475,13 @@ s_port_check() {
       pid=$(ss -tlnp 2>/dev/null | grep ":$port " | grep -Eo 'pid=[0-9]+' | head -1 | cut -d= -f2)
     fi
     if [ -n "$pid" ]; then
-      # Check if it's one of our own containers
+      # Check if it's one of our own services (Docker, or Ollama on the Ollama port)
       local proc
       proc=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
-      if echo "$proc" | grep -qi "docker\|com.docker"; then
+      if echo "$proc" | grep -qi "docker\|com.docker\|vpnkit\|wslrelay"; then
         ok "Port $port ($name): in use by Docker (our containers) — OK"
+      elif [ "$port" = "$OLLAMA_PORT" ] && echo "$proc" | grep -qi "ollama"; then
+        ok "Port $port ($name): Ollama already running — OK"
       else
         warn "Port $port ($name): in use by process '$proc' (PID $pid)"
         warn "  → Stop that process, or change the port in .env (${name//:/_}=$port)"
