@@ -1,0 +1,21 @@
+datasensAI v1.3.0 -- Windows Install
+=====================================
+
+1. Right-click "Install datasensAI.bat" -> Run as administrator -> Yes
+2. Press 1, then Enter (Fresh install)
+3. The FIRST run downloads a ~5 GB AI model and builds containers. Live
+   progress shows on screen. It can take 20-40 minutes. Leave the window open.
+4. A browser opens automatically when ready.
+   Credentials are saved to: %USERPROFILE%\datasensai\credentials.txt
+
+IF WINDOWS BLOCKS THE FILE ("Windows protected your PC" / SmartScreen):
+   Right-click "Install datasensAI.bat" -> Properties -> check "Unblock"
+   -> Apply -> OK. Then try step 1 again.
+
+HEALTH CHECK
+   powershell %USERPROFILE%\datasensai\scripts\install\doctor.ps1
+
+FULL UNINSTALL
+   Right-click "tools\uninstall_datasensAI_windows.ps1" -> Run with PowerShell
+   (as Administrator), or from an admin PowerShell:
+   powershell -ExecutionPolicy Bypass -File "tools\uninstall_datasensAI_windows.ps1"

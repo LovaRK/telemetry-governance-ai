@@ -1,0 +1,62 @@
+datasensAI v1.3.0  --  Mac Install
+====================================
+
+macOS will block this installer the first time because it is not from the
+App Store ("Apple could not verify..."). This is normal. Use ONE of the
+methods below to allow it. If you saw that warning, click "Done" (NOT
+"Move to Trash").
+
+
+METHOD A  --  Run from Terminal (most reliable, recommended)
+------------------------------------------------------------
+1. Open the Terminal app (Applications > Utilities > Terminal,
+   or it is in your Dock).
+2. Type this EXACTLY, including the trailing space:
+
+       bash
+
+3. Drag the file "Install datasensAI.command" from this folder INTO the
+   Terminal window. It will paste the file path automatically.
+4. Press Return / Enter.
+5. Follow the on-screen menu (press 1 for Fresh install).
+
+   Tip: if it says "permission denied", run this first, then repeat:
+       chmod +x "Install datasensAI.command"
+
+
+METHOD B  --  Allow in System Settings (point-and-click)
+--------------------------------------------------------
+1. Double-click "Install datasensAI.command". You get the warning.
+   Click "Done".
+2. Open System Settings > Privacy & Security.
+3. Scroll down to the "Security" section. You will see a line:
+   "Install datasensAI.command was blocked..." with an
+   "Open Anyway" button. Click it.
+4. Enter your Mac password / Touch ID.
+5. Double-click "Install datasensAI.command" again and click "Open".
+
+
+METHOD C  --  Remove the block for the whole folder (one command)
+-----------------------------------------------------------------
+1. Open Terminal.
+2. Type this, including the trailing space:
+
+       xattr -cr
+
+3. Drag THIS folder (datasensAI-v1.3.0-installer) into Terminal,
+   press Return.
+4. Now double-click "Install datasensAI.command" normally.
+
+
+AFTER IT STARTS
+---------------
+- Choose 1 (Fresh install). The FIRST run downloads a ~5 GB AI model and
+  builds containers; live progress shows on screen. It can take 20-40 min.
+- Your browser opens automatically when ready.
+- Login credentials are saved to:  ~/datasensai/credentials.txt
+
+
+FULL UNINSTALL
+--------------
+Run, from Terminal:
+    bash "tools/uninstall_datasensAI_mac.sh"
