@@ -354,6 +354,10 @@ then re-run this installer."
       printf "  ${BOLD}Docker Desktop is starting.${NC}\n"
       printf "  On first boot this takes 3-10 minutes — please be patient.\n"
       printf "  Watch the menu bar: when the whale icon stops animating, Docker is ready.\n\n"
+      printf "  ${BOLD}You may see permission/security dialogs — approve them if asked.${NC}\n"
+      printf "  Once Docker is running, press ${BOLD}ENTER${NC} to continue:\n"
+      read -r
+      printf "\n"
       local tries=0
       local last_notice=0
       local docker_restart_attempted=0
@@ -735,16 +739,23 @@ s_model_check() {
   done
 
   if [ "$present" -eq 0 ]; then
-    # Non-fatal: the dashboard, database and core app all work without the local
-    # model. Only on-device AI enrichment is degraded until the model is pulled.
+    # FATAL: The AI model is required for the first pipeline run. Without it,
+    # the dashboard starts but the agent cannot run, making the installation incomplete.
     _log_raw "ollama pull failed. See $pull_log"
-    warn "AI model '$LLM_MODEL' could not be downloaded right now -- continuing without it."
-    tail -n 4 "$pull_log" 2>/dev/null | sed 's/^/      /' || true
-    warn "  The app will still start and the dashboard will work."
-    warn "  To enable on-device AI later, run:  ollama pull $LLM_MODEL"
-    warn "  (Details saved to $pull_log)"
-    MODEL_MISSING=1
-    return 0
+    printf "\n"
+    printf "  ${RED}✗${NC} AI model download failed: $LLM_MODEL\n"
+    tail -n 4 "$pull_log" 2>/dev/null | sed 's/^/    /' || true
+    printf "\n"
+    printf "  The AI model is REQUIRED for the first pipeline run.\n"
+    printf "  Without it, the dashboard cannot process data.\n\n"
+    printf "  Common causes:\n"
+    printf "    • Internet connection too slow (need ~5 GB bandwidth)\n"
+    printf "    • Disk space insufficient in /var/lib/ollama\n"
+    printf "    • Ollama service not responding\n\n"
+    printf "  To retry after fixing the issue:\n"
+    printf "    ollama pull $LLM_MODEL\n"
+    printf "    (Then re-run this installer)\n\n"
+    die_with_support "Ollama model download failed. See log for details: $pull_log"
   fi
   ok "Model ready: $LLM_MODEL"
 }
@@ -922,13 +933,10 @@ s_login_verify() {
     fi
   fi
 
-  # Still failing — non-fatal. Dashboard is still reachable; user can log in manually
-  # (this happens when the app is still initializing or auth has a transient issue).
-  warn "Login verification failed (API returned 401). This is non-fatal."
-  warn "  The dashboard IS running at http://localhost:$WEB_PORT"
-  warn "  Try logging in manually, or check: docker logs docker-web-1 | grep -i auth"
-  _log_raw "login verification failed for $ADMIN_EMAIL — not blocking install (dashboard still reachable)"
-  return 0
+  # Still failing — FATAL. Authentication is broken; installation cannot succeed.
+  # This is not a transient issue — if admin user exists but login fails, the system
+  # is in an unrecoverable state.
+  die_with_support "Login verification failed even after credential repair. Admin email: $ADMIN_EMAIL. See log file for details."
 }
 
 # [13] Web verify
@@ -952,6 +960,7 @@ s_save_credentials() {
 
   local cred_tmp="$TARGET_DIR/credentials.tmp"
   local cred_final="$TARGET_DIR/credentials.txt"
+  local desktop_cred="$HOME/Desktop/datasensAI-admin-credentials.txt"
 
   cat > "$cred_tmp" <<EOF
 datasensAI Credentials — Installer v${INSTALLER_VERSION}
@@ -962,8 +971,10 @@ Dashboard URL:  http://localhost:${WEB_PORT}
 Admin email:    ${ADMIN_EMAIL}
 Admin password: ${ADMIN_PASSWORD}
 
-This file is stored at: ${cred_final}
-Keep it safe — do not share it.
+Files saved to:
+  • Installation: ${cred_final}
+  • Desktop: ${desktop_cred}
+Keep these safe — do not share.
 
 Next steps after login:
   1. Settings → Splunk Connection → enter your Splunk URL + token
@@ -972,7 +983,13 @@ Next steps after login:
 EOF
   chmod 600 "$cred_tmp"
   mv "$cred_tmp" "$cred_final"
+
+  # Also save to Desktop for easy access
+  cp "$cred_final" "$desktop_cred"
+  chmod 600 "$desktop_cred"
+
   ok "Credentials saved to: $cred_final"
+  ok "Credentials also on Desktop: $desktop_cred"
 }
 
 # [15] Open browser

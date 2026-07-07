@@ -501,19 +501,28 @@ function Step-ModelCheck() {
   }
 
   if (-not $present) {
-    # Non-fatal: the dashboard, database and core app all work without the local
-    # model. Only on-device AI enrichment is degraded until the model is pulled.
-    # Don't throw away a long install over a model-download hiccup.
+    # FATAL: The AI model is required for the first pipeline run. Without it,
+    # the dashboard starts but the agent cannot run, making the installation incomplete.
     $err = (Get-Content $pullLog -Raw -ErrorAction SilentlyContinue)
     Write-Log "ollama pull failed. Output: $err"
-    $lastLines = ($err -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -Last 4) -join "`n      "
-    Write-Warn "AI model '$LlmModel' could not be downloaded right now -- continuing without it."
-    if ($lastLines) { Write-Warn "  Ollama said:`n      $lastLines" }
-    Write-Warn "  The app will still start and the dashboard will work."
-    Write-Warn "  To enable on-device AI later, open a NEW window and run:  ollama pull $LlmModel"
-    Write-Warn "  (Details saved to $pullLog)"
-    $Script:ModelMissing = $true
-    return
+    Write-Host ""
+    Write-Host "  ✗ AI model download failed: $LlmModel" -ForegroundColor Red
+    $lastLines = ($err -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -Last 4) -join "`n    "
+    if ($lastLines) { Write-Host "    $lastLines" -ForegroundColor Red }
+    Write-Host ""
+    Write-Host "  The AI model is REQUIRED for the first pipeline run." -ForegroundColor Yellow
+    Write-Host "  Without it, the dashboard cannot process data." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Common causes:" -ForegroundColor Yellow
+    Write-Host "    • Internet connection too slow (need ~5 GB bandwidth)" -ForegroundColor Yellow
+    Write-Host "    • Disk space insufficient in Ollama folder" -ForegroundColor Yellow
+    Write-Host "    • Ollama service not responding" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  To retry after fixing the issue:" -ForegroundColor Yellow
+    Write-Host "    ollama pull $LlmModel" -ForegroundColor Yellow
+    Write-Host "    (Then re-run this installer)" -ForegroundColor Yellow
+    Write-Host ""
+    Die-WithSupport "Ollama model download failed. See log for details: $pullLog"
   }
   Write-Ok "Model ready: $LlmModel"
 }
@@ -691,12 +700,10 @@ function Step-LoginVerify() {
     }
   }
 
-  # Login verification failed but dashboard is still reachable (non-fatal).
-  # This happens when the app is still initializing or auth has a transient issue.
-  Write-Warn "Login verification failed (API returned 401). This is non-fatal."
-  Write-Warn "  The dashboard IS running at http://localhost:$WebPort"
-  Write-Warn "  Try logging in manually, or check: docker logs docker-web-1 | findstr /i auth"
-  Write-Log "login verification failed for $($Script:AdminEmail) — not blocking install (dashboard still reachable)"
+  # Login verification failed — FATAL. Authentication is broken; installation cannot succeed.
+  # This is not a transient issue — if admin user exists but login fails, the system
+  # is in an unrecoverable state.
+  Die-WithSupport "Login verification failed even after credential repair. Admin email: $($Script:AdminEmail). See log file for details."
 }
 
 function Step-WebVerify() {
@@ -715,6 +722,7 @@ function Step-SaveCredentials() {
   $credDir  = $TargetDir
   $credTemp = "$credDir\credentials.tmp"
   $credFile = "$credDir\credentials.txt"
+  $desktopCred = "$env:USERPROFILE\Desktop\datasensAI-admin-credentials.txt"
   New-Item -ItemType Directory -Path $credDir -Force -ErrorAction SilentlyContinue | Out-Null
 
   $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
@@ -727,8 +735,10 @@ Dashboard URL:  http://localhost:$WebPort
 Admin email:    $($Script:AdminEmail)
 Admin password: $($Script:AdminPassword)
 
-This file is stored at: $credFile
-Keep it safe — do not share it.
+Files saved to:
+  • Installation: $credFile
+  • Desktop: $desktopCred
+Keep these safe — do not share.
 
 Next steps after login:
   1. Settings -> Splunk Connection -> enter your Splunk URL + token
@@ -736,7 +746,9 @@ Next steps after login:
   3. On the dashboard, click Refresh (pipeline takes 20-25 min)
 "@
   Move-Item -Path $credTemp -Destination $credFile -Force
+  Copy-Item -Path $credFile -Destination $desktopCred -Force
   Write-Ok "Credentials saved to: $credFile"
+  Write-Ok "Credentials also on Desktop: $desktopCred"
 }
 
 function Step-OpenBrowser() {
