@@ -514,22 +514,8 @@ s_port_check() {
 s_repo() {
   step "Setting up datasensAI files"
 
-  # ── Check if this installer script is already inside the repo ──────────
-  # (handles the case where the user runs install.sh directly from the repo
-  # rather than from the extracted installer ZIP)
-  local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || script_dir=""
-  if [ -n "$script_dir" ]; then
-    local detected_root
-    detected_root=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || echo "")
-    if [ -n "$detected_root" ] && [ -f "$detected_root/docker/docker-compose.yml" ]; then
-      if [ "$detected_root" != "$TARGET_DIR" ]; then
-        info "Detected: running from inside repo at $detected_root"
-        info "Using this checkout instead of cloning."
-        TARGET_DIR="$detected_root"
-      fi
-    fi
-  fi
+  # Release installer always clones from GitHub official repository.
+  # This ensures users get the exact released version, not a developer's local repo.
 
   if [ -d "$TARGET_DIR/.git" ]; then
     info "Existing repo found at $TARGET_DIR — updating to latest..."
