@@ -158,16 +158,21 @@ verify_login() {
 reset_admin_password() {
   local email="$1" new_pw="$2"
   info "Resetting admin password in database..."
-  docker exec docker-web-1 node - <<JS 2>/dev/null
+  # Use base64 encoding to safely pass password through heredoc (avoid quote/special char issues)
+  local pw_b64=$(printf '%s' "$new_pw" | base64)
+  docker exec docker-web-1 node - <<'JS' 2>/dev/null
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-bcrypt.hash('$new_pw', 10).then(hash => {
-  pool.query('UPDATE users SET password_hash = \$1, updated_at = NOW() WHERE email = \$2', [hash, '$email'])
+const pw_b64 = process.argv[1];
+const email = process.argv[2];
+const new_pw = Buffer.from(pw_b64, 'base64').toString('utf-8');
+bcrypt.hash(new_pw, 10).then(hash => {
+  pool.query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE email = $2', [hash, email])
     .then(r => { console.log('[repair] rows updated:', r.rowCount); pool.end(); process.exit(0); })
     .catch(e => { console.error('[repair] error:', e.message); pool.end(); process.exit(1); });
 }).catch(e => { console.error('[repair] bcrypt error:', e.message); process.exit(1); });
-JS
+JS $pw_b64 "$email"
 }
 
 # ══════════════════════════════════════════════════════════════════════════

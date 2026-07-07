@@ -143,18 +143,23 @@ function Test-Login([string]$Email, [string]$Password, [int]$Port) {
 # ── Admin password reset (repair) ─────────────────────────────────────────
 function Reset-AdminPassword([string]$Email, [string]$NewPw) {
   Write-Info "Resetting admin password in database..."
+  # Use base64 encoding to safely pass password through variable substitution (avoid quote/special char issues)
+  $pw_b64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($NewPw))
   $script = @"
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-bcrypt.hash('$NewPw', 10).then(hash => {
-  pool.query('UPDATE users SET password_hash = \$1, updated_at = NOW() WHERE email = \$2', [hash, '$Email'])
+const pw_b64 = process.argv[1];
+const email = process.argv[2];
+const new_pw = Buffer.from(pw_b64, 'base64').toString('utf-8');
+bcrypt.hash(new_pw, 10).then(hash => {
+  pool.query('UPDATE users SET password_hash = `$`1, updated_at = NOW() WHERE email = `$`2', [hash, email])
     .then(r => { console.log('[repair] rows updated:', r.rowCount); pool.end(); process.exit(0); })
     .catch(e => { console.error('[repair] error:', e.message); pool.end(); process.exit(1); });
 }).catch(e => { console.error('[repair] bcrypt error:', e.message); process.exit(1); });
 "@
   try {
-    echo $script | docker exec -i docker-web-1 node -
+    echo $script | docker exec -i docker-web-1 node - $pw_b64 "$Email"
     return $LASTEXITCODE -eq 0
   } catch { return $false }
 }
