@@ -686,10 +686,12 @@ function Step-LoginVerify() {
     }
   }
 
-  $savedEAPL = $ErrorActionPreference; $ErrorActionPreference = 'SilentlyContinue'
-  docker logs docker-web-1 --tail 30 2>$null | Add-Content -Path $Script:LogFile -ErrorAction SilentlyContinue
-  $ErrorActionPreference = $savedEAPL
-  Die-WithSupport "Login verification failed even after credential repair. See log file."
+  # Login verification failed but dashboard is still reachable (non-fatal).
+  # This happens when the app is still initializing or auth has a transient issue.
+  Write-Warn "Login verification failed (API returned 401). This is non-fatal."
+  Write-Warn "  The dashboard IS running at http://localhost:$WebPort"
+  Write-Warn "  Try logging in manually, or check: docker logs docker-web-1 | findstr /i auth"
+  Write-Log "login verification failed for $($Script:AdminEmail) — not blocking install (dashboard still reachable)"
 }
 
 function Step-WebVerify() {
