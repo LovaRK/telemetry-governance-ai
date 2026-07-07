@@ -6,7 +6,7 @@
 # Usage:  scripts/install/build/build_zips.sh [output_dir]
 set -euo pipefail
 
-VERSION="1.3.0"
+VERSION="1.3.2"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$(cd "$HERE/.." && pwd)"                 # scripts/install
 REPO="$(cd "$SRC/../.." && pwd)"              # repo root
